@@ -1707,7 +1707,7 @@ function showNotes(id) {
     "research-hub-stages-v1", "research-hub-fields-v1", "research-hub-cards-v1",
     "research-hub-theme"
   ];
-  const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
   let session = null;
   let timer = null;
 
