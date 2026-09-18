@@ -411,6 +411,21 @@ async function fetchCrossrefCitation(p, force = false) {
   }
 }
 
+// 新增已发表论文时，用 DOI 直接补全 Crossref 中公开的书目信息。
+async function fetchCrossrefMetadata(doi) {
+  const normalized = normalizeDoi(doi);
+  if (!normalized || normalized.includes("xxxx")) return null;
+  const email = getCrossrefEmail();
+  const endpoint = `https://api.crossref.org/v1/works/${encodeURIComponent(normalized)}${email ? "?mailto=" + encodeURIComponent(email) : ""}`;
+  const response = await fetch(endpoint, { headers: { "Accept": "application/json" } });
+  if (!response.ok) throw new Error(`Crossref 查询失败（HTTP ${response.status}）`);
+  const work = (await response.json())?.message;
+  if (!work) throw new Error("Crossref 未返回论文信息");
+  const authors = (work.author || []).map(a => [a.given, a.family].filter(Boolean).join(" ")).filter(Boolean);
+  const issued = work.published?.['date-parts']?.[0]?.[0] || work.issued?.['date-parts']?.[0]?.[0] || "";
+  return { title: (work.title || [])[0] || "", authors, abstract: String(work.abstract || "").replace(/<[^>]+>/g, ""), journal: (work['container-title'] || [])[0] || "", year: issued, volume: work.volume || "", issue: work.issue || "", pages: work.page || "", doi: normalized, citations: work['is-referenced-by-count'] || 0, citationSource: "Crossref", keywords: work.subject || [] };
+}
+
 async function updatePublishedCitations(force = false) {
   if (!DATA?.published?.length) return;
   const button = document.getElementById("refreshCitations");
@@ -1181,6 +1196,16 @@ function addPaperCard(kind) {
   st[kind] = st[kind] || {};
   const key = "A" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const obj = NEW_CARD_TEMPLATES[kind]();
+  if (kind === "published") {
+    const identifier = prompt("输入 DOI 可自动补全题名、作者、期刊、年份等；也可直接输入文章标题：");
+    if (!identifier || !identifier.trim()) return;
+    const value = identifier.trim();
+    if (/^(https?:\/\/)?(dx\.)?doi\.org\/|^doi:\s*|^10\.\d{4,9}\//i.test(value)) {
+      obj.doi = normalizeDoi(value);
+    } else {
+      obj.title = value;
+    }
+  }
   obj._key = key;
   st[kind].added = st[kind].added || {};
   st[kind].added[key] = obj;
@@ -1189,6 +1214,16 @@ function addPaperCard(kind) {
   syncLists();
   render();
   updateStatusBar();
+  if (kind === "published" && obj.doi) {
+    fetchCrossrefMetadata(obj.doi).then(function (metadata) {
+      if (!metadata) return;
+      Object.assign(obj, metadata, { _key: key });
+      saveCardStore(st);
+      syncLists(); render(); updateStatusBar();
+    }).catch(function (error) {
+      alert(error.message + "。已保留 DOI，你可以在卡片中手动补充其余信息。");
+    });
+  }
 }
 
 function deletePaperCard(kind, key) {

@@ -16,11 +16,11 @@
   function nowId() { return Date.now(); }
   function nowText() { return new Date().toLocaleString('sv-SE').slice(0, 16).replace('T', ' '); }
   function dateText() { return new Date().toISOString().slice(0, 10); }
-  function currentPayload() { return workspace || { todos: [], journal: [], publications: [], browser: {}, researchHub: {} }; }
+  function currentPayload() { return workspace || { todos: [], journal: [], publications: [], academicRecords: { funding: [], awards: [], conferences: [] }, browser: {}, researchHub: {} }; }
   function browserSnapshot() { var result = {}; focusKeys.forEach(function (k) { result[k] = localStorage.getItem(k); }); return result; }
   function researchSnapshot() { var result = {}; researchHubKeys.forEach(function (k) { result[k] = localStorage.getItem(k); }); return result; }
   function graduation(pubs) { var items = (pubs || []).filter(function (p) { return p.type === 'c_journal'; }); return { c_journal: { required: 2, achieved: items.length, remaining: Math.max(0, 2 - items.length), complete: items.length >= 2, items: items } }; }
-  function overview() { var payload = currentPayload(); return { field_name: 'Academic Research Hub', phd: { configured: false, label: '学业进度', stage: '', percent: 0, start: '', end: '', remain_days: 0 }, graduation: graduation(payload.publications), sections: [], tree: { name: '浏览器版不访问本地文件', children: [], count: 0 } }; }
+  function overview() { var payload = currentPayload(); return { field_name: 'Academic Research Hub', phd: { configured: false, label: '学业进度', stage: '', percent: 0, start: '', end: '', remain_days: 0 }, graduation: graduation(payload.publications), academic_records: payload.academicRecords || { funding: [], awards: [], conferences: [] }, sections: [], tree: { name: '浏览器版不访问本地文件', children: [], count: 0 } }; }
   // Read the persisted browser session first. Unlike getUser(), this does not
   // depend on a network round-trip during a page refresh.
   async function getUser() { await window.__academicAuthReady; var result = await client.auth.getSession(); return result.data.session ? result.data.session.user : null; }
@@ -33,6 +33,8 @@
     workspace.todos = Array.isArray(workspace.todos) ? workspace.todos : [];
     workspace.journal = Array.isArray(workspace.journal) ? workspace.journal : [];
     workspace.publications = Array.isArray(workspace.publications) ? workspace.publications : [];
+    workspace.academicRecords = workspace.academicRecords || { funding: [], awards: [], conferences: [] };
+    ['funding', 'awards', 'conferences'].forEach(function (kind) { if (!Array.isArray(workspace.academicRecords[kind])) workspace.academicRecords[kind] = []; });
     workspace.browser = workspace.browser || {};
     workspace.researchHub = workspace.researchHub || {};
     return workspace;
@@ -94,6 +96,12 @@
         if (body.action === 'add' && String(body.title || '').trim()) data.publications.push({ id: nowId(), title: String(body.title).trim(), type: body.type || 'c_journal', journal: String(body.journal || '').trim(), date: String(body.date || '').trim(), note: String(body.note || '').trim(), created: nowText() });
         if (body.action === 'delete') data.publications = data.publications.filter(function (item) { return item.id !== body.id; });
         await saveWorkspace(); return response({ ok: true, publications: data.publications, graduation: graduation(data.publications) });
+      }
+      if (path === '/api/academic-records') {
+        var records = data.academicRecords || (data.academicRecords = { funding: [], awards: [], conferences: [] });
+        if (body.action === 'add' && ['funding', 'awards', 'conferences'].indexOf(body.kind) >= 0 && String(body.title || '').trim()) records[body.kind].unshift({ id: nowId(), title: String(body.title).trim(), meta: String(body.meta || '').trim(), date: dateText() });
+        if (body.action === 'delete') ['funding', 'awards', 'conferences'].forEach(function (kind) { records[kind] = records[kind].filter(function (item) { return item.id !== body.id; }); });
+        await saveWorkspace(); return response({ ok: true, records: records });
       }
       return response({ ok: false, error: '此功能需要本地 Python 服务' }, 501);
     } catch (error) { return response({ error: error.message || '云端同步失败' }, 500); }

@@ -557,6 +557,7 @@
       if (miniRange2) miniRange2.textContent = '未设置学制';
     }
     renderGraduation();
+    renderAcademicRecords();
 
     var tree = state.overview.tree;
     var fileCount = 0, dirCount = 0;
@@ -5001,6 +5002,13 @@
       deletePublication(parseInt(btn.dataset.id));
     });
 
+    $('#academicRecordGrid').addEventListener('click', function (e) {
+      var add = e.target.closest('[data-academic-add]');
+      if (add) { addAcademicRecord(add.dataset.academicAdd); return; }
+      var remove = e.target.closest('[data-academic-delete]');
+      if (remove) deleteAcademicRecord(parseInt(remove.dataset.academicDelete));
+    });
+
     // 资讯 tab
     $('#newsTabs').addEventListener('click', function (e) {
       var tab = e.target.closest('.news-tab');
@@ -5669,6 +5677,45 @@
           toast('已删除');
         }
       });
+  }
+
+  // ===== 学术履历：基金 / 获奖 / 会议 =====
+  function renderAcademicRecords() {
+    var root = $('#academicRecordGrid');
+    if (!root) return;
+    var records = (state.overview && state.overview.academic_records) || {};
+    var groups = [
+      { key: 'funding', title: '基金项目', hint: '主持或参与的课题', add: '+ 登记基金' },
+      { key: 'awards', title: '学术获奖', hint: '竞赛、荣誉与表彰', add: '+ 登记获奖' },
+      { key: 'conferences', title: '学术会议', hint: '参会、报告与海报', add: '+ 登记会议' }
+    ];
+    root.innerHTML = groups.map(function (group) {
+      var items = Array.isArray(records[group.key]) ? records[group.key] : [];
+      var latest = items.slice(0, 2).map(function (item) {
+        return '<li><span class="academic-record-title">' + escapeHtml(item.title || '') + '</span><span class="academic-record-meta">' + escapeHtml(item.meta || item.date || '') + '</span><button class="academic-record-delete" data-academic-delete="' + item.id + '" aria-label="删除">×</button></li>';
+      }).join('');
+      return '<article class="academic-record-card academic-' + group.key + '"><div class="academic-record-top"><div><div class="academic-record-kicker">' + group.title + '</div><div class="academic-record-count">' + items.length + '</div></div><span class="academic-record-hint">' + group.hint + '</span></div>' + (latest ? '<ul class="academic-record-list">' + latest + '</ul>' : '<div class="academic-record-empty">尚未登记</div>') + '<button class="academic-record-add" data-academic-add="' + group.key + '">' + group.add + '</button></article>';
+    }).join('');
+  }
+
+  function addAcademicRecord(kind) {
+    var labels = { funding: '基金项目名称', awards: '获奖名称', conferences: '会议名称' };
+    var title = prompt(labels[kind] + '：');
+    if (!title || !title.trim()) return;
+    var metaLabels = { funding: '资助单位、项目编号或角色（可选）', awards: '授奖单位或获奖等级（可选）', conferences: '地点、报告类型或日期（可选）' };
+    var meta = prompt(metaLabels[kind] + '：') || '';
+    api('/api/academic-records', { method: 'POST', body: JSON.stringify({ action: 'add', kind: kind, title: title.trim(), meta: meta.trim() }) }).then(function (res) {
+      if (!res.ok) { toast(res.error || '请先登录后登记'); return; }
+      state.overview.academic_records = res.records; renderAcademicRecords(); toast('已登记学术履历');
+    });
+  }
+
+  function deleteAcademicRecord(id) {
+    if (!confirm('确定删除这条学术履历？')) return;
+    api('/api/academic-records', { method: 'POST', body: JSON.stringify({ action: 'delete', id: id }) }).then(function (res) {
+      if (!res.ok) return;
+      state.overview.academic_records = res.records; renderAcademicRecords();
+    });
   }
 
   // ===== 操作：文件夹 =====
