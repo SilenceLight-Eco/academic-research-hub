@@ -6080,6 +6080,8 @@
 
   // ===== 初始化 =====
   function init() {
+    // 彻底移除已下线功能的侧栏节点，避免旧版样式或扩展插件将其重新显示。
+    $$('.retired-content').forEach(function (node) { node.remove(); });
     initTheme();
     $('#panelDate').textContent = formatDate(new Date());
     initV3();
