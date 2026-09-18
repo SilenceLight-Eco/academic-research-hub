@@ -5,6 +5,8 @@
   var url = 'https://gqopwqpysoixcgdacurx.supabase.co';
   var key = 'sb_publishable_83K9_IrwPtRpagaYZqEvxw_nOsYpEZs';
   var client = window.supabase.createClient(url, key, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
+  // Exposed so the workbench waits until the saved session has been restored.
+  window.__academicAuthReady = client.auth.getSession();
   var workspace = null;
   var saveTimer = null;
   var focusKeys = ['academic-workbench-theme', 'wb_pomo_counts', 'wb_focus_preset', 'wb_focus_log', 'wb_focus_state'];
@@ -21,7 +23,7 @@
   function overview() { var payload = currentPayload(); return { field_name: 'Academic Research Hub', phd: { configured: false, label: '学业进度', stage: '', percent: 0, start: '', end: '', remain_days: 0 }, graduation: graduation(payload.publications), sections: [], tree: { name: '浏览器版不访问本地文件', children: [], count: 0 } }; }
   // Read the persisted browser session first. Unlike getUser(), this does not
   // depend on a network round-trip during a page refresh.
-  async function getUser() { var result = await client.auth.getSession(); return result.data.session ? result.data.session.user : null; }
+  async function getUser() { await window.__academicAuthReady; var result = await client.auth.getSession(); return result.data.session ? result.data.session.user : null; }
   async function loadWorkspace() {
     var user = await getUser();
     if (!user) return null;

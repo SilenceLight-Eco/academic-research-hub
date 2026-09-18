@@ -6051,7 +6051,11 @@
       // 也可能在后台期间已经到点）
       if (!document.hidden && focusIsActive()) { focusTick(); focusRenderAll(); }
     });
-    loadAll().then(function () {
+    // The static browser edition restores Supabase's persisted session first.
+    // A noncritical data-loading error must never make the header look logged out.
+    Promise.resolve(window.__academicAuthReady).catch(function () {}).then(function () {
+      return loadAll().catch(function () {});
+    }).then(function () {
       return checkAccount();
     }).then(function () {
       focusRenderAll();   // 待办加载完，「关联任务」下拉才有内容
