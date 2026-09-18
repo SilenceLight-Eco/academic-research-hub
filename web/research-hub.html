@@ -424,9 +424,8 @@ async function fetchOpenAlexMetadata(normalized) {
   const work = await response.json();
   const authors = (work.authorships || []).map(item => item.author?.display_name).filter(Boolean);
   const source = work.primary_location?.source || {};
-  const keywords = (work.keywords || []).map(item => item.display_name).filter(Boolean);
-  const concepts = (work.concepts || []).map(item => item.display_name).filter(Boolean);
-  return { title: work.title || "", authors, abstract: abstractFromInvertedIndex(work.abstract_inverted_index), journal: source.display_name || "", year: work.publication_year || "", volume: work.biblio?.volume || "", issue: work.biblio?.issue || "", pages: work.biblio?.first_page && work.biblio?.last_page ? `${work.biblio.first_page}-${work.biblio.last_page}` : (work.biblio?.first_page || ""), doi: normalized, citations: work.cited_by_count || 0, citationSource: "OpenAlex", keywords: keywords.length ? keywords : concepts };
+  // OpenAlex 的 concepts/keywords 是算法推断标签，不作为论文作者关键词展示。
+  return { title: work.title || "", authors, abstract: abstractFromInvertedIndex(work.abstract_inverted_index), journal: source.display_name || "", year: work.publication_year || "", volume: work.biblio?.volume || "", issue: work.biblio?.issue || "", pages: work.biblio?.first_page && work.biblio?.last_page ? `${work.biblio.first_page}-${work.biblio.last_page}` : (work.biblio?.first_page || ""), doi: normalized, citations: work.cited_by_count || 0, citationSource: "OpenAlex", keywords: [] };
 }
 
 // 新增已发表论文时，用 DOI 直接补全 Crossref 中公开的书目信息。
@@ -442,13 +441,12 @@ async function fetchCrossrefMetadata(doi) {
     if (!work) throw new Error("Crossref 未返回论文信息");
     const authors = (work.author || []).map(a => [a.given, a.family].filter(Boolean).join(" ")).filter(Boolean);
     const issued = work.published?.['date-parts']?.[0]?.[0] || work.issued?.['date-parts']?.[0]?.[0] || "";
-    const metadata = { title: (work.title || [])[0] || "", authors, abstract: String(work.abstract || "").replace(/<[^>]+>/g, ""), journal: (work['container-title'] || [])[0] || "", year: issued, volume: work.volume || "", issue: work.issue || "", pages: work.page || "", doi: normalized, citations: work['is-referenced-by-count'] || 0, citationSource: "Crossref", keywords: work.subject || [] };
-    // Crossref 经常不收录摘要和主题词，额外用 OpenAlex 补全这两项，不覆盖 Crossref 的书目信息。
-    if (!metadata.abstract || !metadata.keywords.length) {
+    const metadata = { title: (work.title || [])[0] || "", authors, abstract: String(work.abstract || "").replace(/<[^>]+>/g, ""), journal: (work['container-title'] || [])[0] || "", year: issued, volume: work.volume || "", issue: work.issue || "", pages: work.page || "", doi: normalized, citations: work['is-referenced-by-count'] || 0, citationSource: "Crossref", keywords: [] };
+    // Crossref 经常不收录摘要，额外用 OpenAlex 补全摘要；关键词保持作者手动录入，避免把算法分类误标为论文关键词。
+    if (!metadata.abstract) {
       try {
         const openAlex = await fetchOpenAlexMetadata(normalized);
         if (!metadata.abstract) metadata.abstract = openAlex.abstract;
-        if (!metadata.keywords.length) metadata.keywords = openAlex.keywords;
       } catch (openAlexError) { console.warn("OpenAlex enrichment failed:", openAlexError); }
     }
     return metadata;
