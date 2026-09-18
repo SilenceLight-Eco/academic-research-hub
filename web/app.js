@@ -62,6 +62,9 @@
     summaries: '摘要卡片',
   };
 
+  // 浏览器版仅保留研究管理核心功能；已下线的页面即使通过旧书签访问也返回概览。
+  const RETIRED_PANELS = ['literature', 'pdf', 'translations', 'readings', 'frontier', 'hotspots', 'weekly', 'summaries', 'sections'];
+
   // 板块图标（线性 SVG）
   const SECTION_ICONS = {
     '01_文献库': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>',
@@ -403,6 +406,7 @@
 
   // ===== 导航切换 =====
   function switchPanel(panel) {
+    if (RETIRED_PANELS.indexOf(panel) >= 0) panel = 'dashboard';
     var prev = state.panel;
     if (prev && prev !== panel) scrollMemory[prev] = window.scrollY || 0;
     state.panel = panel;

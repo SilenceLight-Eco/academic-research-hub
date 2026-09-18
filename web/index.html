@@ -65,7 +65,7 @@
           <span>资讯</span>
         </button>
       </div>
-      <div class="nav-group">
+      <div class="nav-group retired-content" hidden>
         <div class="nav-group-label">文献 · 转写</div>
         <button class="nav-item" data-panel="literature">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M9 7h6M9 11h4"/></svg>
@@ -86,7 +86,7 @@
           <span class="nav-badge" id="navReadingBadge" hidden></span>
         </button>
       </div>
-      <div class="nav-group">
+      <div class="nav-group retired-content" hidden>
         <div class="nav-group-label">情报 · 日报</div>
         <button class="nav-item" data-panel="frontier">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5" opacity="0.55"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg>
@@ -104,7 +104,7 @@
           <span class="nav-badge" id="navWeeklyBadge" style="display:none;">0</span>
         </button>
       </div>
-      <div class="nav-group">
+      <div class="nav-group retired-content" hidden>
         <div class="nav-group-label">资源</div>
         <button class="nav-item" data-panel="summaries">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
@@ -209,12 +209,17 @@
           </div>
         </div>
 
+        <!-- 固定置于已发表论文/毕业成果卡片下方；脚本加载前也保留可见内容。 -->
         <section class="academic-portfolio" aria-label="学术履历">
           <div class="academic-portfolio-head">
             <div><div class="card-dot"></div><div class="card-label">学术履历</div></div>
             <span class="academic-portfolio-note">基金 · 获奖 · 会议</span>
           </div>
-          <div class="academic-record-grid" id="academicRecordGrid"></div>
+          <div class="academic-record-grid" id="academicRecordGrid">
+            <article class="academic-record-card academic-funding"><div class="academic-record-top"><div><div class="academic-record-kicker">基金项目</div><div class="academic-record-count">0</div></div><span class="academic-record-hint">主持或参与的课题</span></div><div class="academic-record-empty">尚未登记</div><button class="academic-record-add" data-academic-add="funding">+ 登记基金</button></article>
+            <article class="academic-record-card academic-awards"><div class="academic-record-top"><div><div class="academic-record-kicker">学术获奖</div><div class="academic-record-count">0</div></div><span class="academic-record-hint">竞赛、荣誉与表彰</span></div><div class="academic-record-empty">尚未登记</div><button class="academic-record-add" data-academic-add="awards">+ 登记获奖</button></article>
+            <article class="academic-record-card academic-conferences"><div class="academic-record-top"><div><div class="academic-record-kicker">学术会议</div><div class="academic-record-count">0</div></div><span class="academic-record-hint">参会、报告与海报</span></div><div class="academic-record-empty">尚未登记</div><button class="academic-record-add" data-academic-add="conferences">+ 登记会议</button></article>
+          </div>
         </section>
 
         <!-- 今日待办（占满宽度） -->
@@ -269,7 +274,7 @@
       <!-- Research Hub paper pipeline -->
       <section class="panel" id="panel-research-hub">
         <div class="research-hub-frame-wrap">
-          <iframe class="research-hub-frame" src="research-hub.html?v=20260918-2" title="Research Hub paper pipeline" loading="lazy"></iframe>
+          <iframe class="research-hub-frame" src="research-hub.html?v=20260918-3" title="Research Hub paper pipeline" loading="lazy"></iframe>
         </div>
       </section>
 
@@ -1148,7 +1153,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="static-api.js?v=20260918-2"></script>
-<script src="app.js?v=20260918-2"></script>
+<script src="static-api.js?v=20260918-3"></script>
+<script src="app.js?v=20260918-3"></script>
 </body>
 </html>
