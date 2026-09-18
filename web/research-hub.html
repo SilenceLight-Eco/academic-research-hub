@@ -1695,4 +1695,59 @@ function showNotes(id) {
   if (!p) return;
   alert((p.notes || "暂无备注") + (p.filePath ? "\n\n文件夹：\n" + p.filePath : ""));
 }
+</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+/* Public client key only. Row Level Security protects every workspace row. */
+(() => {
+  const SUPABASE_URL = "https://gqopwqpysoixcgdacurx.supabase.co";
+  const SUPABASE_KEY = "sb_publishable_83K9_IrwPtRpagaYZqEvxw_nOsYpEZs";
+  const STORE_KEYS = [
+    "research-hub-crossref-email", "research-hub-crossref-citations-v1",
+    "research-hub-stages-v1", "research-hub-fields-v1", "research-hub-cards-v1",
+    "research-hub-theme"
+  ];
+  const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  let session = null;
+  let timer = null;
+
+  const style = document.createElement("style");
+  style.textContent = ".cloud-auth{border:1px solid var(--line);background:var(--panel);border-radius:9px;padding:8px 11px;color:var(--text);font:inherit;cursor:pointer}.cloud-auth:hover{border-color:var(--accent)}.cloud-dialog{position:fixed;inset:0;background:rgba(8,15,27,.48);display:grid;place-items:center;z-index:999}.cloud-card{width:min(92vw,360px);background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:14px;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.28)}.cloud-card h2{margin:0 0 8px;font-size:20px}.cloud-card p{font-size:13px;line-height:1.6;color:var(--muted)}.cloud-card input{box-sizing:border-box;width:100%;margin:7px 0;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text)}.cloud-card button{margin-top:8px;padding:9px 12px;border-radius:8px;border:0;background:var(--accent);color:#fff;cursor:pointer}.cloud-card .cloud-cancel{background:transparent;color:var(--muted);margin-left:6px}.cloud-msg{min-height:18px;color:var(--accent);font-size:12px}";
+  document.head.appendChild(style);
+
+  function snapshot() { const values = {}; STORE_KEYS.forEach(k => values[k] = localStorage.getItem(k)); return values; }
+  function apply(values) { STORE_KEYS.forEach(k => values[k] === null ? localStorage.removeItem(k) : localStorage.setItem(k, values[k])); }
+  function updateButton() { const b = document.getElementById("cloudAuth"); if (b) b.textContent = session ? "已登录 · 同步" : "登录同步"; }
+  async function save() {
+    if (!session) return;
+    const { error } = await client.from("user_workspaces").upsert({ user_id: session.user.id, payload: snapshot(), updated_at: new Date().toISOString() }, { onConflict: "user_id" });
+    if (error) console.warn("同步失败", error.message);
+  }
+  function queueSave() { clearTimeout(timer); timer = setTimeout(save, 700); }
+  async function loadCloud() {
+    const { data, error } = await client.from("user_workspaces").select("payload").eq("user_id", session.user.id).maybeSingle();
+    if (error) throw error;
+    if (data && data.payload) { apply(data.payload); location.reload(); return; }
+    await save();
+  }
+  async function signOut() { await client.auth.signOut(); session = null; updateButton(); }
+  function openDialog() {
+    if (session) { if (confirm("是否退出当前账号？")) signOut(); return; }
+    const box = document.createElement("div");
+    box.className = "cloud-dialog";
+    box.innerHTML = '<form class="cloud-card"><h2>邮箱登录与同步</h2><p>首次使用可注册。登录后，论文管线数据会安全保存在你的个人云端空间。</p><input name="email" type="email" required placeholder="邮箱"><input name="password" type="password" required minlength="8" placeholder="密码（至少 8 位）"><div class="cloud-msg"></div><button type="submit">登录</button><button type="button" class="cloud-register">注册</button><button type="button" class="cloud-cancel">取消</button></form>';
+    document.body.appendChild(box);
+    const form = box.querySelector("form"), message = box.querySelector(".cloud-msg");
+    const submit = async register => { const email = form.email.value.trim(), password = form.password.value; message.textContent = "处理中…"; const result = register ? await client.auth.signUp({ email, password }) : await client.auth.signInWithPassword({ email, password }); if (result.error) throw result.error; if (register && !result.data.session) { message.textContent = "注册成功，请到邮箱完成验证后再登录。"; return; } session = result.data.session; box.remove(); updateButton(); await loadCloud(); };
+    form.addEventListener("submit", e => { e.preventDefault(); submit(false).catch(err => message.textContent = err.message); });
+    box.querySelector(".cloud-register").addEventListener("click", () => submit(true).catch(err => message.textContent = err.message));
+    box.querySelector(".cloud-cancel").addEventListener("click", () => box.remove());
+  }
+  const button = document.createElement("button"); button.id = "cloudAuth"; button.className = "cloud-auth"; button.type = "button"; button.addEventListener("click", openDialog);
+  document.querySelector(".topbar-right")?.prepend(button);
+  const originalSetItem = Storage.prototype.setItem;
+  Storage.prototype.setItem = function(key, value) { originalSetItem.call(this, key, value); if (this === localStorage && STORE_KEYS.includes(key)) queueSave(); };
+  client.auth.getSession().then(({ data }) => { session = data.session; updateButton(); });
+  window.addEventListener("beforeunload", () => { if (session) save(); });
+})();
 </script></body></html>
