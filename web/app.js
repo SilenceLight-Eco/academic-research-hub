@@ -90,7 +90,85 @@
 
   function api(url, options) {
     return fetch(url, Object.assign({ headers: { 'Content-Type': 'application/json' } }, options))
-      .then(function (r) { return r.json(); });
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (account && options && options.method === 'POST' && url.indexOf('/api/sync') !== 0 && url.indexOf('/api/auth/') !== 0) setTimeout(syncData, 0);
+        return data;
+      });
+  }
+
+  var account = null;
+  var registering = false;
+  var syncTimer = null;
+  var researchHubKeys = ['research-hub-crossref-email', 'research-hub-crossref-citations-v1', 'research-hub-stages-v1', 'research-hub-fields-v1', 'research-hub-cards-v1', 'research-hub-theme'];
+
+  function researchHubSnapshot() {
+    var values = {};
+    researchHubKeys.forEach(function (key) { values[key] = localStorage.getItem(key); });
+    return values;
+  }
+
+  function applyResearchHubSnapshot(values) {
+    Object.keys(values || {}).forEach(function (key) {
+      if (researchHubKeys.indexOf(key) < 0) return;
+      if (values[key] === null) localStorage.removeItem(key); else localStorage.setItem(key, values[key]);
+    });
+    var frame = $('.research-hub-frame');
+    if (frame) frame.src = frame.src;
+  }
+
+  function syncData() {
+    if (!account) return Promise.resolve();
+    return api('/api/sync', { method: 'POST', body: JSON.stringify({ data: {
+      todos: state.todos, journal: state.journal,
+      researchHub: researchHubSnapshot()
+    } }) }).catch(function () {});
+  }
+
+  function applySyncData(data) {
+    if (!data) return;
+    if (Array.isArray(data.todos)) { state.todos = data.todos; renderTodos(); renderDashboardTodos(); updateTodoBadge(); }
+    if (Array.isArray(data.journal)) { state.journal = data.journal; renderJournal(); renderDashboardJournal(); }
+    applyResearchHubSnapshot(data.researchHub);
+  }
+
+  function setAccount(user) {
+    account = user || null;
+    var button = $('#accountButton');
+    if (button) button.textContent = account ? account.email : '登录同步';
+    if (syncTimer) clearInterval(syncTimer);
+    syncTimer = account ? setInterval(syncData, 15000) : null;
+  }
+
+  function checkAccount() {
+    return api('/api/auth/me').then(function (result) {
+      setAccount(result.user);
+      if (!account) return;
+      return api('/api/sync').then(function (sync) { applySyncData(sync.data); });
+    }).catch(function () { setAccount(null); });
+  }
+
+  function openAuth() { $('#authModal').hidden = false; $('#authEmail').focus(); }
+  function closeAuth() { $('#authModal').hidden = true; $('#authError').hidden = true; }
+  function toggleAuthMode() {
+    registering = !registering;
+    $('#authTitle').textContent = registering ? '创建同步账号' : '登录并同步';
+    $('#authSubmit').textContent = registering ? '创建账号' : '登录';
+    $('#authSwitch').textContent = registering ? '已有账号？登录' : '没有账号？创建账号';
+    $('#authPassword').autocomplete = registering ? 'new-password' : 'current-password';
+  }
+
+  function submitAuth(event) {
+    event.preventDefault();
+    var error = $('#authError'); error.hidden = true;
+    api(registering ? '/api/auth/register' : '/api/auth/login', { method: 'POST', body: JSON.stringify({ email: $('#authEmail').value, password: $('#authPassword').value }) })
+      .then(function (result) {
+        if (!result.ok) throw new Error(result.error || '登录失败');
+        setAccount(result.user); closeAuth();
+        return api('/api/sync').then(function (sync) {
+          if (sync.data && Object.keys(sync.data).length) applySyncData(sync.data); else return syncData();
+        });
+      }).catch(function (err) { error.textContent = err.message || '登录失败'; error.hidden = false; });
   }
 
   function escapeHtml(str) {
@@ -4839,6 +4917,15 @@
 
     // 主题切换
     $('#themeToggle').addEventListener('click', toggleTheme);
+    $('#accountButton').addEventListener('click', function () {
+      if (account) {
+        api('/api/auth/logout', { method: 'POST' }).then(function () { setAccount(null); });
+      } else openAuth();
+    });
+    $('#authClose').addEventListener('click', closeAuth);
+    $('#authModalBackdrop').addEventListener('click', closeAuth);
+    $('#authSwitch').addEventListener('click', toggleAuthMode);
+    $('#authForm').addEventListener('submit', submitAuth);
 
     // 天气：点击右上角角标打开模态框
     var weatherChip = $('#weatherChip');
@@ -5965,6 +6052,8 @@
       if (!document.hidden && focusIsActive()) { focusTick(); focusRenderAll(); }
     });
     loadAll().then(function () {
+      return checkAccount();
+    }).then(function () {
       focusRenderAll();   // 待办加载完，「关联任务」下拉才有内容
       if (!applyHash()) switchPanel('dashboard');
     });

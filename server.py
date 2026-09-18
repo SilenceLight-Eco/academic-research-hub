@@ -19,10 +19,12 @@ import subprocess
 import threading
 import urllib.request
 import urllib.error
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote
 
 import fetchers
+from auth_store import AuthStore
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 WORKSPACE = os.path.dirname(BASE_DIR)          # 学术工作台根目录
@@ -35,6 +37,8 @@ LITERATURE_DIR = os.path.join(DATA_DIR, "literature")
 FRONTIER_DIR = os.path.join(DATA_DIR, "frontier")
 HOTSPOT_DIR = os.path.join(DATA_DIR, "hotspots")
 PUBLICATIONS_FILE = os.path.join(DATA_DIR, "publications.json")
+AUTH_DB_FILE = os.path.join(DATA_DIR, "accounts.sqlite3")
+AUTH_STORE = AuthStore(AUTH_DB_FILE)
 
 PORT = 8765
 WORKER_BASE = "http://127.0.0.1:8766"   # PDF 转写 worker（pdf_worker/worker.py）
@@ -647,6 +651,33 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length") or 0)
         if length <= 0:
             return {}
+
+    def _session_token(self):
+        cookie = SimpleCookie(self.headers.get("Cookie", ""))
+        morsel = cookie.get("arh_session")
+        return morsel.value if morsel else None
+
+    def _user(self):
+        return AUTH_STORE.user_for_session(self._session_token())
+
+    def _auth_response(self, code, body, token=None):
+        raw = json.dumps(body, ensure_ascii=False).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(raw)))
+        self.send_header("Cache-Control", "no-store")
+        if token:
+            secure = "; Secure" if self.headers.get("X-Forwarded-Proto") == "https" else ""
+            self.send_header("Set-Cookie", "arh_session=%s; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000%s" % (token, secure))
+        self.end_headers()
+        self.wfile.write(raw)
+
+    def _clear_session(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Set-Cookie", "arh_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0")
+        self.end_headers()
+        self.wfile.write(b'{"ok": true}')
         raw = self.rfile.read(length)
         try:
             return json.loads(raw.decode("utf-8"))
@@ -697,7 +728,16 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path
         query = parse_qs(parsed.query)
 
-        if path == "/" or path == "/index.html":
+        if path == "/api/auth/me":
+            user = self._user()
+            self._send(200, {"user": {"email": user["email"]} if user else None})
+        elif path == "/api/sync":
+            user = self._user()
+            if not user:
+                self._send(401, {"error": "请先登录"})
+            else:
+                self._send(200, {"data": AUTH_STORE.load_data(user["id"])})
+        elif path == "/" or path == "/index.html":
             self._serve_static("/index.html")
         elif path.startswith("/static/"):
             self._serve_static(path[len("/static/"):])
@@ -770,7 +810,35 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
 
-        if path == "/api/todos":
+        if path == "/api/auth/register":
+            body = self._body()
+            try:
+                user = AUTH_STORE.register(body.get("email", ""), body.get("password", ""))
+                token = AUTH_STORE.create_session(user["id"])
+                return self._auth_response(201, {"ok": True, "user": {"email": user["email"]}}, token)
+            except ValueError as error:
+                return self._send(400, {"error": str(error)})
+        elif path == "/api/auth/login":
+            body = self._body()
+            user = AUTH_STORE.authenticate(body.get("email", ""), body.get("password", ""))
+            if not user:
+                return self._send(401, {"error": "邮箱或密码不正确"})
+            return self._auth_response(200, {"ok": True, "user": {"email": user["email"]}}, AUTH_STORE.create_session(user["id"]))
+        elif path == "/api/auth/logout":
+            AUTH_STORE.revoke_session(self._session_token())
+            return self._clear_session()
+        elif path == "/api/sync":
+            user = self._user()
+            if not user:
+                return self._send(401, {"error": "请先登录"})
+            payload = self._body().get("data")
+            if not isinstance(payload, dict):
+                return self._send(400, {"error": "同步数据格式错误"})
+            if len(json.dumps(payload, ensure_ascii=False)) > 5_000_000:
+                return self._send(413, {"error": "同步数据过大"})
+            AUTH_STORE.save_data(user["id"], payload)
+            return self._send(200, {"ok": True})
+        elif path == "/api/todos":
             body = self._body()
             todos = get_todos()
             action = body.get("action", "add")

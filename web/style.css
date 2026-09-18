@@ -580,6 +580,25 @@ html, body {
   background: var(--surface);
   box-shadow: var(--shadow-card);
 }
+.account-button, .auth-switch {
+  border: 1px solid var(--card-border);
+  border-radius: 18px;
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  padding: 8px 13px;
+}
+.account-button:hover, .auth-switch:hover { border-color: var(--accent); color: var(--accent); }
+.auth-modal { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; }
+.auth-modal[hidden] { display: none; }
+.auth-modal-backdrop { position: absolute; inset: 0; background: rgba(9, 20, 18, .55); }
+.auth-card { position: relative; z-index: 1; width: min(380px, calc(100vw - 40px)); display: grid; gap: 14px; padding: 28px; border-radius: 16px; background: var(--card-bg); border: 1px solid var(--card-border); box-shadow: var(--shadow-card); }
+.auth-card h2, .auth-card p { margin: 0; }
+.auth-card label { display: grid; gap: 6px; color: var(--text-secondary); font-size: 13px; }
+.auth-card input { width: 100%; box-sizing: border-box; padding: 10px; color: var(--text); background: var(--input-bg); border: 1px solid var(--card-border); border-radius: 8px; font: inherit; }
+.auth-close { position: absolute; right: 14px; top: 12px; border: 0; background: transparent; color: var(--text-secondary); font-size: 24px; cursor: pointer; }
+.auth-error { color: #c74b4b; font-size: 13px; }
 .research-hub-frame {
   display: block;
   width: 100%;

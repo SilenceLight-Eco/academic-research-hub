@@ -149,6 +149,7 @@
           <span>搜索 · 跳转</span>
           <kbd>⌘K</kbd>
         </button>
+        <button class="account-button" id="accountButton" type="button">登录同步</button>
         <button class="theme-toggle" id="themeToggle" aria-label="切换主题">
           <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
           <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
@@ -1122,6 +1123,20 @@
       <span><kbd>esc</kbd>关闭</span>
     </div>
   </div>
+</div>
+
+<div class="auth-modal" id="authModal" hidden>
+  <div class="auth-modal-backdrop" id="authModalBackdrop"></div>
+  <form class="auth-card" id="authForm">
+    <button class="auth-close" id="authClose" type="button" aria-label="关闭">×</button>
+    <h2 id="authTitle">登录并同步</h2>
+    <p id="authHint">登录后可在不同设备查看你的工作台数据。</p>
+    <label>邮箱<input id="authEmail" type="email" required autocomplete="email"></label>
+    <label>密码<input id="authPassword" type="password" required minlength="10" autocomplete="current-password"></label>
+    <p class="auth-error" id="authError" hidden></p>
+    <button class="btn-primary" id="authSubmit" type="submit">登录</button>
+    <button class="auth-switch" id="authSwitch" type="button">没有账号？创建账号</button>
+  </form>
 </div>
 
 <script src="/static/app.js"></script>
