@@ -7,6 +7,7 @@ data/llm_config.json
 data/pdf_config.json
 data/weather_config.json
 data/settings.json
+data/accounts.sqlite3
 
 # ============================================================
 #  运行时数据（用起来之后才会产生，属于你个人，不入库）
