@@ -417,13 +417,24 @@ async function fetchCrossrefMetadata(doi) {
   if (!normalized || normalized.includes("xxxx")) return null;
   const email = getCrossrefEmail();
   const endpoint = `https://api.crossref.org/v1/works/${encodeURIComponent(normalized)}${email ? "?mailto=" + encodeURIComponent(email) : ""}`;
-  const response = await fetch(endpoint, { headers: { "Accept": "application/json" } });
-  if (!response.ok) throw new Error(`Crossref 查询失败（HTTP ${response.status}）`);
-  const work = (await response.json())?.message;
-  if (!work) throw new Error("Crossref 未返回论文信息");
-  const authors = (work.author || []).map(a => [a.given, a.family].filter(Boolean).join(" ")).filter(Boolean);
-  const issued = work.published?.['date-parts']?.[0]?.[0] || work.issued?.['date-parts']?.[0]?.[0] || "";
-  return { title: (work.title || [])[0] || "", authors, abstract: String(work.abstract || "").replace(/<[^>]+>/g, ""), journal: (work['container-title'] || [])[0] || "", year: issued, volume: work.volume || "", issue: work.issue || "", pages: work.page || "", doi: normalized, citations: work['is-referenced-by-count'] || 0, citationSource: "Crossref", keywords: work.subject || [] };
+  try {
+    const response = await fetch(endpoint, { headers: { "Accept": "application/json" } });
+    if (!response.ok) throw new Error(`Crossref 查询失败（HTTP ${response.status}）`);
+    const work = (await response.json())?.message;
+    if (!work) throw new Error("Crossref 未返回论文信息");
+    const authors = (work.author || []).map(a => [a.given, a.family].filter(Boolean).join(" ")).filter(Boolean);
+    const issued = work.published?.['date-parts']?.[0]?.[0] || work.issued?.['date-parts']?.[0]?.[0] || "";
+    return { title: (work.title || [])[0] || "", authors, abstract: String(work.abstract || "").replace(/<[^>]+>/g, ""), journal: (work['container-title'] || [])[0] || "", year: issued, volume: work.volume || "", issue: work.issue || "", pages: work.page || "", doi: normalized, citations: work['is-referenced-by-count'] || 0, citationSource: "Crossref", keywords: work.subject || [] };
+  } catch (crossrefError) {
+    // Crossref 在部分网络环境可能无法访问；OpenAlex 按 DOI 查询作为浏览器端备用来源。
+    const fallback = await fetch(`https://api.openalex.org/works/https://doi.org/${encodeURIComponent(normalized)}`, { headers: { "Accept": "application/json" } });
+    if (!fallback.ok) throw crossrefError;
+    const work = await fallback.json();
+    const authors = (work.authorships || []).map(item => item.author?.display_name).filter(Boolean);
+    const source = work.primary_location?.source || {};
+    const keywords = (work.keywords || []).map(item => item.display_name).filter(Boolean);
+    return { title: work.title || "", authors, abstract: "", journal: source.display_name || "", year: work.publication_year || "", volume: work.biblio?.volume || "", issue: work.biblio?.issue || "", pages: work.biblio?.first_page && work.biblio?.last_page ? `${work.biblio.first_page}-${work.biblio.last_page}` : (work.biblio?.first_page || ""), doi: normalized, citations: work.cited_by_count || 0, citationSource: "OpenAlex", keywords };
+  }
 }
 
 async function updatePublishedCitations(force = false) {
