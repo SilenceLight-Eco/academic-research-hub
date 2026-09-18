@@ -1720,14 +1720,17 @@ function showNotes(id) {
   function updateButton() { const b = document.getElementById("cloudAuth"); if (b) b.textContent = session ? "已登录 · 同步" : "登录同步"; }
   async function save() {
     if (!session) return;
-    const { error } = await client.from("user_workspaces").upsert({ user_id: session.user.id, payload: snapshot(), updated_at: new Date().toISOString() }, { onConflict: "user_id" });
+    const current = await client.from("user_workspaces").select("payload").eq("user_id", session.user.id).maybeSingle();
+    if (current.error) throw current.error;
+    const payload = Object.assign({}, (current.data && current.data.payload) || {}, { researchHub: snapshot() });
+    const { error } = await client.from("user_workspaces").upsert({ user_id: session.user.id, payload: payload, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
     if (error) console.warn("同步失败", error.message);
   }
   function queueSave() { clearTimeout(timer); timer = setTimeout(save, 700); }
   async function loadCloud() {
     const { data, error } = await client.from("user_workspaces").select("payload").eq("user_id", session.user.id).maybeSingle();
     if (error) throw error;
-    if (data && data.payload) { apply(data.payload); location.reload(); return; }
+    if (data && data.payload) { apply(data.payload.researchHub || data.payload); location.reload(); return; }
     await save();
   }
   async function signOut() { await client.auth.signOut(); session = null; updateButton(); }
