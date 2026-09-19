@@ -5913,17 +5913,12 @@
 
   const renderKnowledgeBaseStandard = renderKnowledgeBase;
   renderKnowledgeBase = function () {
-    if (!state.kbEditorMode) state.kbEditorMode = 'rich';
+    state.kbEditorMode = 'rich';
     renderKnowledgeBaseStandard();
-    if (state.kbEditorMode !== 'rich') return;
     var source = $('#kbDocContent');
     if (!source) return;
     var tabs = $('.kb-editor-tabs');
-    if (tabs) {
-      tabs.insertAdjacentHTML('afterbegin', '<button type="button" class="is-active" data-kb-mode="rich">可视化</button>');
-      var raw = tabs.querySelector('[data-kb-mode="edit"]');
-      if (raw) raw.textContent = 'Markdown';
-    }
+    if (tabs) tabs.innerHTML = '<button type="button" class="is-active" data-kb-mode="rich">Markdown</button>';
     var rich = document.createElement('div');
     rich.id = 'kbRichEditor'; rich.className = 'kb-rich-editor'; rich.contentEditable = 'true';
     rich.setAttribute('role', 'textbox'); rich.setAttribute('aria-label', '所见即所得文档编辑器');
