@@ -381,6 +381,9 @@
     document.documentElement.setAttribute('data-palette', state.palette || 'paper');
     var select = $('#themeSelect');
     if (select) select.value = state.palette || 'paper';
+    $$('[data-theme-palette]').forEach(function (button) {
+      button.classList.toggle('is-active', button.dataset.themePalette === (state.palette || 'paper'));
+    });
   }
 
   function toggleTheme() {
@@ -4955,6 +4958,9 @@
     // 主题切换
     $('#themeToggle').addEventListener('click', toggleTheme);
     $('#themeSelect').addEventListener('change', function () { selectThemePalette(this.value); });
+    $$('[data-theme-palette]').forEach(function (button) {
+      button.addEventListener('click', function () { selectThemePalette(button.dataset.themePalette); });
+    });
     $('#accountButton').addEventListener('click', function () {
       if (account) {
         api('/api/auth/logout', { method: 'POST' }).then(function () { setAccount(null); });

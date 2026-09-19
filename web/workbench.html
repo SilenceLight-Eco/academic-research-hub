@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>学术工作台</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='%230F766E' stroke='%230F766E' stroke-width='2'/><circle cx='16' cy='16' r='5' fill='%230F766E'/></svg>">
-  <link rel="stylesheet" href="style.css?v=20260919-23">
+  <link rel="stylesheet" href="style.css?v=20260919-24">
   <style>.sidebar-nav .retired-content{display:none!important}</style>
   <link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Serif+SC:wght@400;600;700&family=Noto+Sans+SC:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500&display=swap">
 </head>
@@ -290,7 +290,13 @@
         <div class="academic-record-module">
           <div class="academic-portfolio-head"><div><div class="card-dot"></div><div class="card-label">学术履历</div></div><span class="academic-portfolio-note">基金 · 获奖 · 会议</span></div>
           <p class="academic-module-intro">集中登记和同步你的项目、荣誉与学术活动。</p>
-          <div class="academic-record-grid" id="academicRecordsPanelGrid">
+          <section class="theme-palette-card" aria-label="整体主题">
+            <span class="theme-palette-label">整体主题</span>
+            <div class="theme-palette-options">
+              <button type="button" data-theme-palette="paper">雅纸绿</button><button type="button" data-theme-palette="midnight">深夜墨</button><button type="button" data-theme-palette="ocean">海洋蓝</button><button type="button" data-theme-palette="forest">森林绿</button><button type="button" data-theme-palette="violet">紫藤</button><button type="button" data-theme-palette="rose">玫瑰</button><button type="button" data-theme-palette="amber">琥珀</button><button type="button" data-theme-palette="slate">青灰</button>
+            </div>
+          </section>
+          <div class="academic-record-grid academic-record-grid-stack" id="academicRecordsPanelGrid">
             <article class="academic-record-card academic-funding"><div class="academic-record-top"><div><div class="academic-record-kicker">基金项目</div><div class="academic-record-count">0</div></div><span class="academic-record-hint">主持或参与的课题</span></div><div class="academic-record-empty">尚未登记</div><button class="academic-record-add" data-academic-add="funding">+ 登记基金</button></article>
             <article class="academic-record-card academic-awards"><div class="academic-record-top"><div><div class="academic-record-kicker">学术获奖</div><div class="academic-record-count">0</div></div><span class="academic-record-hint">竞赛、荣誉与表彰</span></div><div class="academic-record-empty">尚未登记</div><button class="academic-record-add" data-academic-add="awards">+ 登记获奖</button></article>
             <article class="academic-record-card academic-conferences"><div class="academic-record-top"><div><div class="academic-record-kicker">学术会议</div><div class="academic-record-count">0</div></div><span class="academic-record-hint">参会、报告与海报</span></div><div class="academic-record-empty">尚未登记</div><button class="academic-record-add" data-academic-add="conferences">+ 登记会议</button></article>
@@ -1186,7 +1192,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="static-api.js?v=20260919-23"></script>
-  <script src="app.js?v=20260919-23"></script>
+  <script src="static-api.js?v=20260919-24"></script>
+  <script src="app.js?v=20260919-24"></script>
 </body>
 </html>
