@@ -1760,7 +1760,7 @@ html, body {
 .academic-portfolio-head { display: flex; align-items: end; justify-content: space-between; margin-bottom: 14px; }
 .academic-portfolio-head .card-label { margin-top: 7px; }
 .academic-portfolio-note { font-size: 11px; letter-spacing: .09em; color: var(--text-muted); }
-.academic-record-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.academic-record-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
 .academic-record-card { min-height: 168px; padding: 15px; border: 1px solid var(--hairline-soft); border-radius: var(--radius-md); display: flex; flex-direction: column; background: var(--glass-strong); box-shadow: inset 0 1px 0 var(--edge); transition: transform var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease); }
 .academic-record-card:hover { transform: translateY(-2px); border-color: var(--edge-outer); }
 .academic-record-top { display: flex; justify-content: space-between; gap: 10px; }
@@ -1781,6 +1781,8 @@ html, body {
 .academic-record-delete { opacity: .45; padding: 0; border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; }
 .academic-record-delete:hover { opacity: 1; color: var(--danger); }
 .academic-record-empty { margin: 14px 0 auto; color: var(--text-muted); font-size: 12px; }
+.academic-record-add { margin-top: auto; padding: 8px 0 0; border: 0; border-top: 1px dashed var(--hairline-soft); background: transparent; color: var(--accent); font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+.academic-record-add:hover { color: var(--accent-strong); }
 .academic-record-doubletip { margin-top: auto; padding-top: 8px; border-top: 1px dashed var(--hairline-soft); color: var(--accent); font-size: 11px; }
 .academic-record-editor { margin-top: 12px; }
 .academic-editor-fields { display: grid; gap: 7px; }
@@ -1793,7 +1795,14 @@ html, body {
 .grad-manual-input { width: 34px; min-width: 0; padding: 0; border: 0; border-bottom: 1px dashed var(--hairline-soft); background: transparent; color: inherit; font: inherit; text-align: center; outline: none; }
 .grad-manual-input:focus { border-bottom-color: var(--accent); }
 .grad-manual-input::-webkit-inner-spin-button { opacity: .45; }
-@media (max-width: 820px) { .academic-record-grid { grid-template-columns: 1fr; } }
+.theme-select { max-width: 92px; padding: 6px 22px 6px 8px; border: 1px solid var(--hairline); border-radius: 7px; background: var(--glass-strong); color: var(--text-secondary); font: inherit; font-size: 11px; outline: none; cursor: pointer; }
+.theme-select:focus { border-color: var(--accent); }
+[data-palette="ocean"] { --bg: #edf5f7; --accent: #137b9a; --accent-soft: #38a8ca; --accent-dim: rgba(19,123,154,.10); --accent-glow: rgba(19,123,154,.22); --bg-photo-opacity: .26; }
+[data-palette="forest"] { --bg: #f0f5ee; --accent: #39754b; --accent-soft: #69a879; --accent-dim: rgba(57,117,75,.10); --accent-glow: rgba(57,117,75,.22); --bg-photo-opacity: .24; }
+[data-palette="violet"] { --bg: #f5f1f8; --accent: #7451a5; --accent-soft: #a67bc5; --accent-dim: rgba(116,81,165,.10); --accent-glow: rgba(116,81,165,.22); --bg-photo-opacity: .24; }
+[data-palette="rose"] { --bg: #faf1f2; --accent: #aa5066; --accent-soft: #d48091; --accent-dim: rgba(170,80,102,.10); --accent-glow: rgba(170,80,102,.22); --bg-photo-opacity: .22; }
+[data-palette="amber"] { --bg: #faf5ec; --accent: #a96e16; --accent-soft: #d79a3b; --accent-dim: rgba(169,110,22,.10); --accent-glow: rgba(169,110,22,.22); --bg-photo-opacity: .24; }
+[data-palette="slate"] { --bg: #f0f3f5; --accent: #41677b; --accent-soft: #6c93a7; --accent-dim: rgba(65,103,123,.10); --accent-glow: rgba(65,103,123,.22); --bg-photo-opacity: .22; }
 
 /* 紧凑版（放在 grid-2 右边） */
 .card-graduation-compact { display: flex; flex-direction: column; }

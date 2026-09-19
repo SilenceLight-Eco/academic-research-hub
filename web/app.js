@@ -367,6 +367,8 @@
     var q = (location.search.match(/[?&]theme=(light|dark)/) || [])[1];
     var saved = q || localStorage.getItem('academic-workbench-theme');
     state.theme = saved || 'light';
+    state.palette = localStorage.getItem('academic-workbench-palette') || (state.theme === 'dark' ? 'midnight' : 'paper');
+    if (state.palette === 'midnight') state.theme = 'dark';
     applyTheme();
   }
 
@@ -376,11 +378,16 @@
     } else {
       document.documentElement.removeAttribute('data-theme');
     }
+    document.documentElement.setAttribute('data-palette', state.palette || 'paper');
+    var select = $('#themeSelect');
+    if (select) select.value = state.palette || 'paper';
   }
 
   function toggleTheme() {
     state.theme = state.theme === 'dark' ? 'light' : 'dark';
+    state.palette = state.theme === 'dark' ? 'midnight' : 'paper';
     localStorage.setItem('academic-workbench-theme', state.theme);
+    localStorage.setItem('academic-workbench-palette', state.palette);
 
     // 从按钮位置扩开的圆形揭示（不支持 View Transition 时直接切）
     var root = document.documentElement;
@@ -403,6 +410,16 @@
         root.classList.remove('theme-switching');
       }
     }
+    applyTheme();
+  }
+
+  function selectThemePalette(palette) {
+    var palettes = ['paper', 'midnight', 'ocean', 'forest', 'violet', 'rose', 'amber', 'slate'];
+    if (palettes.indexOf(palette) === -1) return;
+    state.palette = palette;
+    state.theme = palette === 'midnight' ? 'dark' : 'light';
+    localStorage.setItem('academic-workbench-theme', state.theme);
+    localStorage.setItem('academic-workbench-palette', palette);
     applyTheme();
   }
 
@@ -4937,6 +4954,7 @@
 
     // 主题切换
     $('#themeToggle').addEventListener('click', toggleTheme);
+    $('#themeSelect').addEventListener('change', function () { selectThemePalette(this.value); });
     $('#accountButton').addEventListener('click', function () {
       if (account) {
         api('/api/auth/logout', { method: 'POST' }).then(function () { setAccount(null); });
@@ -5028,6 +5046,8 @@
     });
 
     $$('.academic-record-grid').forEach(function (grid) { grid.addEventListener('click', function (e) {
+      var add = e.target.closest('[data-academic-add]');
+      if (add) { academicEditorKind = add.dataset.academicAdd || ''; renderAcademicRecords(); return; }
       var cancel = e.target.closest('[data-academic-cancel]');
       if (cancel) { academicEditorKind = ''; renderAcademicRecords(); return; }
       var remove = e.target.closest('[data-academic-delete]');
@@ -5790,7 +5810,7 @@
         else fields += '<label>补充说明<input name="meta" maxlength="240" placeholder="可填写单位、等级、项目编号或角色"></label>';
         editor = '<form class="academic-record-editor" data-academic-form data-academic-kind="' + group.key + '"><div class="academic-editor-fields">' + fields + '</div><div class="academic-editor-actions"><button type="submit">保存</button><button type="button" data-academic-cancel>取消</button></div></form>';
       }
-      return '<article class="academic-record-card academic-' + group.key + '" data-academic-kind="' + group.key + '"><div class="academic-record-top"><div><div class="academic-record-kicker">' + group.title + '</div><div class="academic-record-count">' + items.length + '</div></div><span class="academic-record-hint">' + group.hint + '</span></div>' + (editor || (latest ? '<ul class="academic-record-list">' + latest + '</ul>' : '<div class="academic-record-empty">尚未登记</div>')) + (editor ? '' : '<div class="academic-record-doubletip">双击此卡片填写</div>') + '</article>';
+      return '<article class="academic-record-card academic-' + group.key + '" data-academic-kind="' + group.key + '"><div class="academic-record-top"><div><div class="academic-record-kicker">' + group.title + '</div><div class="academic-record-count">' + items.length + '</div></div><span class="academic-record-hint">' + group.hint + '</span></div>' + (editor || (latest ? '<ul class="academic-record-list">' + latest + '</ul>' : '<div class="academic-record-empty">尚未登记</div>')) + (editor ? '' : '<button class="academic-record-add" type="button" data-academic-add="' + group.key + '">' + group.add + '</button>') + '</article>';
     }).join('');
     roots.forEach(function (root) { root.innerHTML = markup; });
   }
