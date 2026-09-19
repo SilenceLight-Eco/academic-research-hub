@@ -5902,8 +5902,9 @@
     rich.id = 'kbRichEditor'; rich.className = 'kb-rich-editor'; rich.contentEditable = 'true';
     rich.setAttribute('role', 'textbox'); rich.setAttribute('aria-label', '所见即所得文档编辑器');
     rich.innerHTML = renderKnowledgeMarkdown(source.value || '');
-    rich.addEventListener('input', function (event) { if (event.inputType === 'insertText' && event.data === ' ') autoFormatKnowledgeHeading(rich); });
+    rich.addEventListener('input', function (event) { if (event.inputType === 'insertText' && event.data === ' ') { autoFormatKnowledgeHeading(rich); autoFormatKnowledgeFormula(rich); } });
     source.replaceWith(rich);
+    renderKnowledgeFormulas(rich);
     var toolbar = document.createElement('div');
     toolbar.className = 'kb-rich-toolbar';
     toolbar.innerHTML = '<button type="button" data-kb-command="h1">H1</button><button type="button" data-kb-command="h2">H2</button><button type="button" data-kb-command="bold"><b>B</b></button><button type="button" data-kb-command="italic"><i>I</i></button><button type="button" data-kb-command="list">列表</button><button type="button" data-kb-command="quote">引用</button><button type="button" data-kb-command="code">代码</button><button type="button" data-kb-command="link">链接</button>';
@@ -5941,12 +5942,47 @@
     selection.removeAllRanges(); selection.addRange(range);
   }
 
+  function autoFormatKnowledgeFormula(editor) {
+    var selection = window.getSelection();
+    if (!selection || !selection.rangeCount) return;
+    var node = selection.anchorNode;
+    var block = node && (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement);
+    while (block && block.parentElement !== editor) block = block.parentElement;
+    if (!block || block === editor) block = editor;
+    var text = (block.textContent || '').replace(/\u00a0/g, ' ');
+    var matched = text.match(/^\$\$([\s\S]+)\$\$\s$/) || text.match(/^\$([^$]+)\$\s$/);
+    if (!matched) return;
+    var isBlock = text.indexOf('$$') === 0;
+    var formula = document.createElement(isBlock ? 'div' : 'span');
+    formula.className = isBlock ? 'kb-formula-block' : 'kb-inline-formula';
+    formula.dataset.formula = matched[1]; formula.contentEditable = 'false';
+    formula.setAttribute('aria-label', '公式：' + matched[1]);
+    if (block === editor) { editor.textContent = ''; editor.appendChild(formula); }
+    else block.replaceWith(formula);
+    renderKnowledgeFormula(formula);
+    var range = document.createRange(); range.setStartAfter(formula); range.collapse(true);
+    selection.removeAllRanges(); selection.addRange(range);
+  }
+
+  function renderKnowledgeFormula(element) {
+    var formula = element.dataset.formula || '';
+    if (window.katex) { try { window.katex.render(formula, element, { displayMode: element.classList.contains('kb-formula-block'), throwOnError: false }); return; } catch (error) {} }
+    element.textContent = formula;
+  }
+
+  function renderKnowledgeFormulas(root) {
+    if (!root) return;
+    $$('.kb-inline-formula, .kb-formula-block', root).forEach(renderKnowledgeFormula);
+  }
+
   function richEditorToMarkdown(root) {
     function walk(node) {
       if (node.nodeType === Node.TEXT_NODE) return node.nodeValue || '';
       if (node.nodeType !== Node.ELEMENT_NODE) return '';
       var tag = node.tagName.toLowerCase();
       var inner = Array.from(node.childNodes).map(walk).join('');
+      if (node.classList.contains('kb-inline-formula')) return '$' + (node.dataset.formula || '') + '$';
+      if (node.classList.contains('kb-formula-block')) return '$$' + (node.dataset.formula || '') + '$$\n\n';
       if (tag === 'h1') return '# ' + inner.trim() + '\n\n';
       if (tag === 'h2') return '## ' + inner.trim() + '\n\n';
       if (tag === 'h3') return '### ' + inner.trim() + '\n\n';
@@ -6007,7 +6043,7 @@
   }
 
   function markdownInline(text) {
-    return text.replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\*([^*]+)\*/g, '<em>$1</em>').replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+    return text.replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\*([^*]+)\*/g, '<em>$1</em>').replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>').replace(/\$([^$]+)\$/g, '<span class="kb-inline-formula" data-formula="$1">$1</span>');
   }
 
   // ===== 操作：文件夹 =====
