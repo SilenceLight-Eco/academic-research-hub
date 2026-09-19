@@ -1772,6 +1772,12 @@ html, body {
 .academic-record-title, .academic-record-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .academic-record-title { font-size: 12px; }
 .academic-record-meta { max-width: 80px; color: var(--text-muted); font-size: 10px; }
+.academic-record-list .academic-conference-entry { grid-template-columns: minmax(0, 1fr) 16px; align-items: start; }
+.academic-conference-main { min-width: 0; }
+.academic-conference-fields { display: grid; gap: 2px; margin-top: 4px; color: var(--text-muted); font-size: 10px; line-height: 1.35; }
+.academic-conference-fields span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.academic-conference-fields b { margin-right: 4px; color: var(--text-secondary); font-weight: 500; }
+.academic-conference-empty { color: var(--text-muted); }
 .academic-record-delete { opacity: .45; padding: 0; border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; }
 .academic-record-delete:hover { opacity: 1; color: var(--danger); }
 .academic-record-empty { margin: 14px 0 auto; color: var(--text-muted); font-size: 12px; }

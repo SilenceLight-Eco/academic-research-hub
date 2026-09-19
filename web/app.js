@@ -5758,6 +5758,16 @@
       var items = Array.isArray(records[group.key]) ? records[group.key] : [];
       var latest = items.slice(0, 2).map(function (item) {
         var details = item.details || {};
+        if (group.key === 'conferences') {
+          var fields = [
+            details.location ? '<span><b>地点</b>' + escapeHtml(details.location) + '</span>' : '',
+            details.time ? '<span><b>时间</b>' + escapeHtml(details.time) + '</span>' : '',
+            details.paper ? '<span><b>报告论文</b>' + escapeHtml(details.paper) + '</span>' : ''
+          ].filter(Boolean).join('');
+          if (!fields && item.meta) fields = '<span><b>备注</b>' + escapeHtml(item.meta) + '</span>';
+          if (!fields) fields = '<span class="academic-conference-empty">尚未补充会议详情</span>';
+          return '<li class="academic-conference-entry"><div class="academic-conference-main"><span class="academic-record-title">' + escapeHtml(item.title || '') + '</span><div class="academic-conference-fields">' + fields + '</div></div><button class="academic-record-delete" data-academic-delete="' + item.id + '" aria-label="删除">×</button></li>';
+        }
         var displayMeta = item.meta || [details.location, details.time, details.paper].filter(Boolean).join(' · ') || item.date || '';
         return '<li><span class="academic-record-title">' + escapeHtml(item.title || '') + '</span><span class="academic-record-meta" title="' + escapeHtml(displayMeta) + '">' + escapeHtml(displayMeta) + '</span><button class="academic-record-delete" data-academic-delete="' + item.id + '" aria-label="删除">×</button></li>';
       }).join('');
