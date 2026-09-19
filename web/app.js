@@ -5052,7 +5052,8 @@
     $('#journalAddBtn').addEventListener('click', addJournal);
 
     // 刷新资讯
-    $('#refreshBtn').addEventListener('click', refreshNews);
+    var refreshBtn = $('#refreshBtn');
+    if (refreshBtn) refreshBtn.addEventListener('click', refreshNews);
 
     // 资讯：开放获取条目「送转写」（捕获阶段拦截，避免触发外链跳转）
     var newsListEl = $('#newsList');
@@ -5970,7 +5971,7 @@
     });
     items.push({
       group: '动作', label: '更新资讯', keys: 'refresh news update 刷新 更新',
-      icon: CM_ICONS.refresh, run: function () { $('#refreshBtn').click(); }
+      icon: CM_ICONS.refresh, run: function () { var btn = $('#refreshBtn'); if (btn) btn.click(); }
     });
     items.push({
       group: '动作', label: '打开热点日报归档目录', keys: 'folder hotspots 归档 目录',
