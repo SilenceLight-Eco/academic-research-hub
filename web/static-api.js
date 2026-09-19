@@ -127,6 +127,7 @@
         if (body.action === 'create-folder' && String(body.title || '').trim()) kb.folders.push({ id: nowId(), title: String(body.title).trim() });
         if (body.action === 'create-doc') kb.docs.unshift({ id: nowId(), title: String(body.title || '未命名文档').trim(), content: String(body.content || '').trim(), format: 'markdown', folderId: body.folderId || '', updated: nowText() });
         if (body.action === 'save-doc') kb.docs.forEach(function (doc) { if (doc.id === body.id) { doc.title = String(body.title || '未命名文档').trim(); doc.content = String(body.content || ''); doc.format = 'markdown'; doc.folderId = body.folderId || ''; doc.updated = nowText(); } });
+        if (body.action === 'reorder-docs' && Array.isArray(body.ids)) { var rank = {}; body.ids.forEach(function (id, index) { rank[String(id)] = index; }); kb.docs.sort(function (a, b) { return (rank[String(a.id)] == null ? 999999 : rank[String(a.id)]) - (rank[String(b.id)] == null ? 999999 : rank[String(b.id)]); }); }
         await saveWorkspace(); return response({ ok: true, knowledgeBase: kb });
       }
       return response({ ok: false, error: '此功能需要本地 Python 服务' }, 501);

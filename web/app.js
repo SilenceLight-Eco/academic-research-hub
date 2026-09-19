@@ -5050,6 +5050,10 @@
     $('#kbNewFolder').addEventListener('click', newKnowledgeFolder);
     $('#kbFolders').addEventListener('click', function (e) { var item = e.target.closest('[data-kb-folder]'); if (!item) return; state.kbFolderId = item.dataset.kbFolder; renderKnowledgeBase(); });
     $('#kbDocs').addEventListener('click', function (e) { var item = e.target.closest('[data-kb-doc]'); if (!item) return; state.kbDocId = Number(item.dataset.kbDoc); state.kbDraft = null; renderKnowledgeBase(); });
+    $('#kbDocs').addEventListener('dragstart', function (e) { var item = e.target.closest('[data-kb-doc]'); if (!item) return; state.kbDraggingDocId = Number(item.dataset.kbDoc); item.classList.add('is-dragging'); e.dataTransfer.effectAllowed = 'move'; });
+    $('#kbDocs').addEventListener('dragend', function () { state.kbDraggingDocId = null; $$('.kb-doc.is-dragging').forEach(function (item) { item.classList.remove('is-dragging'); }); });
+    $('#kbDocs').addEventListener('dragover', function (e) { if (state.kbDraggingDocId) e.preventDefault(); });
+    $('#kbDocs').addEventListener('drop', function (e) { var target = e.target.closest('[data-kb-doc]'); if (!target || !state.kbDraggingDocId) return; e.preventDefault(); reorderKnowledgeDoc(state.kbDraggingDocId, Number(target.dataset.kbDoc)); });
     $('#kbEditor').addEventListener('click', function (e) { var action = e.target.closest('[data-kb-command]'); if (action) { runKnowledgeRichCommand(action.dataset.kbCommand); return; } var toggle = e.target.closest('[data-kb-mode]'); if (!toggle) return; state.kbDraft = readKnowledgeDraft(); state.kbEditorMode = toggle.dataset.kbMode; renderKnowledgeBase(); });
     window.addEventListener('message', function (event) {
       if (event.origin !== location.origin || !event.data || event.data.type !== 'academic-research-hub-open-knowledge-base') return;
@@ -5879,7 +5883,7 @@
     var active = docs.filter(function (doc) { return doc.id === state.kbDocId; })[0] || null;
     var draft = state.kbDraft && active && state.kbDraft.id === active.id ? state.kbDraft : active;
     $('#kbFolders').innerHTML = '<button class="kb-folder is-active" data-kb-folder="all">全部文档 <span>' + docs.length + '</span></button>' + folders.map(function (folder) { return '<button class="kb-folder' + (String(folder.id) === String(folderId) ? ' is-active' : '') + '" data-kb-folder="' + folder.id + '">' + escapeHtml(folder.title) + '<span>' + docs.filter(function (doc) { return String(doc.folderId) === String(folder.id); }).length + '</span></button>'; }).join('');
-    $('#kbDocs').innerHTML = visibleDocs.length ? visibleDocs.map(function (doc) { return '<button class="kb-doc' + (doc.id === state.kbDocId ? ' is-active' : '') + '" data-kb-doc="' + doc.id + '"><b>' + escapeHtml(doc.title || '未命名文档') + '</b><span>' + escapeHtml(doc.updated || '') + '</span></button>'; }).join('') : '<div class="kb-empty">此目录还没有文档</div>';
+    $('#kbDocs').innerHTML = visibleDocs.length ? visibleDocs.map(function (doc) { return '<button class="kb-doc' + (doc.id === state.kbDocId ? ' is-active' : '') + '" data-kb-doc="' + doc.id + '" draggable="true" title="拖动排序"><b>' + escapeHtml(doc.title || '未命名文档') + '</b><span>' + escapeHtml(doc.updated || '') + '</span></button>'; }).join('') : '<div class="kb-empty">此目录还没有文档</div>';
     var mode = state.kbEditorMode || 'edit';
     $('#kbEditor').innerHTML = active ? '<div class="kb-editor-tabs"><button type="button" class="' + (mode === 'edit' ? 'is-active' : '') + '" data-kb-mode="edit">编辑</button><button type="button" class="' + (mode === 'preview' ? 'is-active' : '') + '" data-kb-mode="preview">预览</button><span>Markdown</span></div><input id="kbDocTitle" class="kb-doc-title" value="' + escapeHtml(draft.title || '') + '" placeholder="文档标题"><select id="kbDocFolder"><option value="">未分类</option>' + folders.map(function (folder) { return '<option value="' + folder.id + '"' + (String(folder.id) === String(draft.folderId) ? ' selected' : '') + '>' + escapeHtml(folder.title) + '</option>'; }).join('') + '</select>' + (mode === 'preview' ? '<article class="kb-markdown-preview">' + renderKnowledgeMarkdown(draft.content || '') + '</article>' : '<textarea id="kbDocContent" class="kb-doc-content" placeholder="# 标题\n\n使用 Markdown 记录你的想法、文献笔记和研究材料…">' + escapeHtml(draft.content || '') + '</textarea>') + '<div class="kb-editor-foot"><span>Markdown · 最近更新：' + escapeHtml(active.updated || '尚未保存') + '</span><button id="kbSaveDoc" type="button">保存文档</button></div>' : '<div class="kb-editor-empty">选择左侧文档，或新建一篇文档开始记录。</div>';
     var save = $('#kbSaveDoc'); if (save) save.addEventListener('click', saveKnowledgeDoc);
@@ -5938,6 +5942,8 @@
     heading.textContent = matched[2];
     if (block === editor) { editor.textContent = ''; editor.appendChild(heading); }
     else block.replaceWith(heading);
+    var docTitle = $('#kbDocTitle');
+    if (docTitle && (!docTitle.value.trim() || docTitle.value.trim() === '未命名文档')) docTitle.value = matched[2].trim();
     var range = document.createRange(); range.selectNodeContents(heading); range.collapse(false);
     selection.removeAllRanges(); selection.addRange(range);
   }
@@ -6004,6 +6010,17 @@
   function newKnowledgeDoc() {
     var title = '未命名文档';
     api('/api/knowledge-base', { method: 'POST', body: JSON.stringify({ action: 'create-doc', title: title, folderId: state.kbFolderId === 'all' ? '' : state.kbFolderId }) }).then(function (res) { if (!res.ok) { toast(res.error || '请先登录后创建'); return; } state.knowledgeBase = res.knowledgeBase; state.kbDocId = res.knowledgeBase.docs[0].id; state.kbDraft = null; state.kbEditorMode = 'rich'; renderKnowledgeBase(); });
+  }
+
+  function reorderKnowledgeDoc(fromId, toId) {
+    if (fromId === toId || !state.knowledgeBase) return;
+    var docs = state.knowledgeBase.docs || [];
+    var from = docs.findIndex(function (doc) { return doc.id === fromId; });
+    var to = docs.findIndex(function (doc) { return doc.id === toId; });
+    if (from < 0 || to < 0) return;
+    var moved = docs.splice(from, 1)[0]; docs.splice(to, 0, moved);
+    state.kbDraggingDocId = null; renderKnowledgeBase();
+    api('/api/knowledge-base', { method: 'POST', body: JSON.stringify({ action: 'reorder-docs', ids: docs.map(function (doc) { return doc.id; }) }) }).then(function (res) { if (!res.ok) { toast(res.error || '排序保存失败'); return; } state.knowledgeBase = res.knowledgeBase; renderKnowledgeBase(); toast('文档顺序已同步'); });
   }
 
   function newKnowledgeFolder() {
