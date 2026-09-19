@@ -1074,7 +1074,7 @@
     if (!board) return;
 
     var pending = (state.todos || []).filter(function (t) { return !t.done; });
-    var todoHtml = '<div class="today-head"><div class="today-title">今日 · ' + todayStr() + ' ' + todayWeek() + '</div><div class="today-sub">待办 ' + pending.length + ' 项</div></div>' +
+    var todoHtml = '<div class="today-head"><div><div class="today-title">今日 · ' + todayStr() + ' ' + todayWeek() + '</div><div class="today-sub">待办 ' + pending.length + ' 项</div></div><button class="btn-goto" data-goto="todos">查看全部待办</button></div>' +
       '<div class="today-grid"><div class="today-col"><div class="today-col-head">今日待办<span class="today-count">' + pending.length + '</span></div>';
     if (!pending.length) {
       todoHtml += '<div class="today-empty">没有未完成的待办</div>';
