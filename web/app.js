@@ -42,7 +42,9 @@
       view: 'preview',
       progress: 0,
     },
-    noteStudio: { markdown: '', style: 'paper' },
+    noteStudio: { notes: [], trash: [] },
+    noteId: null,
+    noteTrashOpen: false,
   };
 
   const PANEL_TITLES = {
@@ -5088,10 +5090,14 @@
 
     $('#kbNewDoc').addEventListener('click', newKnowledgeDoc);
     $('#kbNewFolder').addEventListener('click', newKnowledgeFolder);
-    $('#noteEditor').addEventListener('input', function () { state.noteStudio.markdown = this.value; renderNotePreview(); });
-    $('#noteStyle').addEventListener('change', function () { state.noteStudio.style = this.value; renderNotePreview(); });
+    $('#noteEditor').addEventListener('input', function () { renderNotePreview(); });
+    $('#noteStyle').addEventListener('change', renderNotePreview);
     $('#noteSave').addEventListener('click', saveNoteStudio);
     $('#noteCopy').addEventListener('click', copyNoteForWechat);
+    $('#noteNew').addEventListener('click', newNoteStudio);
+    $('#noteTrash').addEventListener('click', function () { state.noteTrashOpen = !state.noteTrashOpen; renderNoteStudio(); });
+    $('#noteDelete').addEventListener('click', trashNoteStudio);
+    $('#noteList').addEventListener('click', function (e) { var restore = e.target.closest('[data-note-restore]'); if (restore) { restoreNoteStudio(restore.dataset.noteRestore); return; } var purge = e.target.closest('[data-note-purge]'); if (purge) { purgeNoteStudio(purge.dataset.notePurge); return; } var note = e.target.closest('[data-note-id]'); if (!note) return; state.noteId = Number(note.dataset.noteId); renderNoteStudio(); });
     $('#kbTrashToggle').addEventListener('click', function () { state.kbTrashOpen = !state.kbTrashOpen; state.kbDraft = null; renderKnowledgeBase(); });
     $('#kbFolders').addEventListener('click', function (e) { var remove = e.target.closest('[data-kb-delete-folder]'); if (remove) { deleteKnowledgeFolder(remove.dataset.kbDeleteFolder); return; } var item = e.target.closest('[data-kb-folder]'); if (!item) return; state.kbFolderId = item.dataset.kbFolder; renderKnowledgeBase(); });
     $('#kbDocs').addEventListener('click', function (e) { var restore = e.target.closest('[data-kb-restore-trash]'); if (restore) { restoreKnowledgeTrash(restore.dataset.kbRestoreTrash); return; } var purge = e.target.closest('[data-kb-purge-trash]'); if (purge) { purgeKnowledgeTrash(purge.dataset.kbPurgeTrash); return; } var remove = e.target.closest('[data-kb-delete-doc]'); if (remove) { deleteKnowledgeDoc(remove.dataset.kbDeleteDoc); return; } var heading = e.target.closest('[data-kb-heading]'); if (heading) { state.kbDocId = Number(heading.dataset.kbDoc); state.kbDraft = null; state.kbHeadingTarget = heading.dataset.kbHeading; state.kbEditorMode = 'rich'; renderKnowledgeBase(); setTimeout(scrollToKnowledgeHeading, 0); return; } var item = e.target.closest('[data-kb-doc]'); if (!item) return; state.kbDocId = Number(item.dataset.kbDoc); state.kbDraft = null; renderKnowledgeBase(); });
@@ -5913,37 +5919,59 @@
   function loadNoteStudio() {
     return api('/api/note-studio').then(function (res) {
       if (!res.ok) { toast(res.error || '请先登录后使用笔记'); return; }
-      state.noteStudio = Object.assign({ markdown: '', style: 'paper' }, res.noteStudio || {});
-      var editor = $('#noteEditor'); var style = $('#noteStyle');
-      if (editor) editor.value = state.noteStudio.markdown;
-      if (style) style.value = state.noteStudio.style;
-      renderNotePreview();
+      state.noteStudio = Object.assign({ notes: [], trash: [] }, res.noteStudio || {});
+      if (!state.noteId && state.noteStudio.notes[0]) state.noteId = state.noteStudio.notes[0].id;
+      renderNoteStudio();
     });
+  }
+
+  function activeNoteStudio() { return (state.noteStudio.notes || []).filter(function (note) { return Number(note.id) === Number(state.noteId); })[0] || null; }
+
+  function renderNoteStudio() {
+    var studio = state.noteStudio || { notes: [], trash: [] }; var notes = studio.notes || []; var trash = studio.trash || [];
+    var list = $('#noteList'); var editor = $('#noteEditor'); var title = $('#noteTitle'); var style = $('#noteStyle'); var remove = $('#noteDelete');
+    $('#noteTrash').textContent = state.noteTrashOpen ? '返回笔记' : '回收站' + (trash.length ? ' (' + trash.length + ')' : '');
+    if (state.noteTrashOpen) {
+      list.innerHTML = trash.length ? '<div class="note-list-label">回收站</div>' + trash.map(function (entry) { return '<div class="note-trash-row"><div><b>' + escapeHtml((entry.item || {}).title || '未命名笔记') + '</b><span>' + escapeHtml(entry.deletedAt || '') + '</span></div><div><button type="button" data-note-restore="' + entry.id + '">恢复</button><button type="button" data-note-purge="' + entry.id + '">彻底删除</button></div></div>'; }).join('') : '<div class="note-list-empty">回收站为空</div>';
+      title.value = ''; title.disabled = true; editor.value = ''; editor.disabled = true; style.disabled = true; remove.hidden = true; $('#notePreview').innerHTML = '<div class="note-empty">可在左侧恢复误删笔记。</div>'; return;
+    }
+    if (!notes.some(function (note) { return Number(note.id) === Number(state.noteId); })) state.noteId = notes[0] ? notes[0].id : null;
+    var active = activeNoteStudio();
+    list.innerHTML = notes.length ? '<div class="note-list-label">我的笔记 <span>' + notes.length + '</span></div>' + notes.map(function (note) { return '<button type="button" class="note-list-item' + (Number(note.id) === Number(state.noteId) ? ' is-active' : '') + '" data-note-id="' + note.id + '"><b>' + escapeHtml(note.title || '未命名笔记') + '</b><span>' + escapeHtml(note.updated || '') + '</span></button>'; }).join('') : '<div class="note-list-empty">还没有笔记<br>点击右上角新建</div>';
+    title.disabled = !active; editor.disabled = !active; style.disabled = !active; remove.hidden = !active;
+    title.value = active ? active.title || '' : ''; editor.value = active ? active.markdown || '' : ''; style.value = active ? active.style || 'paper' : 'paper';
+    renderNotePreview();
   }
 
   function renderNotePreview() {
     var preview = $('#notePreview'); if (!preview) return;
-    var markdown = state.noteStudio.markdown || '';
-    preview.dataset.noteStyle = state.noteStudio.style || 'paper';
-    preview.innerHTML = markdown.trim() ? renderKnowledgeMarkdown(markdown) : '<div class="note-empty">从左侧开始写作，这里会生成公众号排版预览。</div>';
+    var markdown = $('#noteEditor') ? $('#noteEditor').value : '';
+    var title = $('#noteTitle') ? $('#noteTitle').value.trim() : '';
+    preview.dataset.noteStyle = $('#noteStyle') ? $('#noteStyle').value : 'paper';
+    preview.innerHTML = markdown.trim() ? (title && !/^#\s+/.test(markdown) ? '<h1>' + escapeHtml(title) + '</h1>' : '') + renderKnowledgeMarkdown(markdown) : '<div class="note-empty">从左侧开始写作，这里会生成公众号排版预览。</div>';
     renderKnowledgeFormulas(preview);
   }
 
   function saveNoteStudio() {
-    state.noteStudio.markdown = $('#noteEditor').value;
-    state.noteStudio.style = $('#noteStyle').value;
-    api('/api/note-studio', { method: 'POST', body: JSON.stringify(state.noteStudio) }).then(function (res) {
+    if (!state.noteId) return;
+    api('/api/note-studio', { method: 'POST', body: JSON.stringify({ action: 'save', id: state.noteId, title: $('#noteTitle').value, markdown: $('#noteEditor').value, style: $('#noteStyle').value }) }).then(function (res) {
       if (!res.ok) { toast(res.error || '保存失败'); return; }
       state.noteStudio = res.noteStudio; toast('笔记已同步保存');
+      renderNoteStudio();
     });
   }
+
+  function newNoteStudio() { api('/api/note-studio', { method: 'POST', body: JSON.stringify({ action: 'create' }) }).then(function (res) { if (!res.ok) { toast(res.error || '新建失败'); return; } state.noteStudio = res.noteStudio; state.noteTrashOpen = false; state.noteId = res.noteStudio.notes[0].id; renderNoteStudio(); $('#noteTitle').focus(); }); }
+  function trashNoteStudio() { if (!state.noteId || !confirm('确定将这篇笔记移入回收站吗？')) return; api('/api/note-studio', { method: 'POST', body: JSON.stringify({ action: 'trash', id: state.noteId }) }).then(function (res) { if (!res.ok) { toast(res.error || '移入回收站失败'); return; } state.noteStudio = res.noteStudio; state.noteId = null; renderNoteStudio(); toast('笔记已移入回收站'); }); }
+  function restoreNoteStudio(id) { api('/api/note-studio', { method: 'POST', body: JSON.stringify({ action: 'restore', id: id }) }).then(function (res) { if (!res.ok) { toast(res.error || '恢复失败'); return; } state.noteStudio = res.noteStudio; renderNoteStudio(); toast('笔记已恢复'); }); }
+  function purgeNoteStudio(id) { if (!confirm('确定彻底删除这篇笔记吗？此操作无法恢复。')) return; api('/api/note-studio', { method: 'POST', body: JSON.stringify({ action: 'purge', id: id }) }).then(function (res) { if (!res.ok) { toast(res.error || '彻底删除失败'); return; } state.noteStudio = res.noteStudio; renderNoteStudio(); toast('已彻底删除'); }); }
 
   function noteCopyHtml() {
     var preview = $('#notePreview');
     var article = preview.cloneNode(true);
     article.removeAttribute('id'); article.removeAttribute('data-note-style');
     article.style.cssText = 'max-width:677px;margin:0 auto;padding:20px 16px;color:#333;background:#fff;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;font-size:16px;line-height:1.85;letter-spacing:.05em;box-sizing:border-box;';
-    var style = state.noteStudio.style || 'paper';
+    var style = $('#noteStyle').value || 'paper';
     var accent = style === 'mint' ? '#0f766e' : style === 'ink' ? '#1f2937' : '#a16207';
     article.querySelectorAll('h1').forEach(function (el) { el.style.cssText = 'margin:28px 0 18px;padding-bottom:12px;border-bottom:2px solid ' + accent + ';color:#1f2937;font-size:26px;line-height:1.4;font-weight:700;'; });
     article.querySelectorAll('h2').forEach(function (el) { el.style.cssText = 'margin:26px 0 14px;padding-left:10px;border-left:4px solid ' + accent + ';color:#222;font-size:20px;line-height:1.5;font-weight:700;'; });
