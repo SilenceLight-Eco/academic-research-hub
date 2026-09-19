@@ -5003,7 +5003,8 @@
     // 论文添加
     $('#pubAddBtn').addEventListener('click', addPublication);
     $('#phdConfigureBtn').addEventListener('click', configureStudyProgress);
-    $('#gradConfigureBtn').addEventListener('click', configureGraduation);
+    $('#gradCJrnlAchieved').addEventListener('change', saveGraduationCounts);
+    $('#gradCJrnlRequired').addEventListener('change', saveGraduationCounts);
 
     // 论文删除（事件委托）
     $('#pubList').addEventListener('click', function (e) {
@@ -5640,8 +5641,8 @@
   function renderGraduation() {
     var grad = (state.overview && state.overview.graduation) || { c_journal: { required: 2, achieved: 0, items: [] } };
     var cj = grad.c_journal;
-    $('#gradCJrnlAchieved').textContent = cj.achieved;
-    $('#gradCJrnlRequired').textContent = cj.required;
+    $('#gradCJrnlAchieved').value = cj.achieved;
+    $('#gradCJrnlRequired').value = cj.required;
     $('#gradCJrnlName').textContent = cj.label || 'C刊/SCI论文';
     $('#gradCJrnlHint').textContent = '需发表 ' + cj.required + ' 篇 ' + (cj.label || 'C刊/SCI论文');
     var pct = cj.required > 0 ? Math.min(100, cj.achieved / cj.required * 100) : 0;
@@ -5719,15 +5720,11 @@
     });
   }
 
-  function configureGraduation() {
-    var current = (state.overview && state.overview.graduation && state.overview.graduation.c_journal) || {};
-    var label = prompt('毕业条件名称：', current.label || 'C刊/SCI论文');
-    if (label === null || !label.trim()) return;
-    var required = prompt('要求发表篇数：', current.required || 2);
-    if (required === null) return;
-    required = Number(required);
-    if (!Number.isInteger(required) || required < 0) { toast('请输入非负整数'); return; }
-    api('/api/graduation-settings', { method: 'POST', body: JSON.stringify({ label: label.trim(), required: required }) }).then(function (res) {
+  function saveGraduationCounts() {
+    var achieved = Number($('#gradCJrnlAchieved').value);
+    var required = Number($('#gradCJrnlRequired').value);
+    if (!Number.isInteger(achieved) || !Number.isInteger(required) || achieved < 0 || required < 0) { toast('请输入非负整数'); renderGraduation(); return; }
+    api('/api/graduation-settings', { method: 'POST', body: JSON.stringify({ label: 'C刊/SCI论文', achieved: achieved, required: required }) }).then(function (res) {
       if (!res.ok) { toast(res.error || '请先登录后保存'); return; }
       state.overview.graduation = res.graduation; renderGraduation(); toast('毕业条件已保存');
     });

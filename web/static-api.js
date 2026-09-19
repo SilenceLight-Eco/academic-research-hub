@@ -19,7 +19,7 @@
   function currentPayload() { return workspace || { todos: [], journal: [], publications: [], academicRecords: { funding: [], awards: [], conferences: [] }, studyProgress: {}, graduationConfig: {}, browser: {}, researchHub: {} }; }
   function browserSnapshot() { var result = {}; focusKeys.forEach(function (k) { result[k] = localStorage.getItem(k); }); return result; }
   function researchSnapshot() { var result = {}; researchHubKeys.forEach(function (k) { result[k] = localStorage.getItem(k); }); return result; }
-  function graduation(pubs, config) { var items = (pubs || []).filter(function (p) { return p.type === 'c_journal'; }); var settings = config || {}; var required = Math.max(0, Number(settings.required) || 2); var label = String(settings.label || 'C刊/SCI论文'); return { c_journal: { label: label, required: required, achieved: items.length, remaining: Math.max(0, required - items.length), complete: items.length >= required, items: items } }; }
+  function graduation(pubs, config) { var items = (pubs || []).filter(function (p) { return p.type === 'c_journal'; }); var settings = config || {}; var required = Math.max(0, Number(settings.required) || 2); var achieved = settings.achieved == null ? items.length : Math.max(0, Number(settings.achieved) || 0); var label = 'C刊/SCI论文'; return { c_journal: { label: label, required: required, achieved: achieved, remaining: Math.max(0, required - achieved), complete: achieved >= required, items: items } }; }
   function overview() { var payload = currentPayload(); var defaults = { configured: false, label: '学业进度', stage: '', percent: 0, start: '', end: '', remain_days: 0 }; return { field_name: 'Academic Research Hub', phd: Object.assign(defaults, payload.studyProgress || {}), graduation: graduation(payload.publications, payload.graduationConfig), academic_records: payload.academicRecords || { funding: [], awards: [], conferences: [] }, sections: [], tree: { name: '浏览器版不访问本地文件', children: [], count: 0 } }; }
   // Read the persisted browser session first. Unlike getUser(), this does not
   // depend on a network round-trip during a page refresh.
@@ -86,7 +86,8 @@
       }
       if (path === '/api/graduation-settings' && method === 'POST') {
         var required = Math.max(0, Math.floor(Number(body.required) || 0));
-        data.graduationConfig = { label: String(body.label || 'C刊/SCI论文').trim() || 'C刊/SCI论文', required: required };
+        var achieved = Math.max(0, Math.floor(Number(body.achieved) || 0));
+        data.graduationConfig = { label: 'C刊/SCI论文', achieved: achieved, required: required };
         await saveWorkspace(); return response({ ok: true, graduation: graduation(data.publications, data.graduationConfig) });
       }
       if (path === '/api/news') return response({ ok: true, data: { news: {}, weather: null } });
