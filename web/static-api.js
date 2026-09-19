@@ -17,7 +17,7 @@
   function nowId() { return Date.now(); }
   function nowText() { return new Date().toLocaleString('sv-SE').slice(0, 16).replace('T', ' '); }
   function dateText() { return new Date().toISOString().slice(0, 10); }
-  function currentPayload() { return workspace || { todos: [], journal: [], publications: [], academicRecords: { funding: [], awards: [], conferences: [] }, knowledgeBase: { folders: [], docs: [] }, studyProgress: {}, graduationConfig: {}, browser: {}, researchHub: {} }; }
+  function currentPayload() { return workspace || { todos: [], journal: [], publications: [], academicRecords: { funding: [], awards: [], conferences: [] }, knowledgeBase: { folders: [], docs: [] }, noteStudio: { markdown: '', style: 'paper' }, studyProgress: {}, graduationConfig: {}, browser: {}, researchHub: {} }; }
   function browserSnapshot() { var result = {}; focusKeys.forEach(function (k) { result[k] = localStorage.getItem(k); }); return result; }
   function researchSnapshot() { var result = {}; researchHubKeys.forEach(function (k) { result[k] = localStorage.getItem(k); }); return result; }
   function graduation(pubs, config) { var items = (pubs || []).filter(function (p) { return p.type === 'c_journal'; }); var settings = config || {}; var required = Math.max(0, Number(settings.required) || 2); var achieved = settings.achieved == null ? items.length : Math.max(0, Number(settings.achieved) || 0); var label = 'C刊/SCI论文'; return { c_journal: { label: label, required: required, achieved: achieved, remaining: Math.max(0, required - achieved), complete: achieved >= required, items: items } }; }
@@ -38,6 +38,7 @@
     workspace.knowledgeBase = workspace.knowledgeBase || { folders: [], docs: [] };
     workspace.knowledgeBase.folders = Array.isArray(workspace.knowledgeBase.folders) ? workspace.knowledgeBase.folders : [];
     workspace.knowledgeBase.docs = Array.isArray(workspace.knowledgeBase.docs) ? workspace.knowledgeBase.docs : [];
+    workspace.noteStudio = workspace.noteStudio || { markdown: '', style: 'paper' };
     workspace.studyProgress = workspace.studyProgress || {};
     workspace.graduationConfig = workspace.graduationConfig || {};
     ['funding', 'awards', 'conferences'].forEach(function (kind) { if (!Array.isArray(workspace.academicRecords[kind])) workspace.academicRecords[kind] = []; });
@@ -84,6 +85,7 @@
       var data = await loadWorkspace();
       if (!data && method === 'GET') data = currentPayload();
       if (!data) return response({ error: '请先登录后使用浏览器版工作台' }, 401);
+      if (path === '/api/note-studio') { if (method === 'GET') return response({ ok: true, noteStudio: data.noteStudio || { markdown: '', style: 'paper' } }); data.noteStudio = { markdown: String(body.markdown || ''), style: ['paper', 'ink', 'mint'].indexOf(body.style) >= 0 ? body.style : 'paper' }; await saveWorkspace(); return response({ ok: true, noteStudio: data.noteStudio }); }
       if (path === '/api/overview') return response(overview());
       if (path === '/api/study-progress' && method === 'POST') {
         var percent = Math.max(0, Math.min(100, Number(body.percent) || 0));

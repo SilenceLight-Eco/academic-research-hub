@@ -42,12 +42,14 @@
       view: 'preview',
       progress: 0,
     },
+    noteStudio: { markdown: '', style: 'paper' },
   };
 
   const PANEL_TITLES = {
     'research-hub': '论文管线',
     'academic-records': '学术履历',
     'knowledge-base': '知识库',
+    'note-studio': '公众号笔记',
     dashboard: '概览',
     todos: '待办事项',
     focus: '专注',
@@ -482,6 +484,7 @@
     if (panel === 'translations') loadTranslations();
     if (panel === 'readings') loadReadings();
     if (panel === 'knowledge-base') loadKnowledgeBase();
+    if (panel === 'note-studio') loadNoteStudio();
     if (panel === 'focus') focusRenderAll();   // 专注面板：进度/统计/记录实时刷新
     refreshUnreadBadges();   // 进入即视为已读，红点立刻消
     positionNavInk(true);
@@ -5085,6 +5088,10 @@
 
     $('#kbNewDoc').addEventListener('click', newKnowledgeDoc);
     $('#kbNewFolder').addEventListener('click', newKnowledgeFolder);
+    $('#noteEditor').addEventListener('input', function () { state.noteStudio.markdown = this.value; renderNotePreview(); });
+    $('#noteStyle').addEventListener('change', function () { state.noteStudio.style = this.value; renderNotePreview(); });
+    $('#noteSave').addEventListener('click', saveNoteStudio);
+    $('#noteCopy').addEventListener('click', copyNoteForWechat);
     $('#kbTrashToggle').addEventListener('click', function () { state.kbTrashOpen = !state.kbTrashOpen; state.kbDraft = null; renderKnowledgeBase(); });
     $('#kbFolders').addEventListener('click', function (e) { var remove = e.target.closest('[data-kb-delete-folder]'); if (remove) { deleteKnowledgeFolder(remove.dataset.kbDeleteFolder); return; } var item = e.target.closest('[data-kb-folder]'); if (!item) return; state.kbFolderId = item.dataset.kbFolder; renderKnowledgeBase(); });
     $('#kbDocs').addEventListener('click', function (e) { var restore = e.target.closest('[data-kb-restore-trash]'); if (restore) { restoreKnowledgeTrash(restore.dataset.kbRestoreTrash); return; } var purge = e.target.closest('[data-kb-purge-trash]'); if (purge) { purgeKnowledgeTrash(purge.dataset.kbPurgeTrash); return; } var remove = e.target.closest('[data-kb-delete-doc]'); if (remove) { deleteKnowledgeDoc(remove.dataset.kbDeleteDoc); return; } var heading = e.target.closest('[data-kb-heading]'); if (heading) { state.kbDocId = Number(heading.dataset.kbDoc); state.kbDraft = null; state.kbHeadingTarget = heading.dataset.kbHeading; state.kbEditorMode = 'rich'; renderKnowledgeBase(); setTimeout(scrollToKnowledgeHeading, 0); return; } var item = e.target.closest('[data-kb-doc]'); if (!item) return; state.kbDocId = Number(item.dataset.kbDoc); state.kbDraft = null; renderKnowledgeBase(); });
@@ -5900,6 +5907,67 @@
       if (!res.ok) return;
       state.overview.academic_records = res.records; renderAcademicRecords();
     });
+  }
+
+  // ===== 公众号笔记：Markdown 编辑、富文本复制与账号同步 =====
+  function loadNoteStudio() {
+    return api('/api/note-studio').then(function (res) {
+      if (!res.ok) { toast(res.error || '请先登录后使用笔记'); return; }
+      state.noteStudio = Object.assign({ markdown: '', style: 'paper' }, res.noteStudio || {});
+      var editor = $('#noteEditor'); var style = $('#noteStyle');
+      if (editor) editor.value = state.noteStudio.markdown;
+      if (style) style.value = state.noteStudio.style;
+      renderNotePreview();
+    });
+  }
+
+  function renderNotePreview() {
+    var preview = $('#notePreview'); if (!preview) return;
+    var markdown = state.noteStudio.markdown || '';
+    preview.dataset.noteStyle = state.noteStudio.style || 'paper';
+    preview.innerHTML = markdown.trim() ? renderKnowledgeMarkdown(markdown) : '<div class="note-empty">从左侧开始写作，这里会生成公众号排版预览。</div>';
+    renderKnowledgeFormulas(preview);
+  }
+
+  function saveNoteStudio() {
+    state.noteStudio.markdown = $('#noteEditor').value;
+    state.noteStudio.style = $('#noteStyle').value;
+    api('/api/note-studio', { method: 'POST', body: JSON.stringify(state.noteStudio) }).then(function (res) {
+      if (!res.ok) { toast(res.error || '保存失败'); return; }
+      state.noteStudio = res.noteStudio; toast('笔记已同步保存');
+    });
+  }
+
+  function noteCopyHtml() {
+    var preview = $('#notePreview');
+    var article = preview.cloneNode(true);
+    article.removeAttribute('id'); article.removeAttribute('data-note-style');
+    article.style.cssText = 'max-width:677px;margin:0 auto;padding:20px 16px;color:#333;background:#fff;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;font-size:16px;line-height:1.85;letter-spacing:.05em;box-sizing:border-box;';
+    var style = state.noteStudio.style || 'paper';
+    var accent = style === 'mint' ? '#0f766e' : style === 'ink' ? '#1f2937' : '#a16207';
+    article.querySelectorAll('h1').forEach(function (el) { el.style.cssText = 'margin:28px 0 18px;padding-bottom:12px;border-bottom:2px solid ' + accent + ';color:#1f2937;font-size:26px;line-height:1.4;font-weight:700;'; });
+    article.querySelectorAll('h2').forEach(function (el) { el.style.cssText = 'margin:26px 0 14px;padding-left:10px;border-left:4px solid ' + accent + ';color:#222;font-size:20px;line-height:1.5;font-weight:700;'; });
+    article.querySelectorAll('h3').forEach(function (el) { el.style.cssText = 'margin:20px 0 10px;color:' + accent + ';font-size:17px;font-weight:700;'; });
+    article.querySelectorAll('p').forEach(function (el) { el.style.cssText = 'margin:0 0 16px;'; });
+    article.querySelectorAll('blockquote').forEach(function (el) { el.style.cssText = 'margin:18px 0;padding:12px 15px;border-left:4px solid ' + accent + ';background:#f7f7f5;color:#5b5b5b;'; });
+    article.querySelectorAll('ul').forEach(function (el) { el.style.cssText = 'margin:0 0 16px;padding-left:24px;'; });
+    article.querySelectorAll('li').forEach(function (el) { el.style.cssText = 'margin:6px 0;'; });
+    article.querySelectorAll('pre').forEach(function (el) { el.style.cssText = 'overflow:auto;margin:18px 0;padding:14px;border-radius:6px;background:#282c34;color:#f3f4f6;font-family:monospace;font-size:13px;line-height:1.6;'; });
+    article.querySelectorAll('code').forEach(function (el) { if (el.parentElement.tagName.toLowerCase() !== 'pre') el.style.cssText = 'padding:2px 5px;border-radius:3px;background:#f1f1ef;color:#c2410c;font-family:monospace;font-size:.9em;'; });
+    article.querySelectorAll('a').forEach(function (el) { el.style.cssText = 'color:' + accent + ';text-decoration:underline;'; });
+    return article.outerHTML;
+  }
+
+  function copyNoteForWechat() {
+    var markdown = ($('#noteEditor').value || '').trim();
+    if (!markdown) { toast('请先写一点内容'); return; }
+    var html = noteCopyHtml();
+    if (navigator.clipboard && window.ClipboardItem) {
+      var data = { 'text/html': new Blob([html], { type: 'text/html' }), 'text/plain': new Blob([$('#notePreview').innerText], { type: 'text/plain' }) };
+      navigator.clipboard.write([new ClipboardItem(data)]).then(function () { toast('已复制公众号格式，可直接粘贴到编辑器'); }).catch(function () { navigator.clipboard.writeText($('#notePreview').innerText).then(function () { toast('已复制文本，请在公众号编辑器中粘贴'); }); });
+    } else {
+      var ta = document.createElement('textarea'); ta.value = $('#notePreview').innerText; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); toast('已复制文本');
+    }
   }
 
   // ===== 知识库：目录、文档与账号同步 =====
