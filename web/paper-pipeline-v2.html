@@ -599,6 +599,12 @@ function renderResearchCard(p) {
   </article>`;
 }
 
+const renderResearchCardBase = renderResearchCard;
+renderResearchCard = function (p) {
+  const row = `<div class="file-path-row"><span class="muted">知识库笔记</span>${editableText(p, "knowledgeLink", "path-text")}<button class="btn" type="button" onclick="openKnowledgeBaseFromPaper()">关联知识库</button></div>`;
+  return renderResearchCardBase(p).replace('<button class="btn flow-btn"', row + '<button class="btn flow-btn"');
+};
+
 function renderSubmitted() {
   return `
     <div class="toolbar">
@@ -1237,7 +1243,7 @@ function syncLists() {
 }
 
 const NEW_CARD_TEMPLATES = {
-  research: () => ({ title: "", authors: [], researchArea: "未分类", status: "writing", progress: 0, priority: "Medium", lastUpdated: nowMinute(), targetJournal: "", filePath: "", nextAction: "", notes: "", keywords: [] }),
+  research: () => ({ title: "", authors: [], researchArea: "未分类", status: "writing", progress: 0, priority: "Medium", lastUpdated: nowMinute(), targetJournal: "", filePath: "", nextAction: "", notes: "", keywords: [], knowledgeLink: "" }),
   submitted: () => ({ title: "", authors: [], currentJournal: "", status: "submitted", submissionDate: "", lastUpdate: nowMinute(), manuscriptId: "", submissionCount: 1, targetLevel: "SSCI / SCIE", filePath: "", editor: "—", nextAction: "", notes: "", history: [] }),
   published: () => ({ title: "", authors: [], abstract: "", journal: "", language: "en", year: new Date().getFullYear(), volume: "", issue: "", pages: "", doi: "", citations: 0, citationSource: "手工录入", filePath: "", keywords: [] })
 };
@@ -1792,6 +1798,11 @@ function toggleThemeMenu(){document.getElementById("themeMenu")?.classList.toggl
 document.addEventListener("click",e=>{const w=document.querySelector(".theme-wrap");if(w&&!w.contains(e.target))document.getElementById("themeMenu")?.classList.remove("open")});
 async function copyText(t){if(navigator.clipboard&&window.isSecureContext){await navigator.clipboard.writeText(t);return true}const a=document.createElement("textarea");a.value=t;a.style.position="fixed";a.style.opacity="0";document.body.appendChild(a);a.select();let ok=false;try{ok=document.execCommand("copy")}catch(e){}a.remove();if(!ok)prompt("浏览器未允许自动复制，请手动复制以下内容：",t);return ok}
 async function copyAllPublishedReferences(){const zh=sortPublishedReferences((DATA.published||[]).filter(p=>!isEnglishPaper(p)),referenceSortZh),en=sortPublishedReferences((DATA.published||[]).filter(p=>isEnglishPaper(p)),referenceSortEn);const z=zh.map((p,i)=>`[${i+1}] ${buildGb7714Reference(p)}`).join("\n"),e=en.map((p,i)=>`[${i+1}] ${buildGb7714Reference(p)}`).join("\n");const parts=[];if(z)parts.push("中文发表\n"+z);if(e)parts.push("英文发表\n"+e);const text=parts.join("\n\n");if(!text){alert("目前没有可复制的已发表论文。");return}await copyText(text);const st=document.getElementById("copyReferenceStatus");if(st){st.textContent="✓ 已复制当前排序下的全部引用";setTimeout(()=>st.textContent="",2500)}}
+function openKnowledgeBaseFromPaper() {
+  if (window.parent && window.parent !== window) { window.parent.postMessage({ type: "academic-research-hub-open-knowledge-base" }, window.location.origin); return; }
+  window.location.hash = "knowledge-base";
+}
+
 function copyPath(encoded) {
   const path = decodeURIComponent(encoded);
   navigator.clipboard?.writeText(path).then(() => alert("文件夹路径已复制：\n" + path)).catch(() => prompt("请复制以下路径：", path));
