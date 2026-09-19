@@ -1074,6 +1074,19 @@
     if (!board) return;
 
     var pending = (state.todos || []).filter(function (t) { return !t.done; });
+    var todoHtml = '<div class="today-head"><div class="today-title">今日 · ' + todayStr() + ' ' + todayWeek() + '</div><div class="today-sub">待办 ' + pending.length + ' 项</div></div>' +
+      '<div class="today-grid"><div class="today-col"><div class="today-col-head">今日待办<span class="today-count">' + pending.length + '</span></div>';
+    if (!pending.length) {
+      todoHtml += '<div class="today-empty">没有未完成的待办</div>';
+    } else {
+      todoHtml += pending.slice(0, 4).map(function (t) {
+        return '<div class="today-todo" data-goto="todos"><span class="today-todo-dot"></span><span class="today-todo-text">' + escapeHtml(t.text) + '</span></div>';
+      }).join('');
+      if (pending.length > 4) todoHtml += '<div class="today-more" data-goto="todos">还有 ' + (pending.length - 4) + ' 项…</div>';
+    }
+    board.innerHTML = todoHtml + '</div></div>';
+    return;
+
     var fr = (state.frontier && state.frontier.items) || [];
     var hs = (state.hotspots && state.hotspots.items) || [];
     var wk = (state.weekly && state.weekly.items) || [];
