@@ -64,7 +64,7 @@
   };
 
   // 浏览器版仅保留研究管理核心功能；已下线的页面即使通过旧书签访问也返回概览。
-  const RETIRED_PANELS = ['literature', 'pdf', 'translations', 'readings', 'frontier', 'hotspots', 'weekly', 'summaries', 'sections'];
+  const RETIRED_PANELS = ['literature', 'pdf', 'translations', 'readings', 'frontier', 'hotspots', 'weekly', 'summaries', 'sections', 'news'];
 
   // 板块图标（线性 SVG）
   const SECTION_ICONS = {
@@ -4932,6 +4932,9 @@
     $('#authModalBackdrop').addEventListener('click', closeAuth);
     $('#authSwitch').addEventListener('click', toggleAuthMode);
     $('#authForm').addEventListener('submit', submitAuth);
+    $('#progressModalClose').addEventListener('click', closeProgressModal);
+    $('#progressModalBackdrop').addEventListener('click', closeProgressModal);
+    $('#progressForm').addEventListener('submit', saveStudyDates);
 
     // 天气：点击右上角角标打开模态框
     var weatherChip = $('#weatherChip');
@@ -5000,6 +5003,7 @@
     // 论文添加
     $('#pubAddBtn').addEventListener('click', addPublication);
     $('#phdConfigureBtn').addEventListener('click', configureStudyProgress);
+    $('#gradConfigureBtn').addEventListener('click', configureGraduation);
 
     // 论文删除（事件委托）
     $('#pubList').addEventListener('click', function (e) {
@@ -5638,6 +5642,8 @@
     var cj = grad.c_journal;
     $('#gradCJrnlAchieved').textContent = cj.achieved;
     $('#gradCJrnlRequired').textContent = cj.required;
+    $('#gradCJrnlName').textContent = cj.label || 'C刊/SCI论文';
+    $('#gradCJrnlHint').textContent = '需发表 ' + cj.required + ' 篇 ' + (cj.label || 'C刊/SCI论文');
     var pct = cj.required > 0 ? Math.min(100, cj.achieved / cj.required * 100) : 0;
     $('#gradCJrnlBar').style.width = pct + '%';
     // 论文列表
@@ -5687,12 +5693,20 @@
 
   function configureStudyProgress() {
     var current = (state.overview && state.overview.phd) || {};
-    var start = prompt('入学日期（如 2024-09-01）：', current.start || '');
-    if (start === null) return;
-    var end = prompt('预计毕业日期（如 2027-06-30）：', current.end || '');
-    if (end === null) return;
-    start = start.trim(); end = end.trim();
-    if (!start || !end || isNaN(Date.parse(start)) || isNaN(Date.parse(end)) || Date.parse(end) <= Date.parse(start)) { toast('请填写有效的入学和预计毕业日期'); return; }
+    $('#progressStart').value = current.start || '';
+    $('#progressEnd').value = current.end || '';
+    $('#progressError').hidden = true;
+    $('#progressModal').hidden = false;
+  }
+
+  function closeProgressModal() { $('#progressModal').hidden = true; $('#progressError').hidden = true; }
+
+  function saveStudyDates(event) {
+    event.preventDefault();
+    var start = $('#progressStart').value;
+    var end = $('#progressEnd').value;
+    var error = $('#progressError');
+    if (!start || !end || Date.parse(end) <= Date.parse(start)) { error.textContent = '预计毕业日期必须晚于入学日期'; error.hidden = false; return; }
     var remainDays = 0;
     var elapsedDays = 0;
     remainDays = Math.max(0, Math.ceil((new Date(end).getTime() - Date.now()) / 86400000));
@@ -5701,7 +5715,21 @@
     var percent = Math.max(0, Math.min(100, Math.round(elapsedDays / totalDays * 100)));
     api('/api/study-progress', { method: 'POST', body: JSON.stringify({ label: '学业进度', stage: '', percent: percent, start: start, end: end, elapsed_days: elapsedDays, remain_days: remainDays }) }).then(function (res) {
       if (!res.ok) { toast(res.error || '请先登录后保存'); return; }
-      state.overview.phd = res.phd; renderOverview(); toast('学业进度已保存');
+      state.overview.phd = res.phd; renderOverview(); closeProgressModal(); toast('学习时间已保存');
+    });
+  }
+
+  function configureGraduation() {
+    var current = (state.overview && state.overview.graduation && state.overview.graduation.c_journal) || {};
+    var label = prompt('毕业条件名称：', current.label || 'C刊/SCI论文');
+    if (label === null || !label.trim()) return;
+    var required = prompt('要求发表篇数：', current.required || 2);
+    if (required === null) return;
+    required = Number(required);
+    if (!Number.isInteger(required) || required < 0) { toast('请输入非负整数'); return; }
+    api('/api/graduation-settings', { method: 'POST', body: JSON.stringify({ label: label.trim(), required: required }) }).then(function (res) {
+      if (!res.ok) { toast(res.error || '请先登录后保存'); return; }
+      state.overview.graduation = res.graduation; renderGraduation(); toast('毕业条件已保存');
     });
   }
 

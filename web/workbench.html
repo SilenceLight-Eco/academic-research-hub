@@ -66,7 +66,7 @@
           <span>专注</span>
           <span class="nav-badge" id="navFocusBadge" hidden></span>
         </button>
-        <button class="nav-item" data-panel="news">
+        <button class="nav-item retired-content" data-panel="news" hidden>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
           <span>资讯</span>
         </button>
@@ -199,7 +199,7 @@
             <div class="card-label">毕业条件</div>
             <div class="grad-compact-top">
               <div class="grad-compact-info">
-                <span class="grad-compact-name">C刊/SCI论文</span>
+                <span class="grad-compact-name" id="gradCJrnlName">C刊/SCI论文</span>
                 <span class="grad-compact-count">
                   <span class="grad-compact-num" id="gradCJrnlAchieved">0</span>
                   <span class="grad-compact-sep">/</span>
@@ -207,10 +207,11 @@
                 </span>
               </div>
               <div class="graduation-bar"><div class="graduation-bar-fill" id="gradCJrnlBar"></div></div>
-              <div class="grad-compact-hint">需发表 2 篇 C刊/SCI论文</div>
+              <div class="grad-compact-hint" id="gradCJrnlHint">需发表 2 篇 C刊/SCI论文</div>
             </div>
             <div class="grad-compact-bottom">
               <button class="graduation-add-btn" id="pubAddBtn">+ 登记论文</button>
+              <button class="graduation-add-btn" id="gradConfigureBtn">编辑毕业条件</button>
               <div class="pub-list" id="pubList"></div>
               <!-- 学术履历紧随已发表论文登记区，脚本加载前也始终可见。 -->
               <section class="academic-portfolio" aria-label="学术履历" hidden>
@@ -1170,8 +1171,21 @@
   </form>
 </div>
 
+<div class="auth-modal" id="progressModal" hidden>
+  <div class="auth-modal-backdrop" id="progressModalBackdrop"></div>
+  <form class="auth-card" id="progressForm">
+    <button class="auth-close" id="progressModalClose" type="button" aria-label="关闭">×</button>
+    <h2>设置学习时间</h2>
+    <p class="auth-desc">请选择入学日期与预计毕业日期，进度将自动计算。</p>
+    <label>入学日期<input id="progressStart" type="date" required></label>
+    <label>预计毕业日期<input id="progressEnd" type="date" required></label>
+    <div class="auth-error" id="progressError" hidden></div>
+    <button class="auth-submit" type="submit">保存日期</button>
+  </form>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="static-api.js?v=20260919-13"></script>
-<script src="app.js?v=20260919-13"></script>
+<script src="static-api.js?v=20260919-14"></script>
+<script src="app.js?v=20260919-14"></script>
 </body>
 </html>

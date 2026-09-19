@@ -16,11 +16,11 @@
   function nowId() { return Date.now(); }
   function nowText() { return new Date().toLocaleString('sv-SE').slice(0, 16).replace('T', ' '); }
   function dateText() { return new Date().toISOString().slice(0, 10); }
-  function currentPayload() { return workspace || { todos: [], journal: [], publications: [], academicRecords: { funding: [], awards: [], conferences: [] }, studyProgress: {}, browser: {}, researchHub: {} }; }
+  function currentPayload() { return workspace || { todos: [], journal: [], publications: [], academicRecords: { funding: [], awards: [], conferences: [] }, studyProgress: {}, graduationConfig: {}, browser: {}, researchHub: {} }; }
   function browserSnapshot() { var result = {}; focusKeys.forEach(function (k) { result[k] = localStorage.getItem(k); }); return result; }
   function researchSnapshot() { var result = {}; researchHubKeys.forEach(function (k) { result[k] = localStorage.getItem(k); }); return result; }
-  function graduation(pubs) { var items = (pubs || []).filter(function (p) { return p.type === 'c_journal'; }); return { c_journal: { required: 2, achieved: items.length, remaining: Math.max(0, 2 - items.length), complete: items.length >= 2, items: items } }; }
-  function overview() { var payload = currentPayload(); var defaults = { configured: false, label: '学业进度', stage: '', percent: 0, start: '', end: '', remain_days: 0 }; return { field_name: 'Academic Research Hub', phd: Object.assign(defaults, payload.studyProgress || {}), graduation: graduation(payload.publications), academic_records: payload.academicRecords || { funding: [], awards: [], conferences: [] }, sections: [], tree: { name: '浏览器版不访问本地文件', children: [], count: 0 } }; }
+  function graduation(pubs, config) { var items = (pubs || []).filter(function (p) { return p.type === 'c_journal'; }); var settings = config || {}; var required = Math.max(0, Number(settings.required) || 2); var label = String(settings.label || 'C刊/SCI论文'); return { c_journal: { label: label, required: required, achieved: items.length, remaining: Math.max(0, required - items.length), complete: items.length >= required, items: items } }; }
+  function overview() { var payload = currentPayload(); var defaults = { configured: false, label: '学业进度', stage: '', percent: 0, start: '', end: '', remain_days: 0 }; return { field_name: 'Academic Research Hub', phd: Object.assign(defaults, payload.studyProgress || {}), graduation: graduation(payload.publications, payload.graduationConfig), academic_records: payload.academicRecords || { funding: [], awards: [], conferences: [] }, sections: [], tree: { name: '浏览器版不访问本地文件', children: [], count: 0 } }; }
   // Read the persisted browser session first. Unlike getUser(), this does not
   // depend on a network round-trip during a page refresh.
   async function getUser() { await window.__academicAuthReady; var result = await client.auth.getSession(); return result.data.session ? result.data.session.user : null; }
@@ -35,6 +35,7 @@
     workspace.publications = Array.isArray(workspace.publications) ? workspace.publications : [];
     workspace.academicRecords = workspace.academicRecords || { funding: [], awards: [], conferences: [] };
     workspace.studyProgress = workspace.studyProgress || {};
+    workspace.graduationConfig = workspace.graduationConfig || {};
     ['funding', 'awards', 'conferences'].forEach(function (kind) { if (!Array.isArray(workspace.academicRecords[kind])) workspace.academicRecords[kind] = []; });
     workspace.browser = workspace.browser || {};
     workspace.researchHub = workspace.researchHub || {};
@@ -83,6 +84,11 @@
         data.studyProgress = { configured: true, label: String(body.label || '学业进度').trim() || '学业进度', stage: String(body.stage || '').trim(), percent: percent, start: String(body.start || '').trim(), end: String(body.end || '').trim(), elapsed_days: Number(body.elapsed_days) || 0, remain_days: Number(body.remain_days) || 0 };
         await saveWorkspace(); return response({ ok: true, phd: overview().phd });
       }
+      if (path === '/api/graduation-settings' && method === 'POST') {
+        var required = Math.max(0, Math.floor(Number(body.required) || 0));
+        data.graduationConfig = { label: String(body.label || 'C刊/SCI论文').trim() || 'C刊/SCI论文', required: required };
+        await saveWorkspace(); return response({ ok: true, graduation: graduation(data.publications, data.graduationConfig) });
+      }
       if (path === '/api/news') return response({ ok: true, data: { news: {}, weather: null } });
       if (path === '/api/todos') {
         if (method === 'GET') return response(data.todos);
@@ -98,10 +104,10 @@
         await saveWorkspace(); return response({ ok: true, journal: data.journal });
       }
       if (path === '/api/publications') {
-        if (method === 'GET') return response({ publications: data.publications, graduation: graduation(data.publications) });
+        if (method === 'GET') return response({ publications: data.publications, graduation: graduation(data.publications, data.graduationConfig) });
         if (body.action === 'add' && String(body.title || '').trim()) data.publications.push({ id: nowId(), title: String(body.title).trim(), type: body.type || 'c_journal', journal: String(body.journal || '').trim(), date: String(body.date || '').trim(), note: String(body.note || '').trim(), created: nowText() });
         if (body.action === 'delete') data.publications = data.publications.filter(function (item) { return item.id !== body.id; });
-        await saveWorkspace(); return response({ ok: true, publications: data.publications, graduation: graduation(data.publications) });
+        await saveWorkspace(); return response({ ok: true, publications: data.publications, graduation: graduation(data.publications, data.graduationConfig) });
       }
       if (path === '/api/academic-records') {
         var records = data.academicRecords || (data.academicRecords = { funding: [], awards: [], conferences: [] });
