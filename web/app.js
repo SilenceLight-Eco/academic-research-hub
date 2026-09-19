@@ -5049,7 +5049,7 @@
     $('#kbNewDoc').addEventListener('click', newKnowledgeDoc);
     $('#kbNewFolder').addEventListener('click', newKnowledgeFolder);
     $('#kbFolders').addEventListener('click', function (e) { var item = e.target.closest('[data-kb-folder]'); if (!item) return; state.kbFolderId = item.dataset.kbFolder; renderKnowledgeBase(); });
-    $('#kbDocs').addEventListener('click', function (e) { var item = e.target.closest('[data-kb-doc]'); if (!item) return; state.kbDocId = Number(item.dataset.kbDoc); state.kbDraft = null; renderKnowledgeBase(); });
+    $('#kbDocs').addEventListener('click', function (e) { var heading = e.target.closest('[data-kb-heading]'); if (heading) { state.kbDocId = Number(heading.dataset.kbDoc); state.kbDraft = null; state.kbHeadingTarget = heading.dataset.kbHeading; state.kbEditorMode = 'rich'; renderKnowledgeBase(); setTimeout(scrollToKnowledgeHeading, 0); return; } var item = e.target.closest('[data-kb-doc]'); if (!item) return; state.kbDocId = Number(item.dataset.kbDoc); state.kbDraft = null; renderKnowledgeBase(); });
     $('#kbDocs').addEventListener('dragstart', function (e) { var item = e.target.closest('[data-kb-doc]'); if (!item) return; state.kbDraggingDocId = Number(item.dataset.kbDoc); item.classList.add('is-dragging'); e.dataTransfer.effectAllowed = 'move'; });
     $('#kbDocs').addEventListener('dragend', function () { state.kbDraggingDocId = null; $$('.kb-doc.is-dragging').forEach(function (item) { item.classList.remove('is-dragging'); }); });
     $('#kbDocs').addEventListener('dragover', function (e) { if (state.kbDraggingDocId) e.preventDefault(); });
@@ -5873,6 +5873,28 @@
     });
   }
 
+  function extractKnowledgeHeadings(content) {
+    return String(content || '').split(/\r?\n/).map(function (line) {
+      var matched = line.match(/^(#{1,3})\s+(.+?)\s*$/);
+      return matched ? { level: matched[1].length, text: matched[2].trim() } : null;
+    }).filter(Boolean).slice(0, 20);
+  }
+
+  function renderKnowledgeDocItem(doc) {
+    var headings = extractKnowledgeHeadings(doc.content);
+    var documentButton = '<button class="kb-doc' + (doc.id === state.kbDocId ? ' is-active' : '') + '" data-kb-doc="' + doc.id + '" draggable="true" title="拖动排序"><b>' + escapeHtml(doc.title || '未命名文档') + '</b><span>' + escapeHtml(doc.updated || '') + '</span></button>';
+    var outline = headings.length ? '<div class="kb-doc-outline" aria-label="文档大纲">' + headings.map(function (heading) { return '<button type="button" class="kb-doc-heading" data-kb-heading="' + escapeHtml(heading.text) + '" data-kb-doc="' + doc.id + '" data-kb-level="' + heading.level + '">' + escapeHtml(heading.text) + '</button>'; }).join('') + '</div>' : '';
+    return '<div class="kb-doc-group">' + documentButton + outline + '</div>';
+  }
+
+  function scrollToKnowledgeHeading() {
+    var wanted = state.kbHeadingTarget;
+    if (!wanted) return;
+    var target = $$('#kbRichEditor h1, #kbRichEditor h2, #kbRichEditor h3, .kb-markdown-preview h1, .kb-markdown-preview h2, .kb-markdown-preview h3').filter(function (item) { return item.textContent.trim() === wanted; })[0];
+    if (target) target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    state.kbHeadingTarget = null;
+  }
+
   function renderKnowledgeBase() {
     var kb = state.knowledgeBase || { folders: [], docs: [] };
     var folders = kb.folders || [];
@@ -5883,7 +5905,7 @@
     var active = docs.filter(function (doc) { return doc.id === state.kbDocId; })[0] || null;
     var draft = state.kbDraft && active && state.kbDraft.id === active.id ? state.kbDraft : active;
     $('#kbFolders').innerHTML = '<button class="kb-folder is-active" data-kb-folder="all">全部文档 <span>' + docs.length + '</span></button>' + folders.map(function (folder) { return '<button class="kb-folder' + (String(folder.id) === String(folderId) ? ' is-active' : '') + '" data-kb-folder="' + folder.id + '">' + escapeHtml(folder.title) + '<span>' + docs.filter(function (doc) { return String(doc.folderId) === String(folder.id); }).length + '</span></button>'; }).join('');
-    $('#kbDocs').innerHTML = visibleDocs.length ? visibleDocs.map(function (doc) { return '<button class="kb-doc' + (doc.id === state.kbDocId ? ' is-active' : '') + '" data-kb-doc="' + doc.id + '" draggable="true" title="拖动排序"><b>' + escapeHtml(doc.title || '未命名文档') + '</b><span>' + escapeHtml(doc.updated || '') + '</span></button>'; }).join('') : '<div class="kb-empty">此目录还没有文档</div>';
+    $('#kbDocs').innerHTML = visibleDocs.length ? visibleDocs.map(renderKnowledgeDocItem).join('') : '<div class="kb-empty">此目录还没有文档</div>';
     var mode = state.kbEditorMode || 'edit';
     $('#kbEditor').innerHTML = active ? '<div class="kb-editor-tabs"><button type="button" class="' + (mode === 'edit' ? 'is-active' : '') + '" data-kb-mode="edit">编辑</button><button type="button" class="' + (mode === 'preview' ? 'is-active' : '') + '" data-kb-mode="preview">预览</button><span>Markdown</span></div><input id="kbDocTitle" class="kb-doc-title" value="' + escapeHtml(draft.title || '') + '" placeholder="文档标题"><select id="kbDocFolder"><option value="">未分类</option>' + folders.map(function (folder) { return '<option value="' + folder.id + '"' + (String(folder.id) === String(draft.folderId) ? ' selected' : '') + '>' + escapeHtml(folder.title) + '</option>'; }).join('') + '</select>' + (mode === 'preview' ? '<article class="kb-markdown-preview">' + renderKnowledgeMarkdown(draft.content || '') + '</article>' : '<textarea id="kbDocContent" class="kb-doc-content" placeholder="# 标题\n\n使用 Markdown 记录你的想法、文献笔记和研究材料…">' + escapeHtml(draft.content || '') + '</textarea>') + '<div class="kb-editor-foot"><span>Markdown · 最近更新：' + escapeHtml(active.updated || '尚未保存') + '</span><button id="kbSaveDoc" type="button">保存文档</button></div>' : '<div class="kb-editor-empty">选择左侧文档，或新建一篇文档开始记录。</div>';
     var save = $('#kbSaveDoc'); if (save) save.addEventListener('click', saveKnowledgeDoc);
@@ -5942,8 +5964,6 @@
     heading.textContent = matched[2];
     if (block === editor) { editor.textContent = ''; editor.appendChild(heading); }
     else block.replaceWith(heading);
-    var docTitle = $('#kbDocTitle');
-    if (docTitle && (!docTitle.value.trim() || docTitle.value.trim() === '未命名文档')) docTitle.value = matched[2].trim();
     var range = document.createRange(); range.selectNodeContents(heading); range.collapse(false);
     selection.removeAllRanges(); selection.addRange(range);
   }
