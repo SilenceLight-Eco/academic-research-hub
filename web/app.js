@@ -5050,7 +5050,7 @@
     $('#kbNewFolder').addEventListener('click', newKnowledgeFolder);
     $('#kbFolders').addEventListener('click', function (e) { var item = e.target.closest('[data-kb-folder]'); if (!item) return; state.kbFolderId = item.dataset.kbFolder; renderKnowledgeBase(); });
     $('#kbDocs').addEventListener('click', function (e) { var item = e.target.closest('[data-kb-doc]'); if (!item) return; state.kbDocId = Number(item.dataset.kbDoc); state.kbDraft = null; renderKnowledgeBase(); });
-    $('#kbEditor').addEventListener('click', function (e) { var toggle = e.target.closest('[data-kb-mode]'); if (!toggle) return; state.kbDraft = readKnowledgeDraft(); state.kbEditorMode = toggle.dataset.kbMode; renderKnowledgeBase(); });
+    $('#kbEditor').addEventListener('click', function (e) { var action = e.target.closest('[data-kb-command]'); if (action) { runKnowledgeRichCommand(action.dataset.kbCommand); return; } var toggle = e.target.closest('[data-kb-mode]'); if (!toggle) return; state.kbDraft = readKnowledgeDraft(); state.kbEditorMode = toggle.dataset.kbMode; renderKnowledgeBase(); });
     window.addEventListener('message', function (event) {
       if (event.origin !== location.origin || !event.data || event.data.type !== 'academic-research-hub-open-knowledge-base') return;
       switchPanel('knowledge-base');
@@ -5885,9 +5885,70 @@
     var save = $('#kbSaveDoc'); if (save) save.addEventListener('click', saveKnowledgeDoc);
   }
 
+  const renderKnowledgeBaseStandard = renderKnowledgeBase;
+  renderKnowledgeBase = function () {
+    if (!state.kbEditorMode) state.kbEditorMode = 'rich';
+    renderKnowledgeBaseStandard();
+    if (state.kbEditorMode !== 'rich') return;
+    var source = $('#kbDocContent');
+    if (!source) return;
+    var tabs = $('.kb-editor-tabs');
+    if (tabs) {
+      tabs.insertAdjacentHTML('afterbegin', '<button type="button" class="is-active" data-kb-mode="rich">可视化</button>');
+      var raw = tabs.querySelector('[data-kb-mode="edit"]');
+      if (raw) raw.textContent = 'Markdown';
+    }
+    var rich = document.createElement('div');
+    rich.id = 'kbRichEditor'; rich.className = 'kb-rich-editor'; rich.contentEditable = 'true';
+    rich.setAttribute('role', 'textbox'); rich.setAttribute('aria-label', '所见即所得文档编辑器');
+    rich.innerHTML = renderKnowledgeMarkdown(source.value || '');
+    source.replaceWith(rich);
+    var toolbar = document.createElement('div');
+    toolbar.className = 'kb-rich-toolbar';
+    toolbar.innerHTML = '<button type="button" data-kb-command="h1">H1</button><button type="button" data-kb-command="h2">H2</button><button type="button" data-kb-command="bold"><b>B</b></button><button type="button" data-kb-command="italic"><i>I</i></button><button type="button" data-kb-command="list">列表</button><button type="button" data-kb-command="quote">引用</button><button type="button" data-kb-command="code">代码</button><button type="button" data-kb-command="link">链接</button>';
+    rich.before(toolbar);
+  };
+
+  function runKnowledgeRichCommand(command) {
+    var editor = $('#kbRichEditor');
+    if (!editor) return;
+    editor.focus();
+    if (command === 'h1') document.execCommand('formatBlock', false, 'H1');
+    else if (command === 'h2') document.execCommand('formatBlock', false, 'H2');
+    else if (command === 'list') document.execCommand('insertUnorderedList', false, null);
+    else if (command === 'quote') document.execCommand('formatBlock', false, 'BLOCKQUOTE');
+    else if (command === 'code') document.execCommand('formatBlock', false, 'PRE');
+    else if (command === 'link') { var url = prompt('链接地址（https://…）：'); if (url && /^https?:\/\//i.test(url.trim())) document.execCommand('createLink', false, url.trim()); }
+    else document.execCommand(command, false, null);
+  }
+
+  function richEditorToMarkdown(root) {
+    function walk(node) {
+      if (node.nodeType === Node.TEXT_NODE) return node.nodeValue || '';
+      if (node.nodeType !== Node.ELEMENT_NODE) return '';
+      var tag = node.tagName.toLowerCase();
+      var inner = Array.from(node.childNodes).map(walk).join('');
+      if (tag === 'h1') return '# ' + inner.trim() + '\n\n';
+      if (tag === 'h2') return '## ' + inner.trim() + '\n\n';
+      if (tag === 'h3') return '### ' + inner.trim() + '\n\n';
+      if (tag === 'strong' || tag === 'b') return '**' + inner + '**';
+      if (tag === 'em' || tag === 'i') return '*' + inner + '*';
+      if (tag === 'code' && node.parentElement && node.parentElement.tagName.toLowerCase() !== 'pre') return '`' + inner + '`';
+      if (tag === 'pre') return '```\n' + (node.textContent || '').trim() + '\n```\n\n';
+      if (tag === 'blockquote') return '> ' + inner.trim().replace(/\n/g, '\n> ') + '\n\n';
+      if (tag === 'li') return '- ' + inner.trim() + '\n';
+      if (tag === 'ul' || tag === 'ol') return inner + '\n';
+      if (tag === 'a') return '[' + inner + '](' + (node.getAttribute('href') || '') + ')';
+      if (tag === 'br') return '\n';
+      if (tag === 'p' || tag === 'div') return inner.trim() + '\n\n';
+      return inner;
+    }
+    return Array.from(root.childNodes).map(walk).join('').replace(/\n{3,}/g, '\n\n').trim();
+  }
+
   function newKnowledgeDoc() {
     var title = '未命名文档';
-    api('/api/knowledge-base', { method: 'POST', body: JSON.stringify({ action: 'create-doc', title: title, folderId: state.kbFolderId === 'all' ? '' : state.kbFolderId }) }).then(function (res) { if (!res.ok) { toast(res.error || '请先登录后创建'); return; } state.knowledgeBase = res.knowledgeBase; state.kbDocId = res.knowledgeBase.docs[0].id; state.kbDraft = null; state.kbEditorMode = 'edit'; renderKnowledgeBase(); });
+    api('/api/knowledge-base', { method: 'POST', body: JSON.stringify({ action: 'create-doc', title: title, folderId: state.kbFolderId === 'all' ? '' : state.kbFolderId }) }).then(function (res) { if (!res.ok) { toast(res.error || '请先登录后创建'); return; } state.knowledgeBase = res.knowledgeBase; state.kbDocId = res.knowledgeBase.docs[0].id; state.kbDraft = null; state.kbEditorMode = 'rich'; renderKnowledgeBase(); });
   }
 
   function newKnowledgeFolder() {
@@ -5904,7 +5965,8 @@
 
   function readKnowledgeDraft() {
     var active = ((state.knowledgeBase && state.knowledgeBase.docs) || []).filter(function (doc) { return doc.id === state.kbDocId; })[0] || {};
-    return { id: state.kbDocId, title: $('#kbDocTitle') ? $('#kbDocTitle').value : active.title || '', content: $('#kbDocContent') ? $('#kbDocContent').value : (state.kbDraft ? state.kbDraft.content : active.content || ''), folderId: $('#kbDocFolder') ? $('#kbDocFolder').value : (state.kbDraft ? state.kbDraft.folderId : active.folderId || '') };
+    var rich = $('#kbRichEditor');
+    return { id: state.kbDocId, title: $('#kbDocTitle') ? $('#kbDocTitle').value : active.title || '', content: $('#kbDocContent') ? $('#kbDocContent').value : (rich ? richEditorToMarkdown(rich) : (state.kbDraft ? state.kbDraft.content : active.content || '')), folderId: $('#kbDocFolder') ? $('#kbDocFolder').value : (state.kbDraft ? state.kbDraft.folderId : active.folderId || '') };
   }
 
   function renderKnowledgeMarkdown(source) {
