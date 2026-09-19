@@ -5902,6 +5902,7 @@
     rich.id = 'kbRichEditor'; rich.className = 'kb-rich-editor'; rich.contentEditable = 'true';
     rich.setAttribute('role', 'textbox'); rich.setAttribute('aria-label', '所见即所得文档编辑器');
     rich.innerHTML = renderKnowledgeMarkdown(source.value || '');
+    rich.addEventListener('input', function (event) { if (event.inputType === 'insertText' && event.data === ' ') autoFormatKnowledgeHeading(rich); });
     source.replaceWith(rich);
     var toolbar = document.createElement('div');
     toolbar.className = 'kb-rich-toolbar';
@@ -5920,6 +5921,24 @@
     else if (command === 'code') document.execCommand('formatBlock', false, 'PRE');
     else if (command === 'link') { var url = prompt('链接地址（https://…）：'); if (url && /^https?:\/\//i.test(url.trim())) document.execCommand('createLink', false, url.trim()); }
     else document.execCommand(command, false, null);
+  }
+
+  function autoFormatKnowledgeHeading(editor) {
+    var selection = window.getSelection();
+    if (!selection || !selection.rangeCount) return;
+    var node = selection.anchorNode;
+    var block = node && (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement);
+    while (block && block.parentElement !== editor) block = block.parentElement;
+    if (!block || block === editor) block = editor;
+    var text = (block.textContent || '').replace(/\u00a0/g, ' ');
+    var matched = text.match(/^(#{1,3})\s?([^#\s].*)\s$/);
+    if (!matched) return;
+    var heading = document.createElement('h' + matched[1].length);
+    heading.textContent = matched[2];
+    if (block === editor) { editor.textContent = ''; editor.appendChild(heading); }
+    else block.replaceWith(heading);
+    var range = document.createRange(); range.selectNodeContents(heading); range.collapse(false);
+    selection.removeAllRanges(); selection.addRange(range);
   }
 
   function richEditorToMarkdown(root) {
