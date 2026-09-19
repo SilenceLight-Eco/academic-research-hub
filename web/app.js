@@ -5048,8 +5048,9 @@
 
     $('#kbNewDoc').addEventListener('click', newKnowledgeDoc);
     $('#kbNewFolder').addEventListener('click', newKnowledgeFolder);
+    $('#kbTrashToggle').addEventListener('click', function () { state.kbTrashOpen = !state.kbTrashOpen; state.kbDraft = null; renderKnowledgeBase(); });
     $('#kbFolders').addEventListener('click', function (e) { var remove = e.target.closest('[data-kb-delete-folder]'); if (remove) { deleteKnowledgeFolder(remove.dataset.kbDeleteFolder); return; } var item = e.target.closest('[data-kb-folder]'); if (!item) return; state.kbFolderId = item.dataset.kbFolder; renderKnowledgeBase(); });
-    $('#kbDocs').addEventListener('click', function (e) { var remove = e.target.closest('[data-kb-delete-doc]'); if (remove) { deleteKnowledgeDoc(remove.dataset.kbDeleteDoc); return; } var heading = e.target.closest('[data-kb-heading]'); if (heading) { state.kbDocId = Number(heading.dataset.kbDoc); state.kbDraft = null; state.kbHeadingTarget = heading.dataset.kbHeading; state.kbEditorMode = 'rich'; renderKnowledgeBase(); setTimeout(scrollToKnowledgeHeading, 0); return; } var item = e.target.closest('[data-kb-doc]'); if (!item) return; state.kbDocId = Number(item.dataset.kbDoc); state.kbDraft = null; renderKnowledgeBase(); });
+    $('#kbDocs').addEventListener('click', function (e) { var restore = e.target.closest('[data-kb-restore-trash]'); if (restore) { restoreKnowledgeTrash(restore.dataset.kbRestoreTrash); return; } var purge = e.target.closest('[data-kb-purge-trash]'); if (purge) { purgeKnowledgeTrash(purge.dataset.kbPurgeTrash); return; } var remove = e.target.closest('[data-kb-delete-doc]'); if (remove) { deleteKnowledgeDoc(remove.dataset.kbDeleteDoc); return; } var heading = e.target.closest('[data-kb-heading]'); if (heading) { state.kbDocId = Number(heading.dataset.kbDoc); state.kbDraft = null; state.kbHeadingTarget = heading.dataset.kbHeading; state.kbEditorMode = 'rich'; renderKnowledgeBase(); setTimeout(scrollToKnowledgeHeading, 0); return; } var item = e.target.closest('[data-kb-doc]'); if (!item) return; state.kbDocId = Number(item.dataset.kbDoc); state.kbDraft = null; renderKnowledgeBase(); });
     $('#kbDocs').addEventListener('dragstart', function (e) { var item = e.target.closest('[data-kb-doc]'); if (!item) return; state.kbDraggingDocId = Number(item.dataset.kbDoc); item.classList.add('is-dragging'); e.dataTransfer.effectAllowed = 'move'; });
     $('#kbDocs').addEventListener('dragend', function () { state.kbDraggingDocId = null; $$('.kb-doc.is-dragging').forEach(function (item) { item.classList.remove('is-dragging'); }); });
     $('#kbDocs').addEventListener('dragover', function (e) { if (state.kbDraggingDocId) e.preventDefault(); });
@@ -5899,6 +5900,15 @@
     var kb = state.knowledgeBase || { folders: [], docs: [] };
     var folders = kb.folders || [];
     var docs = kb.docs || [];
+    var trash = kb.trash || [];
+    var trashToggle = $('#kbTrashToggle');
+    if (trashToggle) trashToggle.textContent = state.kbTrashOpen ? '返回知识库' : '回收站' + (trash.length ? ' (' + trash.length + ')' : '');
+    if (state.kbTrashOpen) {
+      $('#kbFolders').innerHTML = '<div class="kb-trash-note">回收站中的内容不会自动删除。</div>';
+      $('#kbDocs').innerHTML = trash.length ? trash.map(function (entry) { var item = entry.item || {}; return '<div class="kb-trash-item"><div><b>' + escapeHtml(item.title || '未命名项目') + '</b><span>' + (entry.type === 'folder' ? '文件夹' : '文档') + ' · ' + escapeHtml(entry.deletedAt || '') + '</span></div><div><button type="button" data-kb-restore-trash="' + entry.id + '">恢复</button><button type="button" class="kb-purge-button" data-kb-purge-trash="' + entry.id + '">彻底删除</button></div></div>'; }).join('') : '<div class="kb-empty">回收站为空</div>';
+      $('#kbEditor').innerHTML = '<div class="kb-editor-empty">可在此恢复误删内容，或选择彻底删除。</div>';
+      return;
+    }
     var folderId = state.kbFolderId || 'all';
     var visibleDocs = folderId === 'all' ? docs : docs.filter(function (doc) { return String(doc.folderId) === String(folderId); });
     if (!docs.some(function (doc) { return doc.id === state.kbDocId; })) state.kbDocId = visibleDocs[0] ? visibleDocs[0].id : null;
@@ -6045,13 +6055,22 @@
   }
 
   function deleteKnowledgeDoc(id) {
-    if (!confirm('确定删除这篇文档吗？此操作无法恢复。')) return;
-    api('/api/knowledge-base', { method: 'POST', body: JSON.stringify({ action: 'delete-doc', id: id }) }).then(function (res) { if (!res.ok) { toast(res.error || '删除失败'); return; } state.knowledgeBase = res.knowledgeBase; state.kbDocId = null; state.kbDraft = null; renderKnowledgeBase(); toast('文档已删除并同步'); });
+    if (!confirm('确定将这篇文档移入回收站吗？')) return;
+    api('/api/knowledge-base', { method: 'POST', body: JSON.stringify({ action: 'trash-doc', id: id }) }).then(function (res) { if (!res.ok) { toast(res.error || '移入回收站失败'); return; } state.knowledgeBase = res.knowledgeBase; state.kbDocId = null; state.kbDraft = null; renderKnowledgeBase(); toast('文档已移入回收站'); });
   }
 
   function deleteKnowledgeFolder(id) {
-    if (!confirm('确定删除此文件夹吗？其中的文档会保留，并移至“全部文档”。')) return;
-    api('/api/knowledge-base', { method: 'POST', body: JSON.stringify({ action: 'delete-folder', id: id }) }).then(function (res) { if (!res.ok) { toast(res.error || '删除失败'); return; } state.knowledgeBase = res.knowledgeBase; state.kbFolderId = 'all'; renderKnowledgeBase(); toast('文件夹已删除，文档已保留'); });
+    if (!confirm('确定将此文件夹移入回收站吗？其中的文档会保留，并移至“全部文档”。')) return;
+    api('/api/knowledge-base', { method: 'POST', body: JSON.stringify({ action: 'trash-folder', id: id }) }).then(function (res) { if (!res.ok) { toast(res.error || '移入回收站失败'); return; } state.knowledgeBase = res.knowledgeBase; state.kbFolderId = 'all'; renderKnowledgeBase(); toast('文件夹已移入回收站，文档已保留'); });
+  }
+
+  function restoreKnowledgeTrash(id) {
+    api('/api/knowledge-base', { method: 'POST', body: JSON.stringify({ action: 'restore-trash', id: id }) }).then(function (res) { if (!res.ok) { toast(res.error || '恢复失败'); return; } state.knowledgeBase = res.knowledgeBase; renderKnowledgeBase(); toast('已恢复到知识库'); });
+  }
+
+  function purgeKnowledgeTrash(id) {
+    if (!confirm('确定彻底删除吗？此操作无法恢复。')) return;
+    api('/api/knowledge-base', { method: 'POST', body: JSON.stringify({ action: 'purge-trash', id: id }) }).then(function (res) { if (!res.ok) { toast(res.error || '彻底删除失败'); return; } state.knowledgeBase = res.knowledgeBase; renderKnowledgeBase(); toast('已彻底删除'); });
   }
 
   function saveKnowledgeDoc() {
