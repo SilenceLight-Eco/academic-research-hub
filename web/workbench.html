@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>学术工作台</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='%230F766E' stroke='%230F766E' stroke-width='2'/><circle cx='16' cy='16' r='5' fill='%230F766E'/></svg>">
-  <link rel="stylesheet" href="style.css?v=20260919-34">
+  <link rel="stylesheet" href="style.css?v=20260919-35">
   <style>.sidebar-nav .retired-content{display:none!important}</style>
   <link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Serif+SC:wght@400;600;700&family=Noto+Sans+SC:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500&display=swap">
 </head>
@@ -159,6 +159,11 @@
           <kbd>⌘K</kbd>
         </button>
         <button class="account-button" id="accountButton" type="button">登录同步</button>
+        <div class="account-menu" id="accountMenu" hidden>
+          <div class="account-menu-email" id="accountMenuEmail"></div>
+          <button type="button" id="changePasswordButton">修改密码</button>
+          <button type="button" class="account-menu-logout" id="logoutButton">退出登录</button>
+        </div>
         <select class="theme-select" id="themeSelect" aria-label="整体主题" title="整体主题">
           <option value="paper">雅纸绿</option>
           <option value="midnight">深夜墨</option>
@@ -1182,7 +1187,21 @@
     <label>密码<input id="authPassword" type="password" required minlength="10" autocomplete="current-password"></label>
     <p class="auth-error" id="authError" hidden></p>
     <button class="btn-primary" id="authSubmit" type="submit">登录</button>
+    <button class="auth-forgot" id="authForgot" type="button">忘记密码？</button>
     <button class="auth-switch" id="authSwitch" type="button">没有账号？创建账号</button>
+  </form>
+</div>
+
+<div class="auth-modal" id="passwordModal" hidden>
+  <div class="auth-modal-backdrop" id="passwordModalBackdrop"></div>
+  <form class="auth-card" id="passwordForm">
+    <button class="auth-close" id="passwordModalClose" type="button" aria-label="关闭">×</button>
+    <h2>修改密码</h2>
+    <p class="auth-desc">请输入至少 10 位的新密码。</p>
+    <label>新密码<input id="newPassword" type="password" required minlength="10" autocomplete="new-password"></label>
+    <label>确认新密码<input id="confirmPassword" type="password" required minlength="10" autocomplete="new-password"></label>
+    <p class="auth-error" id="passwordError" hidden></p>
+    <button class="btn-primary" type="submit">保存新密码</button>
   </form>
 </div>
 
@@ -1202,7 +1221,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-  <script src="static-api.js?v=20260919-34"></script>
-  <script src="app.js?v=20260919-34"></script>
+  <script src="static-api.js?v=20260919-35"></script>
+  <script src="app.js?v=20260919-35"></script>
 </body>
 </html>

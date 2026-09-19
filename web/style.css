@@ -590,6 +590,7 @@ html, body {
   padding: 8px 13px;
 }
 .account-button:hover, .auth-switch:hover { border-color: var(--accent); color: var(--accent); }
+.topbar-right { position:relative; }.account-menu { position:absolute; z-index:30; top:42px; right:88px; display:grid; min-width:176px; gap:3px; padding:8px; border:1px solid var(--card-border); border-radius:10px; background:var(--card-bg); box-shadow:var(--shadow-card); }.account-menu[hidden] { display:none; }.account-menu-email { overflow:hidden; padding:5px 7px 8px; border-bottom:1px solid var(--card-border); color:var(--text-muted); font-size:11px; text-overflow:ellipsis; white-space:nowrap; }.account-menu button { border:0; border-radius:6px; background:transparent; color:var(--text-secondary); cursor:pointer; font:inherit; font-size:12px; padding:8px 7px; text-align:left; }.account-menu button:hover { background:var(--accent-dim); color:var(--accent); }.account-menu .account-menu-logout { color:#bc4444; }.account-menu .account-menu-logout:hover { background:rgba(190,68,68,.1); color:#bc4444; }.auth-forgot { justify-self:start; border:0; background:transparent; color:var(--accent); cursor:pointer; font:inherit; font-size:12px; padding:0; }
 .auth-modal { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; }
 .auth-modal[hidden] { display: none; }
 .auth-modal-backdrop { position: absolute; inset: 0; background: rgba(9, 20, 18, .55); }

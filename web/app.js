@@ -142,6 +142,9 @@
     account = user || null;
     var button = $('#accountButton');
     if (button) button.textContent = account ? account.email : '登录同步';
+    var menuEmail = $('#accountMenuEmail');
+    if (menuEmail) menuEmail.textContent = account ? account.email : '';
+    if (!account && $('#accountMenu')) $('#accountMenu').hidden = true;
     if (syncTimer) clearInterval(syncTimer);
     syncTimer = account ? setInterval(syncData, 15000) : null;
   }
@@ -154,7 +157,7 @@
     }).catch(function () { setAccount(null); });
   }
 
-  function openAuth() { $('#authModal').hidden = false; $('#authEmail').focus(); }
+  function openAuth() { $('#authModal').hidden = false; $('#authForgot').hidden = registering; $('#authEmail').focus(); }
   function closeAuth() { $('#authModal').hidden = true; $('#authError').hidden = true; }
   function toggleAuthMode() {
     registering = !registering;
@@ -162,7 +165,35 @@
     $('#authSubmit').textContent = registering ? '创建账号' : '登录';
     $('#authSwitch').textContent = registering ? '已有账号？登录' : '没有账号？创建账号';
     $('#authPassword').autocomplete = registering ? 'new-password' : 'current-password';
+    $('#authForgot').hidden = registering;
   }
+
+  function requestPasswordReset() {
+    var email = $('#authEmail').value.trim();
+    var error = $('#authError'); error.hidden = true;
+    if (!email) { error.textContent = '请先填写注册邮箱。'; error.hidden = false; $('#authEmail').focus(); return; }
+    api('/api/auth/reset-password', { method: 'POST', body: JSON.stringify({ email: email }) }).then(function (result) {
+      if (!result.ok) throw new Error(result.error || '发送失败');
+      error.textContent = '重置链接已发送，请前往邮箱完成操作。'; error.style.color = 'var(--accent)'; error.hidden = false;
+    }).catch(function (err) { error.style.color = ''; error.textContent = err.message || '发送失败'; error.hidden = false; });
+  }
+
+  function openAccountMenu() { var menu = $('#accountMenu'); if (menu) menu.hidden = !menu.hidden; }
+  function closeAccountMenu() { var menu = $('#accountMenu'); if (menu) menu.hidden = true; }
+  function openPasswordModal() { closeAccountMenu(); $('#passwordModal').hidden = false; $('#newPassword').focus(); }
+  function closePasswordModal() { $('#passwordModal').hidden = true; $('#passwordError').hidden = true; $('#passwordForm').reset(); }
+  function submitPasswordChange(event) {
+    event.preventDefault();
+    var error = $('#passwordError'); error.hidden = true;
+    var password = $('#newPassword').value;
+    if (password !== $('#confirmPassword').value) { error.textContent = '两次输入的密码不一致。'; error.hidden = false; return; }
+    api('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ password: password }) }).then(function (result) {
+      if (!result.ok) throw new Error(result.error || '修改失败');
+      closePasswordModal(); toast('密码已修改');
+    }).catch(function (err) { error.textContent = err.message || '修改失败'; error.hidden = false; });
+  }
+
+  function logoutAccount() { closeAccountMenu(); api('/api/auth/logout', { method: 'POST' }).then(function () { setAccount(null); toast('已退出登录'); }); }
 
   function submitAuth(event) {
     event.preventDefault();
@@ -4963,15 +4994,20 @@
     $$('[data-theme-palette]').forEach(function (button) {
       button.addEventListener('click', function () { selectThemePalette(button.dataset.themePalette); });
     });
-    $('#accountButton').addEventListener('click', function () {
-      if (account) {
-        api('/api/auth/logout', { method: 'POST' }).then(function () { setAccount(null); });
-      } else openAuth();
-    });
+    $('#accountButton').addEventListener('click', function () { if (account) openAccountMenu(); else openAuth(); });
     $('#authClose').addEventListener('click', closeAuth);
     $('#authModalBackdrop').addEventListener('click', closeAuth);
     $('#authSwitch').addEventListener('click', toggleAuthMode);
+    $('#authForgot').addEventListener('click', requestPasswordReset);
     $('#authForm').addEventListener('submit', submitAuth);
+    $('#changePasswordButton').addEventListener('click', openPasswordModal);
+    $('#logoutButton').addEventListener('click', logoutAccount);
+    $('#passwordModalClose').addEventListener('click', closePasswordModal);
+    $('#passwordModalBackdrop').addEventListener('click', closePasswordModal);
+    $('#passwordForm').addEventListener('submit', submitPasswordChange);
+    document.addEventListener('click', function (event) { var menu = $('#accountMenu'); if (menu && !menu.hidden && !menu.contains(event.target) && !$('#accountButton').contains(event.target)) closeAccountMenu(); });
+    window.addEventListener('academic-password-recovery', openPasswordModal);
+    if (window.__academicPasswordRecovery) openPasswordModal();
     $('#progressModalClose').addEventListener('click', closeProgressModal);
     $('#progressModalBackdrop').addEventListener('click', closeProgressModal);
     $('#progressForm').addEventListener('submit', saveStudyDates);
