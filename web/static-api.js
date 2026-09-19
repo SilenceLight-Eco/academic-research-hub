@@ -16,11 +16,11 @@
   function nowId() { return Date.now(); }
   function nowText() { return new Date().toLocaleString('sv-SE').slice(0, 16).replace('T', ' '); }
   function dateText() { return new Date().toISOString().slice(0, 10); }
-  function currentPayload() { return workspace || { todos: [], journal: [], publications: [], academicRecords: { funding: [], awards: [], conferences: [] }, browser: {}, researchHub: {} }; }
+  function currentPayload() { return workspace || { todos: [], journal: [], publications: [], academicRecords: { funding: [], awards: [], conferences: [] }, studyProgress: {}, browser: {}, researchHub: {} }; }
   function browserSnapshot() { var result = {}; focusKeys.forEach(function (k) { result[k] = localStorage.getItem(k); }); return result; }
   function researchSnapshot() { var result = {}; researchHubKeys.forEach(function (k) { result[k] = localStorage.getItem(k); }); return result; }
   function graduation(pubs) { var items = (pubs || []).filter(function (p) { return p.type === 'c_journal'; }); return { c_journal: { required: 2, achieved: items.length, remaining: Math.max(0, 2 - items.length), complete: items.length >= 2, items: items } }; }
-  function overview() { var payload = currentPayload(); return { field_name: 'Academic Research Hub', phd: { configured: false, label: '学业进度', stage: '', percent: 0, start: '', end: '', remain_days: 0 }, graduation: graduation(payload.publications), academic_records: payload.academicRecords || { funding: [], awards: [], conferences: [] }, sections: [], tree: { name: '浏览器版不访问本地文件', children: [], count: 0 } }; }
+  function overview() { var payload = currentPayload(); var defaults = { configured: false, label: '学业进度', stage: '', percent: 0, start: '', end: '', remain_days: 0 }; return { field_name: 'Academic Research Hub', phd: Object.assign(defaults, payload.studyProgress || {}), graduation: graduation(payload.publications), academic_records: payload.academicRecords || { funding: [], awards: [], conferences: [] }, sections: [], tree: { name: '浏览器版不访问本地文件', children: [], count: 0 } }; }
   // Read the persisted browser session first. Unlike getUser(), this does not
   // depend on a network round-trip during a page refresh.
   async function getUser() { await window.__academicAuthReady; var result = await client.auth.getSession(); return result.data.session ? result.data.session.user : null; }
@@ -34,6 +34,7 @@
     workspace.journal = Array.isArray(workspace.journal) ? workspace.journal : [];
     workspace.publications = Array.isArray(workspace.publications) ? workspace.publications : [];
     workspace.academicRecords = workspace.academicRecords || { funding: [], awards: [], conferences: [] };
+    workspace.studyProgress = workspace.studyProgress || {};
     ['funding', 'awards', 'conferences'].forEach(function (kind) { if (!Array.isArray(workspace.academicRecords[kind])) workspace.academicRecords[kind] = []; });
     workspace.browser = workspace.browser || {};
     workspace.researchHub = workspace.researchHub || {};
@@ -77,6 +78,11 @@
       if (!data && method === 'GET') data = currentPayload();
       if (!data) return response({ error: '请先登录后使用浏览器版工作台' }, 401);
       if (path === '/api/overview') return response(overview());
+      if (path === '/api/study-progress' && method === 'POST') {
+        var percent = Math.max(0, Math.min(100, Number(body.percent) || 0));
+        data.studyProgress = { configured: true, label: String(body.label || '学业进度').trim() || '学业进度', stage: String(body.stage || '').trim(), percent: percent, start: String(body.start || '').trim(), end: String(body.end || '').trim(), elapsed_days: Number(body.elapsed_days) || 0, remain_days: Number(body.remain_days) || 0 };
+        await saveWorkspace(); return response({ ok: true, phd: overview().phd });
+      }
       if (path === '/api/news') return response({ ok: true, data: { news: {}, weather: null } });
       if (path === '/api/todos') {
         if (method === 'GET') return response(data.todos);

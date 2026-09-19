@@ -4999,6 +4999,7 @@
 
     // 论文添加
     $('#pubAddBtn').addEventListener('click', addPublication);
+    $('#phdConfigureBtn').addEventListener('click', configureStudyProgress);
 
     // 论文删除（事件委托）
     $('#pubList').addEventListener('click', function (e) {
@@ -5682,6 +5683,27 @@
           toast('已删除');
         }
       });
+  }
+
+  function configureStudyProgress() {
+    var current = (state.overview && state.overview.phd) || {};
+    var label = prompt('进度名称（如 博士进度）：', current.label || '学业进度');
+    if (label === null) return;
+    var stage = prompt('当前阶段（可选，如 第三学年）：', current.stage || '') || '';
+    var rawPercent = prompt('完成百分比（0–100）：', current.percent != null ? current.percent : 0);
+    if (rawPercent === null) return;
+    var percent = Number(rawPercent);
+    if (!isFinite(percent) || percent < 0 || percent > 100) { toast('请输入 0 到 100 之间的数字'); return; }
+    var start = prompt('入学日期（可选，如 2024-09-01）：', current.start || '') || '';
+    var end = prompt('预计毕业日期（可选，如 2027-06-30）：', current.end || '') || '';
+    var remainDays = 0;
+    var elapsedDays = 0;
+    if (end && !isNaN(Date.parse(end))) remainDays = Math.max(0, Math.ceil((new Date(end).getTime() - Date.now()) / 86400000));
+    if (start && !isNaN(Date.parse(start))) elapsedDays = Math.max(0, Math.floor((Date.now() - new Date(start).getTime()) / 86400000));
+    api('/api/study-progress', { method: 'POST', body: JSON.stringify({ label: label.trim(), stage: stage.trim(), percent: percent, start: start.trim(), end: end.trim(), elapsed_days: elapsedDays, remain_days: remainDays }) }).then(function (res) {
+      if (!res.ok) { toast(res.error || '请先登录后保存'); return; }
+      state.overview.phd = res.phd; renderOverview(); toast('学业进度已保存');
+    });
   }
 
   // ===== 学术履历：基金 / 获奖 / 会议 =====
