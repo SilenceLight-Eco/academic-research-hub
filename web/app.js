@@ -530,7 +530,7 @@
   // ===== 渲染：概览 =====
   function renderOverview() {
     var phd = state.overview.phd;
-    /* 进度卡标题随学段走：设了学段就是「博士进度 / 硕士进度 / 本科进度」，否则「学业进度」 */
+    /* 学业进度由入学和预计毕业日期计算。 */
     var phdLabel = phd.label || '学业进度';
     var cardLabel = $('#phdCardLabel');
     if (cardLabel) cardLabel.textContent = phd.stage ? (phdLabel + ' · ' + phd.stage) : phdLabel;
@@ -557,7 +557,7 @@
       $('#phdBarMini').style.width = '0%';
       $('#phdStartDate').textContent = '待设置';
       $('#phdEndDate').textContent = '待设置';
-      $('#phdDays').textContent = '还没设置学制 —— 对你的 AI Agent 说「帮我设置学段和学制」，它会替你填好';
+      $('#phdDays').textContent = '未设置入学与预计毕业日期';
       var miniRange2 = $('#phdMiniRange');
       if (miniRange2) miniRange2.textContent = '未设置学制';
     }
@@ -5687,20 +5687,19 @@
 
   function configureStudyProgress() {
     var current = (state.overview && state.overview.phd) || {};
-    var label = prompt('进度名称（如 博士进度）：', current.label || '学业进度');
-    if (label === null) return;
-    var stage = prompt('当前阶段（可选，如 第三学年）：', current.stage || '') || '';
-    var rawPercent = prompt('完成百分比（0–100）：', current.percent != null ? current.percent : 0);
-    if (rawPercent === null) return;
-    var percent = Number(rawPercent);
-    if (!isFinite(percent) || percent < 0 || percent > 100) { toast('请输入 0 到 100 之间的数字'); return; }
-    var start = prompt('入学日期（可选，如 2024-09-01）：', current.start || '') || '';
-    var end = prompt('预计毕业日期（可选，如 2027-06-30）：', current.end || '') || '';
+    var start = prompt('入学日期（如 2024-09-01）：', current.start || '');
+    if (start === null) return;
+    var end = prompt('预计毕业日期（如 2027-06-30）：', current.end || '');
+    if (end === null) return;
+    start = start.trim(); end = end.trim();
+    if (!start || !end || isNaN(Date.parse(start)) || isNaN(Date.parse(end)) || Date.parse(end) <= Date.parse(start)) { toast('请填写有效的入学和预计毕业日期'); return; }
     var remainDays = 0;
     var elapsedDays = 0;
-    if (end && !isNaN(Date.parse(end))) remainDays = Math.max(0, Math.ceil((new Date(end).getTime() - Date.now()) / 86400000));
-    if (start && !isNaN(Date.parse(start))) elapsedDays = Math.max(0, Math.floor((Date.now() - new Date(start).getTime()) / 86400000));
-    api('/api/study-progress', { method: 'POST', body: JSON.stringify({ label: label.trim(), stage: stage.trim(), percent: percent, start: start.trim(), end: end.trim(), elapsed_days: elapsedDays, remain_days: remainDays }) }).then(function (res) {
+    remainDays = Math.max(0, Math.ceil((new Date(end).getTime() - Date.now()) / 86400000));
+    elapsedDays = Math.max(0, Math.floor((Date.now() - new Date(start).getTime()) / 86400000));
+    var totalDays = Math.max(1, Math.ceil((new Date(end).getTime() - new Date(start).getTime()) / 86400000));
+    var percent = Math.max(0, Math.min(100, Math.round(elapsedDays / totalDays * 100)));
+    api('/api/study-progress', { method: 'POST', body: JSON.stringify({ label: '学业进度', stage: '', percent: percent, start: start, end: end, elapsed_days: elapsedDays, remain_days: remainDays }) }).then(function (res) {
       if (!res.ok) { toast(res.error || '请先登录后保存'); return; }
       state.overview.phd = res.phd; renderOverview(); toast('学业进度已保存');
     });
