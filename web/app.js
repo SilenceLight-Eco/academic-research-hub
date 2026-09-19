@@ -5697,7 +5697,9 @@
     var markup = groups.map(function (group) {
       var items = Array.isArray(records[group.key]) ? records[group.key] : [];
       var latest = items.slice(0, 2).map(function (item) {
-        return '<li><span class="academic-record-title">' + escapeHtml(item.title || '') + '</span><span class="academic-record-meta">' + escapeHtml(item.meta || item.date || '') + '</span><button class="academic-record-delete" data-academic-delete="' + item.id + '" aria-label="删除">×</button></li>';
+        var details = item.details || {};
+        var displayMeta = item.meta || [details.location, details.time, details.paper].filter(Boolean).join(' · ') || item.date || '';
+        return '<li><span class="academic-record-title">' + escapeHtml(item.title || '') + '</span><span class="academic-record-meta" title="' + escapeHtml(displayMeta) + '">' + escapeHtml(displayMeta) + '</span><button class="academic-record-delete" data-academic-delete="' + item.id + '" aria-label="删除">×</button></li>';
       }).join('');
       return '<article class="academic-record-card academic-' + group.key + '"><div class="academic-record-top"><div><div class="academic-record-kicker">' + group.title + '</div><div class="academic-record-count">' + items.length + '</div></div><span class="academic-record-hint">' + group.hint + '</span></div>' + (latest ? '<ul class="academic-record-list">' + latest + '</ul>' : '<div class="academic-record-empty">尚未登记</div>') + '<button class="academic-record-add" data-academic-add="' + group.key + '">' + group.add + '</button></article>';
     }).join('');
@@ -5708,9 +5710,21 @@
     var labels = { funding: '基金项目名称', awards: '获奖名称', conferences: '会议名称' };
     var title = prompt(labels[kind] + '：');
     if (!title || !title.trim()) return;
+    if (kind === 'conferences') {
+      var location = prompt('会议地点（可选）：') || '';
+      var time = prompt('会议时间（可选，如 2026-09-19）：') || '';
+      var paper = prompt('报告论文或报告题目（可选）：') || '';
+      var details = { location: location.trim(), time: time.trim(), paper: paper.trim() };
+      var conferenceMeta = [details.location, details.time, details.paper].filter(Boolean).join(' · ');
+      api('/api/academic-records', { method: 'POST', body: JSON.stringify({ action: 'add', kind: kind, title: title.trim(), meta: conferenceMeta, details: details }) }).then(function (res) {
+        if (!res.ok) { toast(res.error || '请先登录后登记'); return; }
+        state.overview.academic_records = res.records; renderAcademicRecords(); toast('已登记学术会议');
+      });
+      return;
+    }
     var metaLabels = { funding: '资助单位、项目编号或角色（可选）', awards: '授奖单位或获奖等级（可选）', conferences: '地点、报告类型或日期（可选）' };
     var meta = prompt(metaLabels[kind] + '：') || '';
-    api('/api/academic-records', { method: 'POST', body: JSON.stringify({ action: 'add', kind: kind, title: title.trim(), meta: meta.trim() }) }).then(function (res) {
+    api('/api/academic-records', { method: 'POST', body: JSON.stringify({ action: 'add', kind: kind, title: title.trim(), meta: meta.trim(), details: {} }) }).then(function (res) {
       if (!res.ok) { toast(res.error || '请先登录后登记'); return; }
       state.overview.academic_records = res.records; renderAcademicRecords(); toast('已登记学术履历');
     });
