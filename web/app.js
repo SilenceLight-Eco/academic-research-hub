@@ -180,16 +180,17 @@
 
   function openAccountMenu() { var menu = $('#accountMenu'); if (menu) menu.hidden = !menu.hidden; }
   function closeAccountMenu() { var menu = $('#accountMenu'); if (menu) menu.hidden = true; }
-  function openPasswordModal() { closeAccountMenu(); $('#passwordModal').hidden = false; $('#newPassword').focus(); }
+  function openPasswordModal() { var recovery = Boolean(window.__academicPasswordRecovery); closeAccountMenu(); $('#passwordModal').hidden = false; $('#currentPasswordRow').hidden = recovery; $('#currentPassword').required = !recovery; $('#passwordModal h2').textContent = recovery ? '邮箱验证成功，请设置新密码' : '修改密码'; $('#newPassword').focus(); }
   function closePasswordModal() { $('#passwordModal').hidden = true; $('#passwordError').hidden = true; $('#passwordForm').reset(); }
   function submitPasswordChange(event) {
     event.preventDefault();
     var error = $('#passwordError'); error.hidden = true;
     var password = $('#newPassword').value;
+    var recovery = Boolean(window.__academicPasswordRecovery);
     if (password !== $('#confirmPassword').value) { error.textContent = '两次输入的密码不一致。'; error.hidden = false; return; }
-    api('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ password: password }) }).then(function (result) {
+    api('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ password: password, currentPassword: $('#currentPassword').value, recovery: recovery }) }).then(function (result) {
       if (!result.ok) throw new Error(result.error || '修改失败');
-      closePasswordModal(); toast('密码已修改');
+      window.__academicPasswordRecovery = false; closePasswordModal(); toast('密码已修改');
     }).catch(function (err) { error.textContent = err.message || '修改失败'; error.hidden = false; });
   }
 
