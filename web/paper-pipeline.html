@@ -441,8 +441,10 @@ async function fetchCrossrefMetadata(doi) {
     if (!work) throw new Error("Crossref 未返回论文信息");
     const authors = (work.author || []).map(a => [a.given, a.family].filter(Boolean).join(" ")).filter(Boolean);
     const issued = work.published?.['date-parts']?.[0]?.[0] || work.issued?.['date-parts']?.[0]?.[0] || "";
-    const metadata = { title: (work.title || [])[0] || "", authors, abstract: String(work.abstract || "").replace(/<[^>]+>/g, ""), journal: (work['container-title'] || [])[0] || "", year: issued, volume: work.volume || "", issue: work.issue || "", pages: work.page || "", doi: normalized, citations: work['is-referenced-by-count'] || 0, citationSource: "Crossref", keywords: [] };
-    // Crossref 经常不收录摘要，额外用 OpenAlex 补全摘要；关键词保持作者手动录入，避免把算法分类误标为论文关键词。
+    // 仅使用 Crossref 随 DOI 返回的出版商主题词；绝不使用 OpenAlex 的算法 concepts/keywords。
+    const publisherKeywords = Array.isArray(work.subject) ? work.subject.filter(Boolean) : [];
+    const metadata = { title: (work.title || [])[0] || "", authors, abstract: String(work.abstract || "").replace(/<[^>]+>/g, ""), journal: (work['container-title'] || [])[0] || "", year: issued, volume: work.volume || "", issue: work.issue || "", pages: work.page || "", doi: normalized, citations: work['is-referenced-by-count'] || 0, citationSource: "Crossref", keywords: publisherKeywords };
+    // Crossref 经常不收录摘要，额外用 OpenAlex 补全摘要；若出版商未提供主题词，则留空由用户填写。
     if (!metadata.abstract) {
       try {
         const openAlex = await fetchOpenAlexMetadata(normalized);

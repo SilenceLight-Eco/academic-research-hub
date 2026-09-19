@@ -206,22 +206,21 @@
             <div class="grad-compact-bottom">
               <button class="graduation-add-btn" id="pubAddBtn">+ 登记论文</button>
               <div class="pub-list" id="pubList"></div>
+              <!-- 学术履历紧随已发表论文登记区，脚本加载前也始终可见。 -->
+              <section class="academic-portfolio" aria-label="学术履历">
+                <div class="academic-portfolio-head">
+                  <div><div class="card-dot"></div><div class="card-label">学术履历</div></div>
+                  <span class="academic-portfolio-note">基金 · 获奖 · 会议</span>
+                </div>
+                <div class="academic-record-grid" id="academicRecordGrid">
+                  <article class="academic-record-card academic-funding"><div class="academic-record-top"><div><div class="academic-record-kicker">基金项目</div><div class="academic-record-count">0</div></div><span class="academic-record-hint">主持或参与的课题</span></div><div class="academic-record-empty">尚未登记</div><button class="academic-record-add" data-academic-add="funding">+ 登记基金</button></article>
+                  <article class="academic-record-card academic-awards"><div class="academic-record-top"><div><div class="academic-record-kicker">学术获奖</div><div class="academic-record-count">0</div></div><span class="academic-record-hint">竞赛、荣誉与表彰</span></div><div class="academic-record-empty">尚未登记</div><button class="academic-record-add" data-academic-add="awards">+ 登记获奖</button></article>
+                  <article class="academic-record-card academic-conferences"><div class="academic-record-top"><div><div class="academic-record-kicker">学术会议</div><div class="academic-record-count">0</div></div><span class="academic-record-hint">参会、报告与海报</span></div><div class="academic-record-empty">尚未登记</div><button class="academic-record-add" data-academic-add="conferences">+ 登记会议</button></article>
+                </div>
+              </section>
             </div>
           </div>
         </div>
-
-        <!-- 固定置于已发表论文/毕业成果卡片下方；脚本加载前也保留可见内容。 -->
-        <section class="academic-portfolio" aria-label="学术履历">
-          <div class="academic-portfolio-head">
-            <div><div class="card-dot"></div><div class="card-label">学术履历</div></div>
-            <span class="academic-portfolio-note">基金 · 获奖 · 会议</span>
-          </div>
-          <div class="academic-record-grid" id="academicRecordGrid">
-            <article class="academic-record-card academic-funding"><div class="academic-record-top"><div><div class="academic-record-kicker">基金项目</div><div class="academic-record-count">0</div></div><span class="academic-record-hint">主持或参与的课题</span></div><div class="academic-record-empty">尚未登记</div><button class="academic-record-add" data-academic-add="funding">+ 登记基金</button></article>
-            <article class="academic-record-card academic-awards"><div class="academic-record-top"><div><div class="academic-record-kicker">学术获奖</div><div class="academic-record-count">0</div></div><span class="academic-record-hint">竞赛、荣誉与表彰</span></div><div class="academic-record-empty">尚未登记</div><button class="academic-record-add" data-academic-add="awards">+ 登记获奖</button></article>
-            <article class="academic-record-card academic-conferences"><div class="academic-record-top"><div><div class="academic-record-kicker">学术会议</div><div class="academic-record-count">0</div></div><span class="academic-record-hint">参会、报告与海报</span></div><div class="academic-record-empty">尚未登记</div><button class="academic-record-add" data-academic-add="conferences">+ 登记会议</button></article>
-          </div>
-        </section>
 
         <!-- 今日待办（占满宽度） -->
         <div class="card card-todos-dashboard">
@@ -275,7 +274,7 @@
       <!-- Research Hub paper pipeline -->
       <section class="panel" id="panel-research-hub">
         <div class="research-hub-frame-wrap">
-          <iframe class="research-hub-frame" src="research-hub.html?v=20260919-5" title="Research Hub paper pipeline" loading="lazy"></iframe>
+          <iframe class="research-hub-frame" src="paper-pipeline.html?v=20260919-7" title="Research Hub paper pipeline" loading="lazy"></iframe>
         </div>
       </section>
 
