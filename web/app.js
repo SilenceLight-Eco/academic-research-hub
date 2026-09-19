@@ -46,6 +46,7 @@
 
   const PANEL_TITLES = {
     'research-hub': '论文管线',
+    'academic-records': '学术履历',
     dashboard: '概览',
     todos: '待办事项',
     focus: '专注',
@@ -5006,12 +5007,12 @@
       deletePublication(parseInt(btn.dataset.id));
     });
 
-    $('#academicRecordGrid').addEventListener('click', function (e) {
+    $$('.academic-record-grid').forEach(function (grid) { grid.addEventListener('click', function (e) {
       var add = e.target.closest('[data-academic-add]');
       if (add) { addAcademicRecord(add.dataset.academicAdd); return; }
       var remove = e.target.closest('[data-academic-delete]');
       if (remove) deleteAcademicRecord(parseInt(remove.dataset.academicDelete));
-    });
+    }); });
 
     // 资讯 tab
     $('#newsTabs').addEventListener('click', function (e) {
@@ -5685,21 +5686,22 @@
 
   // ===== 学术履历：基金 / 获奖 / 会议 =====
   function renderAcademicRecords() {
-    var root = $('#academicRecordGrid');
-    if (!root) return;
+    var roots = $$('.academic-record-grid');
+    if (!roots.length) return;
     var records = (state.overview && state.overview.academic_records) || {};
     var groups = [
       { key: 'funding', title: '基金项目', hint: '主持或参与的课题', add: '+ 登记基金' },
       { key: 'awards', title: '学术获奖', hint: '竞赛、荣誉与表彰', add: '+ 登记获奖' },
       { key: 'conferences', title: '学术会议', hint: '参会、报告与海报', add: '+ 登记会议' }
     ];
-    root.innerHTML = groups.map(function (group) {
+    var markup = groups.map(function (group) {
       var items = Array.isArray(records[group.key]) ? records[group.key] : [];
       var latest = items.slice(0, 2).map(function (item) {
         return '<li><span class="academic-record-title">' + escapeHtml(item.title || '') + '</span><span class="academic-record-meta">' + escapeHtml(item.meta || item.date || '') + '</span><button class="academic-record-delete" data-academic-delete="' + item.id + '" aria-label="删除">×</button></li>';
       }).join('');
       return '<article class="academic-record-card academic-' + group.key + '"><div class="academic-record-top"><div><div class="academic-record-kicker">' + group.title + '</div><div class="academic-record-count">' + items.length + '</div></div><span class="academic-record-hint">' + group.hint + '</span></div>' + (latest ? '<ul class="academic-record-list">' + latest + '</ul>' : '<div class="academic-record-empty">尚未登记</div>') + '<button class="academic-record-add" data-academic-add="' + group.key + '">' + group.add + '</button></article>';
     }).join('');
+    roots.forEach(function (root) { root.innerHTML = markup; });
   }
 
   function addAcademicRecord(kind) {

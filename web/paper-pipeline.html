@@ -780,6 +780,7 @@ function renderPublishedCard(p) {
     <div class="card-line"><span class="muted">卷(期)</span><strong>${volumeIssueEditable(p)}</strong></div>
     <div class="card-line"><span class="muted">页码</span><strong>${editableText(p, "pages")}</strong></div>
     <div class="card-line"><span class="muted">DOI</span><strong>${editableText(p, "doi")}</strong></div>
+    <button class="btn" onclick="importPublishedMetadata('${p._key}')">按 DOI 补全摘要与关键词</button>
     ${renderCitationBlock(p)}
     <div><div class="muted" style="margin-bottom:6px">摘要</div><div class="abstract">${editableText(p, "abstract", "editable-abstract")}</div></div>
     ${renderChipEditor(p, "keywords", "关键词")}
@@ -1257,6 +1258,23 @@ function addPaperCard(kind) {
       alert(error.message + "。已保留 DOI，你可以在卡片中手动补充其余信息。");
     });
   }
+}
+
+async function importPublishedMetadata(key) {
+  const p = findPaperByKey(key);
+  if (!p) return;
+  const doi = normalizeDoi(getPaperField(p, "doi") || "");
+  if (!doi || doi.includes("xxxx")) { alert("请先填写真实 DOI。"); return; }
+  try {
+    const metadata = await fetchCrossrefMetadata(doi);
+    if (!metadata) throw new Error("未找到 DOI 元数据");
+    ["title", "authors", "abstract", "journal", "year", "volume", "issue", "pages", "doi", "citations", "citationSource", "keywords"].forEach(function (field) {
+      const value = metadata[field];
+      if (value !== undefined && value !== "" && (!Array.isArray(value) || value.length)) setPaperField(p, field, value);
+    });
+    render(); updateStatusBar();
+    alert("已按 DOI 更新公开元数据。若关键词为空，表示出版商未随 DOI 提供主题词，可在卡片中手动添加。");
+  } catch (error) { alert((error && error.message) || "DOI 查询失败，请检查网络或 DOI。"); }
 }
 
 function deletePaperCard(kind, key) {
