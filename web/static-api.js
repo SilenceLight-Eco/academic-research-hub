@@ -16,7 +16,7 @@
   function nowId() { return Date.now(); }
   function nowText() { return new Date().toLocaleString('sv-SE').slice(0, 16).replace('T', ' '); }
   function dateText() { return new Date().toISOString().slice(0, 10); }
-  function currentPayload() { return workspace || { todos: [], journal: [], publications: [], academicRecords: { funding: [], awards: [], conferences: [] }, studyProgress: {}, graduationConfig: {}, browser: {}, researchHub: {} }; }
+  function currentPayload() { return workspace || { todos: [], journal: [], publications: [], academicRecords: { funding: [], awards: [], conferences: [] }, knowledgeBase: { folders: [], docs: [] }, studyProgress: {}, graduationConfig: {}, browser: {}, researchHub: {} }; }
   function browserSnapshot() { var result = {}; focusKeys.forEach(function (k) { result[k] = localStorage.getItem(k); }); return result; }
   function researchSnapshot() { var result = {}; researchHubKeys.forEach(function (k) { result[k] = localStorage.getItem(k); }); return result; }
   function graduation(pubs, config) { var items = (pubs || []).filter(function (p) { return p.type === 'c_journal'; }); var settings = config || {}; var required = Math.max(0, Number(settings.required) || 2); var achieved = settings.achieved == null ? items.length : Math.max(0, Number(settings.achieved) || 0); var label = 'C刊/SCI论文'; return { c_journal: { label: label, required: required, achieved: achieved, remaining: Math.max(0, required - achieved), complete: achieved >= required, items: items } }; }
@@ -34,6 +34,9 @@
     workspace.journal = Array.isArray(workspace.journal) ? workspace.journal : [];
     workspace.publications = Array.isArray(workspace.publications) ? workspace.publications : [];
     workspace.academicRecords = workspace.academicRecords || { funding: [], awards: [], conferences: [] };
+    workspace.knowledgeBase = workspace.knowledgeBase || { folders: [], docs: [] };
+    workspace.knowledgeBase.folders = Array.isArray(workspace.knowledgeBase.folders) ? workspace.knowledgeBase.folders : [];
+    workspace.knowledgeBase.docs = Array.isArray(workspace.knowledgeBase.docs) ? workspace.knowledgeBase.docs : [];
     workspace.studyProgress = workspace.studyProgress || {};
     workspace.graduationConfig = workspace.graduationConfig || {};
     ['funding', 'awards', 'conferences'].forEach(function (kind) { if (!Array.isArray(workspace.academicRecords[kind])) workspace.academicRecords[kind] = []; });
@@ -115,6 +118,16 @@
         if (body.action === 'add' && ['funding', 'awards', 'conferences'].indexOf(body.kind) >= 0 && String(body.title || '').trim()) records[body.kind].unshift({ id: nowId(), title: String(body.title).trim(), meta: String(body.meta || '').trim(), details: body.details && typeof body.details === 'object' ? body.details : {}, date: dateText() });
         if (body.action === 'delete') ['funding', 'awards', 'conferences'].forEach(function (kind) { records[kind] = records[kind].filter(function (item) { return item.id !== body.id; }); });
         await saveWorkspace(); return response({ ok: true, records: records });
+      }
+      if (path === '/api/knowledge-base') {
+        var kb = data.knowledgeBase || (data.knowledgeBase = { folders: [], docs: [] });
+        kb.folders = Array.isArray(kb.folders) ? kb.folders : [];
+        kb.docs = Array.isArray(kb.docs) ? kb.docs : [];
+        if (method === 'GET') return response({ ok: true, knowledgeBase: kb });
+        if (body.action === 'create-folder' && String(body.title || '').trim()) kb.folders.push({ id: nowId(), title: String(body.title).trim() });
+        if (body.action === 'create-doc') kb.docs.unshift({ id: nowId(), title: String(body.title || '未命名文档').trim(), content: String(body.content || '').trim(), folderId: body.folderId || '', updated: nowText() });
+        if (body.action === 'save-doc') kb.docs.forEach(function (doc) { if (doc.id === body.id) { doc.title = String(body.title || '未命名文档').trim(); doc.content = String(body.content || ''); doc.folderId = body.folderId || ''; doc.updated = nowText(); } });
+        await saveWorkspace(); return response({ ok: true, knowledgeBase: kb });
       }
       return response({ ok: false, error: '此功能需要本地 Python 服务' }, 501);
     } catch (error) { return response({ error: error.message || '云端同步失败' }, 500); }

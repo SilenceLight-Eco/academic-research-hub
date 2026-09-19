@@ -47,6 +47,7 @@
   const PANEL_TITLES = {
     'research-hub': '论文管线',
     'academic-records': '学术履历',
+    'knowledge-base': '知识库',
     dashboard: '概览',
     todos: '待办事项',
     focus: '专注',
@@ -448,6 +449,7 @@
     if (panel === 'pdf') checkPdfHealth();
     if (panel === 'translations') loadTranslations();
     if (panel === 'readings') loadReadings();
+    if (panel === 'knowledge-base') loadKnowledgeBase();
     if (panel === 'focus') focusRenderAll();   // 专注面板：进度/统计/记录实时刷新
     refreshUnreadBadges();   // 进入即视为已读，红点立刻消
     positionNavInk(true);
@@ -5044,6 +5046,11 @@
     $('#gradCJrnlAchieved').addEventListener('change', saveGraduationCounts);
     $('#gradCJrnlRequired').addEventListener('change', saveGraduationCounts);
 
+    $('#kbNewDoc').addEventListener('click', newKnowledgeDoc);
+    $('#kbNewFolder').addEventListener('click', newKnowledgeFolder);
+    $('#kbFolders').addEventListener('click', function (e) { var item = e.target.closest('[data-kb-folder]'); if (!item) return; state.kbFolderId = item.dataset.kbFolder; renderKnowledgeBase(); });
+    $('#kbDocs').addEventListener('click', function (e) { var item = e.target.closest('[data-kb-doc]'); if (!item) return; state.kbDocId = Number(item.dataset.kbDoc); renderKnowledgeBase(); });
+
     // 论文删除（事件委托）
     $('#pubList').addEventListener('click', function (e) {
       var btn = e.target.closest('[data-action="delete-pub"]');
@@ -5846,6 +5853,45 @@
       if (!res.ok) return;
       state.overview.academic_records = res.records; renderAcademicRecords();
     });
+  }
+
+  // ===== 知识库：目录、文档与账号同步 =====
+  function loadKnowledgeBase() {
+    return api('/api/knowledge-base').then(function (res) {
+      if (!res.ok) { toast(res.error || '请先登录后使用知识库'); return; }
+      state.knowledgeBase = res.knowledgeBase || { folders: [], docs: [] };
+      renderKnowledgeBase();
+    });
+  }
+
+  function renderKnowledgeBase() {
+    var kb = state.knowledgeBase || { folders: [], docs: [] };
+    var folders = kb.folders || [];
+    var docs = kb.docs || [];
+    var folderId = state.kbFolderId || 'all';
+    var visibleDocs = folderId === 'all' ? docs : docs.filter(function (doc) { return String(doc.folderId) === String(folderId); });
+    if (!docs.some(function (doc) { return doc.id === state.kbDocId; })) state.kbDocId = visibleDocs[0] ? visibleDocs[0].id : null;
+    var active = docs.filter(function (doc) { return doc.id === state.kbDocId; })[0] || null;
+    $('#kbFolders').innerHTML = '<button class="kb-folder is-active" data-kb-folder="all">全部文档 <span>' + docs.length + '</span></button>' + folders.map(function (folder) { return '<button class="kb-folder' + (String(folder.id) === String(folderId) ? ' is-active' : '') + '" data-kb-folder="' + folder.id + '">' + escapeHtml(folder.title) + '<span>' + docs.filter(function (doc) { return String(doc.folderId) === String(folder.id); }).length + '</span></button>'; }).join('');
+    $('#kbDocs').innerHTML = visibleDocs.length ? visibleDocs.map(function (doc) { return '<button class="kb-doc' + (doc.id === state.kbDocId ? ' is-active' : '') + '" data-kb-doc="' + doc.id + '"><b>' + escapeHtml(doc.title || '未命名文档') + '</b><span>' + escapeHtml(doc.updated || '') + '</span></button>'; }).join('') : '<div class="kb-empty">此目录还没有文档</div>';
+    $('#kbEditor').innerHTML = active ? '<input id="kbDocTitle" class="kb-doc-title" value="' + escapeHtml(active.title || '') + '" placeholder="文档标题"><select id="kbDocFolder"><option value="">未分类</option>' + folders.map(function (folder) { return '<option value="' + folder.id + '"' + (String(folder.id) === String(active.folderId) ? ' selected' : '') + '>' + escapeHtml(folder.title) + '</option>'; }).join('') + '</select><textarea id="kbDocContent" class="kb-doc-content" placeholder="开始记录你的想法、文献笔记和研究材料…">' + escapeHtml(active.content || '') + '</textarea><div class="kb-editor-foot"><span>最近更新：' + escapeHtml(active.updated || '尚未保存') + '</span><button id="kbSaveDoc" type="button">保存文档</button></div>' : '<div class="kb-editor-empty">选择左侧文档，或新建一篇文档开始记录。</div>';
+    var save = $('#kbSaveDoc'); if (save) save.addEventListener('click', saveKnowledgeDoc);
+  }
+
+  function newKnowledgeDoc() {
+    var title = '未命名文档';
+    api('/api/knowledge-base', { method: 'POST', body: JSON.stringify({ action: 'create-doc', title: title, folderId: state.kbFolderId === 'all' ? '' : state.kbFolderId }) }).then(function (res) { if (!res.ok) { toast(res.error || '请先登录后创建'); return; } state.knowledgeBase = res.knowledgeBase; state.kbDocId = res.knowledgeBase.docs[0].id; renderKnowledgeBase(); });
+  }
+
+  function newKnowledgeFolder() {
+    var title = prompt('文件夹名称：');
+    if (!title || !title.trim()) return;
+    api('/api/knowledge-base', { method: 'POST', body: JSON.stringify({ action: 'create-folder', title: title.trim() }) }).then(function (res) { if (!res.ok) { toast(res.error || '请先登录后创建'); return; } state.knowledgeBase = res.knowledgeBase; renderKnowledgeBase(); });
+  }
+
+  function saveKnowledgeDoc() {
+    if (!state.kbDocId) return;
+    api('/api/knowledge-base', { method: 'POST', body: JSON.stringify({ action: 'save-doc', id: state.kbDocId, title: $('#kbDocTitle').value, content: $('#kbDocContent').value, folderId: $('#kbDocFolder').value }) }).then(function (res) { if (!res.ok) { toast(res.error || '保存失败'); return; } state.knowledgeBase = res.knowledgeBase; renderKnowledgeBase(); toast('文档已同步保存'); });
   }
 
   // ===== 操作：文件夹 =====
