@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>学术工作台</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='%230F766E' stroke='%230F766E' stroke-width='2'/><circle cx='16' cy='16' r='5' fill='%230F766E'/></svg>">
-  <link rel="stylesheet" href="style.css?v=20260919-38">
+  <link rel="stylesheet" href="style.css?v=20260920-39">
   <style>.sidebar-nav .retired-content{display:none!important}</style>
   <link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Serif+SC:wght@400;600;700&family=Noto+Sans+SC:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500&display=swap">
 </head>
@@ -67,6 +67,10 @@
         <button class="nav-item" data-panel="note-studio">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M7 8h10M7 12h7M7 16h9"/></svg>
           <span>笔记</span>
+        </button>
+        <button class="nav-item" data-panel="prompt-library">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-1.9 5.4A8.5 8.5 0 1 1 16.6 3.1a8.38 8.38 0 0 1 4.4 8.4z"/><path d="M8 10h.01M12 10h.01M16 10h.01"/></svg>
+          <span>提示词</span>
         </button>
         <button class="nav-item" data-panel="focus">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5V13.5l2.4 1.7"/><path d="M9 2.5h6"/><path d="M12 2.5V6"/></svg>
@@ -327,6 +331,15 @@
           <aside class="note-list" id="noteList"></aside>
           <section class="note-editor-card"><div class="note-pane-label"><input id="noteTitle" aria-label="笔记标题" placeholder="未命名笔记"><button type="button" id="noteDelete" title="移入回收站">×</button></div><textarea id="noteEditor" spellcheck="true" placeholder="# 一篇值得分享的笔记\n\n用 **加粗**、引用、列表和代码块组织内容。\n\n> 写下你的观点。"></textarea><div class="note-editor-tip">支持：标题、加粗、斜体、引用、列表、链接、代码块与行内公式。</div></section>
           <section class="note-preview-card"><div class="note-pane-label">公众号预览 <span>实时排版</span></div><article class="wechat-article" id="notePreview" data-note-style="paper"></article></section>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-prompt-library">
+        <div class="prompt-head"><div><div class="card-dot"></div><div class="card-label">提示词库</div><p>保存模板，填写变量，然后复制到任意 AI 对话。</p></div><div class="prompt-actions"><button type="button" id="promptTrash">回收站</button><button type="button" id="promptNew">+ 新建提示词</button><button type="button" id="promptSave">保存</button><button type="button" id="promptCopy">复制结果</button></div></div>
+        <div class="prompt-workspace">
+          <aside class="prompt-list" id="promptList"></aside>
+          <section class="prompt-editor"><div class="prompt-editor-top"><input id="promptTitle" placeholder="提示词标题" aria-label="提示词标题"><button id="promptDelete" type="button" title="移入回收站">×</button></div><div class="prompt-meta"><input id="promptCategory" placeholder="分类，例如：论文写作" aria-label="分类"><input id="promptTags" placeholder="标签，用逗号分隔" aria-label="标签"></div><textarea id="promptBody" placeholder="你是一位 {{ role }}。\n请围绕 {{ topic }} 给出清晰、可执行的建议。"></textarea><div class="prompt-editor-tip">使用 <code>{{ variable }}</code> 创建可填写变量。</div></section>
+          <section class="prompt-use"><div class="prompt-use-label">填写变量后复制</div><div class="prompt-variables" id="promptVariables"></div><pre class="prompt-result" id="promptResult"></pre></section>
         </div>
       </section>
 
@@ -1235,7 +1248,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-  <script src="static-api.js?v=20260919-38"></script>
-  <script src="app.js?v=20260919-38"></script>
+  <script src="static-api.js?v=20260920-39"></script>
+  <script src="app.js?v=20260920-39"></script>
 </body>
 </html>

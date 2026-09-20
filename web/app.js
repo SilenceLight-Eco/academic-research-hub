@@ -45,6 +45,9 @@
     noteStudio: { notes: [], trash: [] },
     noteId: null,
     noteTrashOpen: false,
+    promptLibrary: { prompts: [], trash: [] },
+    promptId: null,
+    promptTrashOpen: false,
   };
 
   const PANEL_TITLES = {
@@ -52,6 +55,7 @@
     'academic-records': '学术履历',
     'knowledge-base': '知识库',
     'note-studio': '公众号笔记',
+    'prompt-library': '提示词库',
     dashboard: '概览',
     todos: '待办事项',
     focus: '专注',
@@ -487,6 +491,7 @@
     if (panel === 'readings') loadReadings();
     if (panel === 'knowledge-base') loadKnowledgeBase();
     if (panel === 'note-studio') loadNoteStudio();
+    if (panel === 'prompt-library') loadPromptLibrary();
     if (panel === 'focus') focusRenderAll();   // 专注面板：进度/统计/记录实时刷新
     refreshUnreadBadges();   // 进入即视为已读，红点立刻消
     positionNavInk(true);
@@ -5098,6 +5103,14 @@
     $('#noteTrash').addEventListener('click', function () { state.noteTrashOpen = !state.noteTrashOpen; renderNoteStudio(); });
     $('#noteDelete').addEventListener('click', trashNoteStudio);
     $('#noteList').addEventListener('click', function (e) { var restore = e.target.closest('[data-note-restore]'); if (restore) { restoreNoteStudio(restore.dataset.noteRestore); return; } var purge = e.target.closest('[data-note-purge]'); if (purge) { purgeNoteStudio(purge.dataset.notePurge); return; } var note = e.target.closest('[data-note-id]'); if (!note) return; state.noteId = Number(note.dataset.noteId); renderNoteStudio(); });
+    $('#promptNew').addEventListener('click', newPrompt);
+    $('#promptSave').addEventListener('click', savePrompt);
+    $('#promptCopy').addEventListener('click', copyPromptResult);
+    $('#promptDelete').addEventListener('click', trashPrompt);
+    $('#promptTrash').addEventListener('click', function () { state.promptTrashOpen = !state.promptTrashOpen; renderPromptLibrary(); });
+    ['promptTitle', 'promptCategory', 'promptTags', 'promptBody'].forEach(function (id) { $('#' + id).addEventListener('input', renderPromptResult); });
+    $('#promptVariables').addEventListener('input', renderPromptResult);
+    $('#promptList').addEventListener('click', function (e) { var restore = e.target.closest('[data-prompt-restore]'); if (restore) { restorePrompt(restore.dataset.promptRestore); return; } var purge = e.target.closest('[data-prompt-purge]'); if (purge) { purgePrompt(purge.dataset.promptPurge); return; } var prompt = e.target.closest('[data-prompt-id]'); if (!prompt) return; state.promptId = Number(prompt.dataset.promptId); renderPromptLibrary(); });
     $('#kbTrashToggle').addEventListener('click', function () { state.kbTrashOpen = !state.kbTrashOpen; state.kbDraft = null; renderKnowledgeBase(); });
     $('#kbFolders').addEventListener('click', function (e) { var remove = e.target.closest('[data-kb-delete-folder]'); if (remove) { deleteKnowledgeFolder(remove.dataset.kbDeleteFolder); return; } var item = e.target.closest('[data-kb-folder]'); if (!item) return; state.kbFolderId = item.dataset.kbFolder; renderKnowledgeBase(); });
     $('#kbDocs').addEventListener('click', function (e) { var restore = e.target.closest('[data-kb-restore-trash]'); if (restore) { restoreKnowledgeTrash(restore.dataset.kbRestoreTrash); return; } var purge = e.target.closest('[data-kb-purge-trash]'); if (purge) { purgeKnowledgeTrash(purge.dataset.kbPurgeTrash); return; } var remove = e.target.closest('[data-kb-delete-doc]'); if (remove) { deleteKnowledgeDoc(remove.dataset.kbDeleteDoc); return; } var heading = e.target.closest('[data-kb-heading]'); if (heading) { state.kbDocId = Number(heading.dataset.kbDoc); state.kbDraft = null; state.kbHeadingTarget = heading.dataset.kbHeading; state.kbEditorMode = 'rich'; renderKnowledgeBase(); setTimeout(scrollToKnowledgeHeading, 0); return; } var item = e.target.closest('[data-kb-doc]'); if (!item) return; state.kbDocId = Number(item.dataset.kbDoc); state.kbDraft = null; renderKnowledgeBase(); });
@@ -5914,6 +5927,30 @@
       state.overview.academic_records = res.records; renderAcademicRecords();
     });
   }
+
+  // ===== 提示词库：模板变量、复制与回收站 =====
+  function loadPromptLibrary() { return api('/api/prompt-library').then(function (res) { if (!res.ok) { toast(res.error || '请先登录后使用提示词库'); return; } state.promptLibrary = Object.assign({ prompts: [], trash: [] }, res.promptLibrary || {}); if (!state.promptId && state.promptLibrary.prompts[0]) state.promptId = state.promptLibrary.prompts[0].id; renderPromptLibrary(); }); }
+  function activePrompt() { return (state.promptLibrary.prompts || []).filter(function (prompt) { return Number(prompt.id) === Number(state.promptId); })[0] || null; }
+  function renderPromptLibrary() {
+    var library = state.promptLibrary || { prompts: [], trash: [] }, prompts = library.prompts || [], trash = library.trash || [], list = $('#promptList');
+    var fields = ['promptTitle', 'promptCategory', 'promptTags', 'promptBody'];
+    $('#promptTrash').textContent = state.promptTrashOpen ? '返回提示词库' : '回收站' + (trash.length ? ' (' + trash.length + ')' : '');
+    if (state.promptTrashOpen) { list.innerHTML = trash.length ? '<div class="prompt-list-label">回收站</div>' + trash.map(function (entry) { return '<div class="prompt-trash-row"><div><b>' + escapeHtml((entry.item || {}).title || '未命名提示词') + '</b><span>' + escapeHtml(entry.deletedAt || '') + '</span></div><div><button type="button" data-prompt-restore="' + entry.id + '">恢复</button><button type="button" data-prompt-purge="' + entry.id + '">彻底删除</button></div></div>'; }).join('') : '<div class="prompt-list-empty">回收站为空</div>'; fields.forEach(function (id) { $('#' + id).value = ''; $('#' + id).disabled = true; }); $('#promptDelete').hidden = true; $('#promptVariables').innerHTML = ''; $('#promptResult').textContent = '可在左侧恢复误删的提示词。'; return; }
+    if (!prompts.some(function (prompt) { return Number(prompt.id) === Number(state.promptId); })) state.promptId = prompts[0] ? prompts[0].id : null;
+    var active = activePrompt();
+    list.innerHTML = prompts.length ? '<div class="prompt-list-label">全部提示词 <span>' + prompts.length + '</span></div>' + prompts.map(function (prompt) { return '<button type="button" class="prompt-list-item' + (Number(prompt.id) === Number(state.promptId) ? ' is-active' : '') + '" data-prompt-id="' + prompt.id + '"><b>' + escapeHtml(prompt.title || '未命名提示词') + '</b><span>' + escapeHtml(prompt.category || '通用') + ' · ' + escapeHtml(prompt.updated || '') + '</span></button>'; }).join('') : '<div class="prompt-list-empty">还没有提示词<br>点击右上角新建</div>';
+    fields.forEach(function (id) { $('#' + id).disabled = !active; }); $('#promptDelete').hidden = !active;
+    $('#promptTitle').value = active ? active.title || '' : ''; $('#promptCategory').value = active ? active.category || '' : ''; $('#promptTags').value = active ? active.tags || '' : ''; $('#promptBody').value = active ? active.body || '' : '';
+    renderPromptResult();
+  }
+  function promptVariables(text) { var seen = {}; return (String(text || '').match(/{{\s*([\w\u4e00-\u9fa5-]+)\s*}}/g) || []).map(function (item) { return item.replace(/{{\s*|\s*}}/g, ''); }).filter(function (name) { if (seen[name]) return false; seen[name] = true; return true; }); }
+  function renderPromptResult() { var body = $('#promptBody').value || '', variables = promptVariables(body), container = $('#promptVariables'); var existing = {}; $$('[data-prompt-var]', container).forEach(function (input) { existing[input.dataset.promptVar] = input.value; }); container.innerHTML = variables.length ? variables.map(function (name) { return '<label>' + escapeHtml(name) + '<input data-prompt-var="' + escapeHtml(name) + '" placeholder="填写 ' + escapeHtml(name) + '" value="' + escapeHtml(existing[name] || '') + '"></label>'; }).join('') : '<div class="prompt-variable-empty">此提示词没有变量，可直接复制。</div>'; var values = {}; $$('[data-prompt-var]', container).forEach(function (input) { values[input.dataset.promptVar] = input.value; }); $('#promptResult').textContent = body.replace(/{{\s*([\w\u4e00-\u9fa5-]+)\s*}}/g, function (_, name) { return values[name] || '{{ ' + name + ' }}'; }); }
+  function newPrompt() { api('/api/prompt-library', { method: 'POST', body: JSON.stringify({ action: 'create' }) }).then(function (res) { if (!res.ok) { toast(res.error || '新建失败'); return; } state.promptLibrary = res.promptLibrary; state.promptTrashOpen = false; state.promptId = res.promptLibrary.prompts[0].id; renderPromptLibrary(); $('#promptTitle').focus(); }); }
+  function savePrompt() { if (!state.promptId) return; api('/api/prompt-library', { method: 'POST', body: JSON.stringify({ action: 'save', id: state.promptId, title: $('#promptTitle').value, category: $('#promptCategory').value, tags: $('#promptTags').value, body: $('#promptBody').value }) }).then(function (res) { if (!res.ok) { toast(res.error || '保存失败'); return; } state.promptLibrary = res.promptLibrary; renderPromptLibrary(); toast('提示词已同步保存'); }); }
+  function trashPrompt() { if (!state.promptId || !confirm('确定将这条提示词移入回收站吗？')) return; api('/api/prompt-library', { method: 'POST', body: JSON.stringify({ action: 'trash', id: state.promptId }) }).then(function (res) { if (!res.ok) { toast(res.error || '移入回收站失败'); return; } state.promptLibrary = res.promptLibrary; state.promptId = null; renderPromptLibrary(); toast('提示词已移入回收站'); }); }
+  function restorePrompt(id) { api('/api/prompt-library', { method: 'POST', body: JSON.stringify({ action: 'restore', id: id }) }).then(function (res) { if (!res.ok) { toast(res.error || '恢复失败'); return; } state.promptLibrary = res.promptLibrary; renderPromptLibrary(); toast('提示词已恢复'); }); }
+  function purgePrompt(id) { if (!confirm('确定彻底删除吗？此操作无法恢复。')) return; api('/api/prompt-library', { method: 'POST', body: JSON.stringify({ action: 'purge', id: id }) }).then(function (res) { if (!res.ok) { toast(res.error || '彻底删除失败'); return; } state.promptLibrary = res.promptLibrary; renderPromptLibrary(); toast('已彻底删除'); }); }
+  function copyPromptResult() { var text = $('#promptResult').textContent.trim(); if (!text) { toast('请先填写提示词内容'); return; } if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { toast('已复制提示词'); }); else { var ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); toast('已复制提示词'); } }
 
   // ===== 公众号笔记：Markdown 编辑、富文本复制与账号同步 =====
   function loadNoteStudio() {
