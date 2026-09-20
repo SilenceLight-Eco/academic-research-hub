@@ -49,6 +49,9 @@
     promptId: null,
     promptTrashOpen: false,
     promptCategoryFilter: 'all',
+    researchProjects: { projects: [], trash: [] },
+    projectId: null,
+    projectTrashOpen: false,
   };
 
   const PANEL_TITLES = {
@@ -57,6 +60,7 @@
     'knowledge-base': '知识库',
     'note-studio': '公众号笔记',
     'prompt-library': '提示词库',
+    'research-projects': '研究项目',
     dashboard: '概览',
     todos: '待办事项',
     focus: '专注',
@@ -493,6 +497,7 @@
     if (panel === 'knowledge-base') loadKnowledgeBase();
     if (panel === 'note-studio') loadNoteStudio();
     if (panel === 'prompt-library') loadPromptLibrary();
+    if (panel === 'research-projects') loadResearchProjects();
     if (panel === 'focus') focusRenderAll();   // 专注面板：进度/统计/记录实时刷新
     refreshUnreadBadges();   // 进入即视为已读，红点立刻消
     positionNavInk(true);
@@ -5112,6 +5117,13 @@
     ['promptTitle', 'promptCategory', 'promptTags', 'promptBody'].forEach(function (id) { $('#' + id).addEventListener('input', renderPromptResult); });
     $('#promptVariables').addEventListener('input', renderPromptResult);
     $('#promptList').addEventListener('click', function (e) { var restore = e.target.closest('[data-prompt-restore]'); if (restore) { restorePrompt(restore.dataset.promptRestore); return; } var purge = e.target.closest('[data-prompt-purge]'); if (purge) { purgePrompt(purge.dataset.promptPurge); return; } var category = e.target.closest('[data-prompt-category]'); if (category) { state.promptCategoryFilter = category.dataset.promptCategory; var first = (state.promptLibrary.prompts || []).filter(function (item) { return state.promptCategoryFilter === 'all' || (item.category || '通用') === state.promptCategoryFilter; })[0]; state.promptId = first ? first.id : null; renderPromptLibrary(); return; } var prompt = e.target.closest('[data-prompt-id]'); if (!prompt) return; state.promptId = Number(prompt.dataset.promptId); renderPromptLibrary(); });
+    $('#projectNew').addEventListener('click', newResearchProject);
+    $('#projectSave').addEventListener('click', saveResearchProject);
+    $('#projectDelete').addEventListener('click', trashResearchProject);
+    $('#projectTrash').addEventListener('click', function () { state.projectTrashOpen = !state.projectTrashOpen; renderResearchProjects(); });
+    $('#projectList').addEventListener('click', function (e) { var restore = e.target.closest('[data-project-restore]'); if (restore) { restoreResearchProject(restore.dataset.projectRestore); return; } var purge = e.target.closest('[data-project-purge]'); if (purge) { purgeResearchProject(purge.dataset.projectPurge); return; } var project = e.target.closest('[data-project-id]'); if (!project) return; state.projectId = Number(project.dataset.projectId); renderResearchProjects(); });
+    ['projectTitle', 'projectStatus', 'projectProgress', 'projectStart', 'projectEnd', 'projectGoal', 'projectMembers', 'projectMilestones', 'projectResources'].forEach(function (id) { $('#' + id).addEventListener('input', renderProjectSummary); });
+    $('#projectStatus').addEventListener('change', renderProjectSummary);
     $('#kbTrashToggle').addEventListener('click', function () { state.kbTrashOpen = !state.kbTrashOpen; state.kbDraft = null; renderKnowledgeBase(); });
     $('#kbFolders').addEventListener('click', function (e) { var remove = e.target.closest('[data-kb-delete-folder]'); if (remove) { deleteKnowledgeFolder(remove.dataset.kbDeleteFolder); return; } var item = e.target.closest('[data-kb-folder]'); if (!item) return; state.kbFolderId = item.dataset.kbFolder; renderKnowledgeBase(); });
     $('#kbDocs').addEventListener('click', function (e) { var restore = e.target.closest('[data-kb-restore-trash]'); if (restore) { restoreKnowledgeTrash(restore.dataset.kbRestoreTrash); return; } var purge = e.target.closest('[data-kb-purge-trash]'); if (purge) { purgeKnowledgeTrash(purge.dataset.kbPurgeTrash); return; } var remove = e.target.closest('[data-kb-delete-doc]'); if (remove) { deleteKnowledgeDoc(remove.dataset.kbDeleteDoc); return; } var heading = e.target.closest('[data-kb-heading]'); if (heading) { state.kbDocId = Number(heading.dataset.kbDoc); state.kbDraft = null; state.kbHeadingTarget = heading.dataset.kbHeading; state.kbEditorMode = 'rich'; renderKnowledgeBase(); setTimeout(scrollToKnowledgeHeading, 0); return; } var item = e.target.closest('[data-kb-doc]'); if (!item) return; state.kbDocId = Number(item.dataset.kbDoc); state.kbDraft = null; renderKnowledgeBase(); });
@@ -5928,6 +5940,28 @@
       state.overview.academic_records = res.records; renderAcademicRecords();
     });
   }
+
+  // ===== 研究项目：目标、阶段、里程碑与回收站 =====
+  function loadResearchProjects() { return api('/api/research-projects').then(function (res) { if (!res.ok) { toast(res.error || '请先登录后使用项目管理'); return; } state.researchProjects = Object.assign({ projects: [], trash: [] }, res.researchProjects || {}); if (!state.projectId && state.researchProjects.projects[0]) state.projectId = state.researchProjects.projects[0].id; renderResearchProjects(); }); }
+  function activeResearchProject() { return (state.researchProjects.projects || []).filter(function (project) { return Number(project.id) === Number(state.projectId); })[0] || null; }
+  function projectFields() { return ['projectTitle', 'projectStatus', 'projectProgress', 'projectStart', 'projectEnd', 'projectGoal', 'projectMembers', 'projectMilestones', 'projectResources']; }
+  function renderResearchProjects() {
+    var collection = state.researchProjects || { projects: [], trash: [] }, projects = collection.projects || [], trash = collection.trash || [], list = $('#projectList');
+    $('#projectTrash').textContent = state.projectTrashOpen ? '返回项目' : '回收站' + (trash.length ? ' (' + trash.length + ')' : '');
+    if (state.projectTrashOpen) { list.innerHTML = trash.length ? '<div class="project-list-label">回收站</div>' + trash.map(function (entry) { return '<div class="project-trash-row"><div><b>' + escapeHtml((entry.item || {}).title || '未命名项目') + '</b><span>' + escapeHtml(entry.deletedAt || '') + '</span></div><div><button type="button" data-project-restore="' + entry.id + '">恢复</button><button type="button" data-project-purge="' + entry.id + '">彻底删除</button></div></div>'; }).join('') : '<div class="project-list-empty">回收站为空</div>'; projectFields().forEach(function (id) { $('#' + id).value = ''; $('#' + id).disabled = true; }); $('#projectDelete').hidden = true; $('#projectSummary').innerHTML = '<div class="project-summary-empty">可在左侧恢复误删项目。</div>'; return; }
+    if (!projects.some(function (project) { return Number(project.id) === Number(state.projectId); })) state.projectId = projects[0] ? projects[0].id : null;
+    var active = activeResearchProject();
+    list.innerHTML = projects.length ? '<div class="project-list-label">我的项目 <span>' + projects.length + '</span></div>' + projects.map(function (project) { return '<button type="button" class="project-list-item' + (Number(project.id) === Number(state.projectId) ? ' is-active' : '') + '" data-project-id="' + project.id + '"><b>' + escapeHtml(project.title || '未命名项目') + '</b><span>' + escapeHtml(project.status || '规划中') + ' · ' + Math.max(0, Math.min(100, Number(project.progress) || 0)) + '%</span></button>'; }).join('') : '<div class="project-list-empty">还没有研究项目<br>点击右上角新建</div>';
+    projectFields().forEach(function (id) { $('#' + id).disabled = !active; }); $('#projectDelete').hidden = !active;
+    $('#projectTitle').value = active ? active.title || '' : ''; $('#projectStatus').value = active ? active.status || '规划中' : '规划中'; $('#projectProgress').value = active ? Math.max(0, Math.min(100, Number(active.progress) || 0)) : 0; $('#projectStart').value = active ? active.start || '' : ''; $('#projectEnd').value = active ? active.end || '' : ''; $('#projectGoal').value = active ? active.goal || '' : ''; $('#projectMembers').value = active ? active.members || '' : ''; $('#projectMilestones').value = active ? active.milestones || '' : ''; $('#projectResources').value = active ? active.resources || '' : '';
+    renderProjectSummary();
+  }
+  function renderProjectSummary() { var summary = $('#projectSummary'); if (!summary) return; if (!state.projectId || state.projectTrashOpen) return; var progress = Math.max(0, Math.min(100, Number($('#projectProgress').value) || 0)); var milestones = ($('#projectMilestones').value || '').split(/\r?\n/).filter(Boolean); var resources = ($('#projectResources').value || '').split(/\r?\n/).filter(Boolean); summary.innerHTML = '<div class="project-summary-kicker">项目概览</div><h2>' + escapeHtml($('#projectTitle').value || '未命名项目') + '</h2><div class="project-status-pill is-' + escapeHtml($('#projectStatus').value) + '">' + escapeHtml($('#projectStatus').value) + '</div><div class="project-progress"><div><span>完成进度</span><b>' + progress + '%</b></div><i><em style="width:' + progress + '%"></em></i></div><dl><div><dt>起止日期</dt><dd>' + escapeHtml($('#projectStart').value || '未设置') + ' — ' + escapeHtml($('#projectEnd').value || '未设置') + '</dd></div><div><dt>成员</dt><dd>' + escapeHtml($('#projectMembers').value || '未设置') + '</dd></div></dl><section><h3>关键里程碑</h3>' + (milestones.length ? '<ul>' + milestones.map(function (item) { return '<li>' + escapeHtml(item) + '</li>'; }).join('') + '</ul>' : '<p>尚未设置</p>') + '</section><section><h3>关联资源</h3>' + (resources.length ? '<ul>' + resources.map(function (item) { return '<li>' + escapeHtml(item) + '</li>'; }).join('') + '</ul>' : '<p>尚未设置</p>') + '</section>'; }
+  function newResearchProject() { api('/api/research-projects', { method: 'POST', body: JSON.stringify({ action: 'create' }) }).then(function (res) { if (!res.ok) { toast(res.error || '新建失败'); return; } state.researchProjects = res.researchProjects; state.projectTrashOpen = false; state.projectId = res.researchProjects.projects[0].id; renderResearchProjects(); $('#projectTitle').focus(); }); }
+  function saveResearchProject() { if (!state.projectId) return; var body = { action: 'save', id: state.projectId, title: $('#projectTitle').value, status: $('#projectStatus').value, progress: $('#projectProgress').value, start: $('#projectStart').value, end: $('#projectEnd').value, goal: $('#projectGoal').value, members: $('#projectMembers').value, milestones: $('#projectMilestones').value, resources: $('#projectResources').value }; api('/api/research-projects', { method: 'POST', body: JSON.stringify(body) }).then(function (res) { if (!res.ok) { toast(res.error || '保存失败'); return; } state.researchProjects = res.researchProjects; renderResearchProjects(); toast('项目已同步保存'); }); }
+  function trashResearchProject() { if (!state.projectId || !confirm('确定将此项目移入回收站吗？')) return; api('/api/research-projects', { method: 'POST', body: JSON.stringify({ action: 'trash', id: state.projectId }) }).then(function (res) { if (!res.ok) { toast(res.error || '移入回收站失败'); return; } state.researchProjects = res.researchProjects; state.projectId = null; renderResearchProjects(); toast('项目已移入回收站'); }); }
+  function restoreResearchProject(id) { api('/api/research-projects', { method: 'POST', body: JSON.stringify({ action: 'restore', id: id }) }).then(function (res) { if (!res.ok) { toast(res.error || '恢复失败'); return; } state.researchProjects = res.researchProjects; renderResearchProjects(); toast('项目已恢复'); }); }
+  function purgeResearchProject(id) { if (!confirm('确定彻底删除项目吗？此操作无法恢复。')) return; api('/api/research-projects', { method: 'POST', body: JSON.stringify({ action: 'purge', id: id }) }).then(function (res) { if (!res.ok) { toast(res.error || '彻底删除失败'); return; } state.researchProjects = res.researchProjects; renderResearchProjects(); toast('已彻底删除'); }); }
 
   // ===== 提示词库：模板变量、复制与回收站 =====
   function loadPromptLibrary() { return api('/api/prompt-library').then(function (res) { if (!res.ok) { toast(res.error || '请先登录后使用提示词库'); return; } state.promptLibrary = Object.assign({ prompts: [], trash: [] }, res.promptLibrary || {}); if (!state.promptId && state.promptLibrary.prompts[0]) state.promptId = state.promptLibrary.prompts[0].id; renderPromptLibrary(); }); }
