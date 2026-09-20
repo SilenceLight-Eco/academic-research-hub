@@ -126,6 +126,72 @@
   var syncTimer = null;
   var academicEditorKind = '';
   var researchHubKeys = ['research-hub-crossref-email', 'research-hub-crossref-citations-v1', 'research-hub-stages-v1', 'research-hub-fields-v1', 'research-hub-cards-v1', 'research-hub-theme'];
+  var autoSaveSlots = {};
+  var autoSaveChain = Promise.resolve();
+  var autoSaveRunning = 0;
+
+  function setGlobalSaveState(text, status) {
+    var target = $('#globalSaveState');
+    if (!target) return;
+    target.dataset.state = status || 'idle';
+    var label = $('span', target);
+    if (label) label.textContent = text;
+  }
+
+  function hasPendingAutoSave() {
+    return autoSaveRunning > 0 || Object.keys(autoSaveSlots).some(function (key) { return Boolean(autoSaveSlots[key].timer); });
+  }
+
+  function runAutoSave(key, revision, payload, persist, automatic) {
+    autoSaveRunning += 1;
+    setGlobalSaveState('保存中…', 'saving');
+    autoSaveChain = autoSaveChain.catch(function () {}).then(function () { return persist(payload, automatic); }).then(function () {
+      autoSaveRunning = Math.max(0, autoSaveRunning - 1);
+      var slot = autoSaveSlots[key];
+      if (slot && slot.revision === revision && !hasPendingAutoSave()) {
+        var time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+        setGlobalSaveState((automatic ? '已自动保存 ' : '已保存 ') + time, 'saved');
+      }
+    }, function () {
+      autoSaveRunning = Math.max(0, autoSaveRunning - 1);
+      setGlobalSaveState('保存失败，请检查网络', 'error');
+    });
+    return autoSaveChain;
+  }
+
+  function queueAutoSave(key, payload, persist) {
+    var slot = autoSaveSlots[key] || { revision: 0, timer: null };
+    slot.revision += 1;
+    if (slot.timer) clearTimeout(slot.timer);
+    var revision = slot.revision;
+    slot.payload = payload;
+    slot.persist = persist;
+    slot.timer = setTimeout(function () {
+      slot.timer = null;
+      runAutoSave(key, revision, payload, persist, true);
+    }, 900);
+    autoSaveSlots[key] = slot;
+    setGlobalSaveState('有更改待保存', 'pending');
+  }
+
+  function flushAllAutoSaves() {
+    Object.keys(autoSaveSlots).forEach(function (key) {
+      var slot = autoSaveSlots[key];
+      if (!slot.timer || !slot.persist) return;
+      clearTimeout(slot.timer);
+      slot.timer = null;
+      runAutoSave(key, slot.revision, slot.payload, slot.persist, true);
+    });
+  }
+
+  function saveImmediately(key, payload, persist) {
+    var slot = autoSaveSlots[key] || { revision: 0, timer: null };
+    slot.revision += 1;
+    if (slot.timer) clearTimeout(slot.timer);
+    slot.timer = null;
+    autoSaveSlots[key] = slot;
+    return runAutoSave(key, slot.revision, payload, persist, false);
+  }
 
   function researchHubSnapshot() {
     var values = {};
@@ -5108,8 +5174,9 @@
 
     $('#kbNewDoc').addEventListener('click', newKnowledgeDoc);
     $('#kbNewFolder').addEventListener('click', newKnowledgeFolder);
-    $('#noteEditor').addEventListener('input', function () { renderNotePreview(); });
-    $('#noteStyle').addEventListener('change', renderNotePreview);
+    $('#noteTitle').addEventListener('input', function () { renderNotePreview(); queueNoteAutoSave(); });
+    $('#noteEditor').addEventListener('input', function () { renderNotePreview(); queueNoteAutoSave(); });
+    $('#noteStyle').addEventListener('change', function () { renderNotePreview(); queueNoteAutoSave(); });
     $('#noteSave').addEventListener('click', saveNoteStudio);
     $('#noteCopy').addEventListener('click', copyNoteForWechat);
     $('#noteNew').addEventListener('click', newNoteStudio);
@@ -5121,7 +5188,7 @@
     $('#promptCopy').addEventListener('click', copyPromptResult);
     $('#promptDelete').addEventListener('click', trashPrompt);
     $('#promptTrash').addEventListener('click', function () { state.promptTrashOpen = !state.promptTrashOpen; renderPromptLibrary(); });
-    ['promptTitle', 'promptCategory', 'promptTags', 'promptBody'].forEach(function (id) { $('#' + id).addEventListener('input', renderPromptResult); });
+    ['promptTitle', 'promptCategory', 'promptTags', 'promptBody'].forEach(function (id) { $('#' + id).addEventListener('input', function () { renderPromptResult(); queuePromptAutoSave(); }); });
     $('#promptVariables').addEventListener('input', renderPromptResult);
     $('#promptList').addEventListener('click', function (e) { var restore = e.target.closest('[data-prompt-restore]'); if (restore) { restorePrompt(restore.dataset.promptRestore); return; } var purge = e.target.closest('[data-prompt-purge]'); if (purge) { purgePrompt(purge.dataset.promptPurge); return; } var category = e.target.closest('[data-prompt-category]'); if (category) { state.promptCategoryFilter = category.dataset.promptCategory; var first = (state.promptLibrary.prompts || []).filter(function (item) { return state.promptCategoryFilter === 'all' || (item.category || '通用') === state.promptCategoryFilter; })[0]; state.promptId = first ? first.id : null; renderPromptLibrary(); return; } var prompt = e.target.closest('[data-prompt-id]'); if (!prompt) return; state.promptId = Number(prompt.dataset.promptId); renderPromptLibrary(); });
     $('#projectNew').addEventListener('click', newResearchProject);
@@ -5129,14 +5196,15 @@
     $('#projectDelete').addEventListener('click', trashResearchProject);
     $('#projectTrash').addEventListener('click', function () { state.projectTrashOpen = !state.projectTrashOpen; renderResearchProjects(); });
     $('#projectList').addEventListener('click', function (e) { var restore = e.target.closest('[data-project-restore]'); if (restore) { restoreResearchProject(restore.dataset.projectRestore); return; } var purge = e.target.closest('[data-project-purge]'); if (purge) { purgeResearchProject(purge.dataset.projectPurge); return; } var category = e.target.closest('[data-project-category]'); if (category) { state.projectCategoryFilter = category.dataset.projectCategory; var first = (state.researchProjects.projects || []).filter(function (item) { return state.projectCategoryFilter === 'all' || ((item.category || '通用').trim() || '通用') === state.projectCategoryFilter; })[0]; state.projectId = first ? first.id : null; renderResearchProjects(); return; } var project = e.target.closest('[data-project-id]'); if (!project) return; state.projectId = Number(project.dataset.projectId); renderResearchProjects(); });
-    ['projectTitle', 'projectCategory', 'projectStatus', 'projectProgress', 'projectStart', 'projectEnd', 'projectGoal', 'projectMembers', 'projectMilestones', 'projectResources'].forEach(function (id) { $('#' + id).addEventListener('input', renderProjectSummary); });
-    $('#projectStatus').addEventListener('change', renderProjectSummary);
+    ['projectTitle', 'projectCategory', 'projectStatus', 'projectProgress', 'projectStart', 'projectEnd', 'projectGoal', 'projectMembers', 'projectMilestones', 'projectResources'].forEach(function (id) { $('#' + id).addEventListener('input', function () { renderProjectSummary(); queueResearchProjectAutoSave(); }); });
+    $('#projectStatus').addEventListener('change', function () { renderProjectSummary(); queueResearchProjectAutoSave(); });
     $('#dcNew').addEventListener('click', newDataCodeItem);
     $('#dcSave').addEventListener('click', saveDataCodeItem);
     $('#dcDelete').addEventListener('click', trashDataCodeItem);
     $('#dcTrash').addEventListener('click', function () { state.dataCodeTrashOpen = !state.dataCodeTrashOpen; renderDataCodeLibrary(); });
     $('#dcList').addEventListener('click', function (e) { var restore = e.target.closest('[data-dc-restore]'); if (restore) { restoreDataCodeItem(restore.dataset.dcRestore); return; } var purge = e.target.closest('[data-dc-purge]'); if (purge) { purgeDataCodeItem(purge.dataset.dcPurge); return; } var category = e.target.closest('[data-dc-category]'); if (category) { state.dataCodeCategoryFilter = category.dataset.dcCategory; var first = (state.dataCodeLibrary.items || []).filter(function (item) { return state.dataCodeCategoryFilter === 'all' || ((item.category || '通用').trim() || '通用') === state.dataCodeCategoryFilter; })[0]; state.dataCodeId = first ? first.id : null; renderDataCodeLibrary(); return; } var item = e.target.closest('[data-dc-id]'); if (!item) return; state.dataCodeId = Number(item.dataset.dcId); renderDataCodeLibrary(); });
-    $$('[data-dc-check]').forEach(function (checkbox) { checkbox.addEventListener('change', renderDataCodeProgress); });
+    dataCodeFields().forEach(function (id) { $('#' + id).addEventListener('input', queueDataCodeAutoSave); $('#' + id).addEventListener('change', queueDataCodeAutoSave); });
+    $$('[data-dc-check]').forEach(function (checkbox) { checkbox.addEventListener('change', function () { renderDataCodeProgress(); queueDataCodeAutoSave(); }); });
     $('#kbTrashToggle').addEventListener('click', function () { state.kbTrashOpen = !state.kbTrashOpen; state.kbDraft = null; renderKnowledgeBase(); });
     $('#kbFolders').addEventListener('click', function (e) { var remove = e.target.closest('[data-kb-delete-folder]'); if (remove) { deleteKnowledgeFolder(remove.dataset.kbDeleteFolder); return; } var item = e.target.closest('[data-kb-folder]'); if (!item) return; state.kbFolderId = item.dataset.kbFolder; renderKnowledgeBase(); });
     $('#kbDocs').addEventListener('click', function (e) { var restore = e.target.closest('[data-kb-restore-trash]'); if (restore) { restoreKnowledgeTrash(restore.dataset.kbRestoreTrash); return; } var purge = e.target.closest('[data-kb-purge-trash]'); if (purge) { purgeKnowledgeTrash(purge.dataset.kbPurgeTrash); return; } var remove = e.target.closest('[data-kb-delete-doc]'); if (remove) { deleteKnowledgeDoc(remove.dataset.kbDeleteDoc); return; } var heading = e.target.closest('[data-kb-heading]'); if (heading) { state.kbDocId = Number(heading.dataset.kbDoc); state.kbDraft = null; state.kbHeadingTarget = heading.dataset.kbHeading; state.kbEditorMode = 'rich'; renderKnowledgeBase(); setTimeout(scrollToKnowledgeHeading, 0); return; } var item = e.target.closest('[data-kb-doc]'); if (!item) return; state.kbDocId = Number(item.dataset.kbDoc); state.kbDraft = null; renderKnowledgeBase(); });
@@ -5145,10 +5213,14 @@
     $('#kbDocs').addEventListener('dragover', function (e) { if (state.kbDraggingDocId) e.preventDefault(); });
     $('#kbDocs').addEventListener('drop', function (e) { var target = e.target.closest('[data-kb-doc]'); if (!target || !state.kbDraggingDocId) return; e.preventDefault(); reorderKnowledgeDoc(state.kbDraggingDocId, Number(target.dataset.kbDoc)); });
     $('#kbEditor').addEventListener('click', function (e) { var action = e.target.closest('[data-kb-command]'); if (action) { runKnowledgeRichCommand(action.dataset.kbCommand); return; } var toggle = e.target.closest('[data-kb-mode]'); if (!toggle) return; state.kbDraft = readKnowledgeDraft(); state.kbEditorMode = toggle.dataset.kbMode; renderKnowledgeBase(); });
+    $('#kbEditor').addEventListener('input', function (e) { if (e.target.closest('#kbDocTitle, #kbDocContent, #kbRichEditor')) queueKnowledgeAutoSave(); });
+    $('#kbEditor').addEventListener('change', function (e) { if (e.target.closest('#kbDocFolder')) queueKnowledgeAutoSave(); });
     window.addEventListener('message', function (event) {
       if (event.origin !== location.origin || !event.data || event.data.type !== 'academic-research-hub-open-knowledge-base') return;
       switchPanel('knowledge-base');
     });
+    document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') flushAllAutoSaves(); });
+    window.addEventListener('pagehide', flushAllAutoSaves);
 
     // 论文删除（事件委托）
     $('#pubList').addEventListener('click', function (e) {
@@ -5975,7 +6047,10 @@
   }
   function renderDataCodeProgress() { var boxes = $$('[data-dc-check]'), done = boxes.filter(function (box) { return box.checked; }).length, percent = Math.round(done / Math.max(1, boxes.length) * 100), target = $('#dcReproProgress'); if (target) target.innerHTML = '<div><span>复现完整度</span><b>' + percent + '%</b></div><i><em style="width:' + percent + '%"></em></i>'; }
   function newDataCodeItem() { api('/api/data-code-library', { method: 'POST', body: JSON.stringify({ action: 'create' }) }).then(function (res) { if (!res.ok) { toast(res.error || '新建失败'); return; } state.dataCodeLibrary = res.dataCodeLibrary; state.dataCodeTrashOpen = false; state.dataCodeCategoryFilter = 'all'; state.dataCodeId = res.dataCodeLibrary.items[0].id; renderDataCodeLibrary(); $('#dcTitle').focus(); }); }
-  function saveDataCodeItem() { if (!state.dataCodeId) return; var checks = {}; $$('[data-dc-check]').forEach(function (box) { checks[box.dataset.dcCheck] = box.checked; }); var body = { action: 'save', id: state.dataCodeId, title: $('#dcTitle').value, category: $('#dcCategory').value, kind: $('#dcKind').value, projectId: $('#dcProject').value, paperTitle: $('#dcPaper').value, version: $('#dcVersion').value, source: $('#dcSource').value, coverage: $('#dcCoverage').value, environment: $('#dcEnvironment').value, location: $('#dcLocation').value, description: $('#dcDescription').value, variables: $('#dcVariables').value, runOrder: $('#dcRunOrder').value, checks: checks }; api('/api/data-code-library', { method: 'POST', body: JSON.stringify(body) }).then(function (res) { if (!res.ok) { toast(res.error || '保存失败'); return; } state.dataCodeLibrary = res.dataCodeLibrary; state.dataCodeCategoryFilter = ($('#dcCategory').value || '通用').trim() || '通用'; renderDataCodeLibrary(); toast('数据与代码记录已同步保存'); }); }
+  function readDataCodePayload() { var checks = {}; $$('[data-dc-check]').forEach(function (box) { checks[box.dataset.dcCheck] = box.checked; }); return { action: 'save', id: state.dataCodeId, title: $('#dcTitle').value, category: $('#dcCategory').value, kind: $('#dcKind').value, projectId: $('#dcProject').value, paperTitle: $('#dcPaper').value, version: $('#dcVersion').value, source: $('#dcSource').value, coverage: $('#dcCoverage').value, environment: $('#dcEnvironment').value, location: $('#dcLocation').value, description: $('#dcDescription').value, variables: $('#dcVariables').value, runOrder: $('#dcRunOrder').value, checks: checks }; }
+  function persistDataCodeItem(body, automatic) { return api('/api/data-code-library', { method: 'POST', body: JSON.stringify(body) }).then(function (res) { if (!res.ok) throw new Error(res.error || '保存失败'); state.dataCodeLibrary = res.dataCodeLibrary; state.dataCodeCategoryFilter = (body.category || '通用').trim() || '通用'; if (!automatic) { renderDataCodeLibrary(); toast('数据与代码记录已同步保存'); } }); }
+  function queueDataCodeAutoSave() { if (!state.dataCodeId || state.dataCodeTrashOpen) return; var body = readDataCodePayload(); queueAutoSave('data-code:' + body.id, body, persistDataCodeItem); }
+  function saveDataCodeItem() { if (!state.dataCodeId) return; var body = readDataCodePayload(); return saveImmediately('data-code:' + body.id, body, persistDataCodeItem); }
   function trashDataCodeItem() { if (!state.dataCodeId || !confirm('确定将此资源移入回收站吗？')) return; api('/api/data-code-library', { method: 'POST', body: JSON.stringify({ action: 'trash', id: state.dataCodeId }) }).then(function (res) { if (!res.ok) { toast(res.error || '移入回收站失败'); return; } state.dataCodeLibrary = res.dataCodeLibrary; state.dataCodeId = null; renderDataCodeLibrary(); toast('资源已移入回收站'); }); }
   function restoreDataCodeItem(id) { api('/api/data-code-library', { method: 'POST', body: JSON.stringify({ action: 'restore', id: id }) }).then(function (res) { if (!res.ok) { toast(res.error || '恢复失败'); return; } state.dataCodeLibrary = res.dataCodeLibrary; renderDataCodeLibrary(); toast('资源已恢复'); }); }
   function purgeDataCodeItem(id) { if (!confirm('确定彻底删除此资源记录吗？此操作无法恢复。')) return; api('/api/data-code-library', { method: 'POST', body: JSON.stringify({ action: 'purge', id: id }) }).then(function (res) { if (!res.ok) { toast(res.error || '彻底删除失败'); return; } state.dataCodeLibrary = res.dataCodeLibrary; renderDataCodeLibrary(); toast('已彻底删除'); }); }
@@ -5999,7 +6074,10 @@
   }
   function renderProjectSummary() { var summary = $('#projectSummary'); if (!summary) return; if (!state.projectId || state.projectTrashOpen) return; var progress = Math.max(0, Math.min(100, Number($('#projectProgress').value) || 0)); var milestones = ($('#projectMilestones').value || '').split(/\r?\n/).filter(Boolean); var resources = ($('#projectResources').value || '').split(/\r?\n/).filter(Boolean); summary.innerHTML = '<div class="project-summary-kicker">项目概览</div><h2>' + escapeHtml($('#projectTitle').value || '未命名项目') + '</h2><div class="project-status-pill is-' + escapeHtml($('#projectStatus').value) + '">' + escapeHtml($('#projectStatus').value) + '</div><div class="project-progress"><div><span>完成进度</span><b>' + progress + '%</b></div><i><em style="width:' + progress + '%"></em></i></div><dl><div><dt>分类</dt><dd>' + escapeHtml($('#projectCategory').value || '通用') + '</dd></div><div><dt>起止日期</dt><dd>' + escapeHtml($('#projectStart').value || '未设置') + ' — ' + escapeHtml($('#projectEnd').value || '未设置') + '</dd></div><div><dt>成员</dt><dd>' + escapeHtml($('#projectMembers').value || '未设置') + '</dd></div></dl><section><h3>关键里程碑</h3>' + (milestones.length ? '<ul>' + milestones.map(function (item) { return '<li>' + escapeHtml(item) + '</li>'; }).join('') + '</ul>' : '<p>尚未设置</p>') + '</section><section><h3>关联资源</h3>' + (resources.length ? '<ul>' + resources.map(function (item) { return '<li>' + escapeHtml(item) + '</li>'; }).join('') + '</ul>' : '<p>尚未设置</p>') + '</section>'; }
   function newResearchProject() { api('/api/research-projects', { method: 'POST', body: JSON.stringify({ action: 'create' }) }).then(function (res) { if (!res.ok) { toast(res.error || '新建失败'); return; } state.researchProjects = res.researchProjects; state.projectTrashOpen = false; state.projectCategoryFilter = 'all'; state.projectId = res.researchProjects.projects[0].id; renderResearchProjects(); $('#projectTitle').focus(); }); }
-  function saveResearchProject() { if (!state.projectId) return; var body = { action: 'save', id: state.projectId, title: $('#projectTitle').value, category: $('#projectCategory').value, status: $('#projectStatus').value, progress: $('#projectProgress').value, start: $('#projectStart').value, end: $('#projectEnd').value, goal: $('#projectGoal').value, members: $('#projectMembers').value, milestones: $('#projectMilestones').value, resources: $('#projectResources').value }; api('/api/research-projects', { method: 'POST', body: JSON.stringify(body) }).then(function (res) { if (!res.ok) { toast(res.error || '保存失败'); return; } state.researchProjects = res.researchProjects; state.projectCategoryFilter = ($('#projectCategory').value || '通用').trim() || '通用'; renderResearchProjects(); toast('项目已同步保存'); }); }
+  function readResearchProjectPayload() { return { action: 'save', id: state.projectId, title: $('#projectTitle').value, category: $('#projectCategory').value, status: $('#projectStatus').value, progress: $('#projectProgress').value, start: $('#projectStart').value, end: $('#projectEnd').value, goal: $('#projectGoal').value, members: $('#projectMembers').value, milestones: $('#projectMilestones').value, resources: $('#projectResources').value }; }
+  function persistResearchProject(body, automatic) { return api('/api/research-projects', { method: 'POST', body: JSON.stringify(body) }).then(function (res) { if (!res.ok) throw new Error(res.error || '保存失败'); state.researchProjects = res.researchProjects; state.projectCategoryFilter = (body.category || '通用').trim() || '通用'; if (!automatic) { renderResearchProjects(); toast('项目已同步保存'); } }); }
+  function queueResearchProjectAutoSave() { if (!state.projectId || state.projectTrashOpen) return; var body = readResearchProjectPayload(); queueAutoSave('project:' + body.id, body, persistResearchProject); }
+  function saveResearchProject() { if (!state.projectId) return; var body = readResearchProjectPayload(); return saveImmediately('project:' + body.id, body, persistResearchProject); }
   function trashResearchProject() { if (!state.projectId || !confirm('确定将此项目移入回收站吗？')) return; api('/api/research-projects', { method: 'POST', body: JSON.stringify({ action: 'trash', id: state.projectId }) }).then(function (res) { if (!res.ok) { toast(res.error || '移入回收站失败'); return; } state.researchProjects = res.researchProjects; state.projectId = null; renderResearchProjects(); toast('项目已移入回收站'); }); }
   function restoreResearchProject(id) { api('/api/research-projects', { method: 'POST', body: JSON.stringify({ action: 'restore', id: id }) }).then(function (res) { if (!res.ok) { toast(res.error || '恢复失败'); return; } state.researchProjects = res.researchProjects; renderResearchProjects(); toast('项目已恢复'); }); }
   function purgeResearchProject(id) { if (!confirm('确定彻底删除项目吗？此操作无法恢复。')) return; api('/api/research-projects', { method: 'POST', body: JSON.stringify({ action: 'purge', id: id }) }).then(function (res) { if (!res.ok) { toast(res.error || '彻底删除失败'); return; } state.researchProjects = res.researchProjects; renderResearchProjects(); toast('已彻底删除'); }); }
@@ -6024,7 +6102,10 @@
   function promptVariables(text) { var seen = {}; return (String(text || '').match(/{{\s*([\w\u4e00-\u9fa5-]+)\s*}}/g) || []).map(function (item) { return item.replace(/{{\s*|\s*}}/g, ''); }).filter(function (name) { if (seen[name]) return false; seen[name] = true; return true; }); }
   function renderPromptResult() { var body = $('#promptBody').value || '', variables = promptVariables(body), container = $('#promptVariables'); var existing = {}; $$('[data-prompt-var]', container).forEach(function (input) { existing[input.dataset.promptVar] = input.value; }); container.innerHTML = variables.length ? variables.map(function (name) { return '<label>' + escapeHtml(name) + '<input data-prompt-var="' + escapeHtml(name) + '" placeholder="填写 ' + escapeHtml(name) + '" value="' + escapeHtml(existing[name] || '') + '"></label>'; }).join('') : '<div class="prompt-variable-empty">此提示词没有变量，可直接复制。</div>'; var values = {}; $$('[data-prompt-var]', container).forEach(function (input) { values[input.dataset.promptVar] = input.value; }); $('#promptResult').textContent = body.replace(/{{\s*([\w\u4e00-\u9fa5-]+)\s*}}/g, function (_, name) { return values[name] || '{{ ' + name + ' }}'; }); }
   function newPrompt() { api('/api/prompt-library', { method: 'POST', body: JSON.stringify({ action: 'create' }) }).then(function (res) { if (!res.ok) { toast(res.error || '新建失败'); return; } state.promptLibrary = res.promptLibrary; state.promptTrashOpen = false; state.promptId = res.promptLibrary.prompts[0].id; renderPromptLibrary(); $('#promptTitle').focus(); }); }
-  function savePrompt() { if (!state.promptId) return; api('/api/prompt-library', { method: 'POST', body: JSON.stringify({ action: 'save', id: state.promptId, title: $('#promptTitle').value, category: $('#promptCategory').value, tags: $('#promptTags').value, body: $('#promptBody').value }) }).then(function (res) { if (!res.ok) { toast(res.error || '保存失败'); return; } state.promptLibrary = res.promptLibrary; renderPromptLibrary(); toast('提示词已同步保存'); }); }
+  function readPromptPayload() { return { action: 'save', id: state.promptId, title: $('#promptTitle').value, category: $('#promptCategory').value, tags: $('#promptTags').value, body: $('#promptBody').value }; }
+  function persistPrompt(body, automatic) { return api('/api/prompt-library', { method: 'POST', body: JSON.stringify(body) }).then(function (res) { if (!res.ok) throw new Error(res.error || '保存失败'); state.promptLibrary = res.promptLibrary; if (!automatic) { renderPromptLibrary(); toast('提示词已同步保存'); } }); }
+  function queuePromptAutoSave() { if (!state.promptId || state.promptTrashOpen) return; var body = readPromptPayload(); queueAutoSave('prompt:' + body.id, body, persistPrompt); }
+  function savePrompt() { if (!state.promptId) return; var body = readPromptPayload(); return saveImmediately('prompt:' + body.id, body, persistPrompt); }
   function trashPrompt() { if (!state.promptId || !confirm('确定将这条提示词移入回收站吗？')) return; api('/api/prompt-library', { method: 'POST', body: JSON.stringify({ action: 'trash', id: state.promptId }) }).then(function (res) { if (!res.ok) { toast(res.error || '移入回收站失败'); return; } state.promptLibrary = res.promptLibrary; state.promptId = null; renderPromptLibrary(); toast('提示词已移入回收站'); }); }
   function restorePrompt(id) { api('/api/prompt-library', { method: 'POST', body: JSON.stringify({ action: 'restore', id: id }) }).then(function (res) { if (!res.ok) { toast(res.error || '恢复失败'); return; } state.promptLibrary = res.promptLibrary; renderPromptLibrary(); toast('提示词已恢复'); }); }
   function purgePrompt(id) { if (!confirm('确定彻底删除吗？此操作无法恢复。')) return; api('/api/prompt-library', { method: 'POST', body: JSON.stringify({ action: 'purge', id: id }) }).then(function (res) { if (!res.ok) { toast(res.error || '彻底删除失败'); return; } state.promptLibrary = res.promptLibrary; renderPromptLibrary(); toast('已彻底删除'); }); }
@@ -6067,14 +6148,10 @@
     renderKnowledgeFormulas(preview);
   }
 
-  function saveNoteStudio() {
-    if (!state.noteId) return;
-    api('/api/note-studio', { method: 'POST', body: JSON.stringify({ action: 'save', id: state.noteId, title: $('#noteTitle').value, markdown: $('#noteEditor').value, style: $('#noteStyle').value }) }).then(function (res) {
-      if (!res.ok) { toast(res.error || '保存失败'); return; }
-      state.noteStudio = res.noteStudio; toast('笔记已同步保存');
-      renderNoteStudio();
-    });
-  }
+  function readNotePayload() { return { action: 'save', id: state.noteId, title: $('#noteTitle').value, markdown: $('#noteEditor').value, style: $('#noteStyle').value }; }
+  function persistNoteStudio(body, automatic) { return api('/api/note-studio', { method: 'POST', body: JSON.stringify(body) }).then(function (res) { if (!res.ok) throw new Error(res.error || '保存失败'); state.noteStudio = res.noteStudio; if (!automatic) { renderNoteStudio(); toast('笔记已同步保存'); } }); }
+  function queueNoteAutoSave() { if (!state.noteId || state.noteTrashOpen) return; var body = readNotePayload(); queueAutoSave('note:' + body.id, body, persistNoteStudio); }
+  function saveNoteStudio() { if (!state.noteId) return; var body = readNotePayload(); return saveImmediately('note:' + body.id, body, persistNoteStudio); }
 
   function newNoteStudio() { api('/api/note-studio', { method: 'POST', body: JSON.stringify({ action: 'create' }) }).then(function (res) { if (!res.ok) { toast(res.error || '新建失败'); return; } state.noteStudio = res.noteStudio; state.noteTrashOpen = false; state.noteId = res.noteStudio.notes[0].id; renderNoteStudio(); $('#noteTitle').focus(); }); }
   function trashNoteStudio() { if (!state.noteId || !confirm('确定将这篇笔记移入回收站吗？')) return; api('/api/note-studio', { method: 'POST', body: JSON.stringify({ action: 'trash', id: state.noteId }) }).then(function (res) { if (!res.ok) { toast(res.error || '移入回收站失败'); return; } state.noteStudio = res.noteStudio; state.noteId = null; renderNoteStudio(); toast('笔记已移入回收站'); }); }
@@ -6165,7 +6242,7 @@
     $('#kbFolders').innerHTML = '<button class="kb-folder is-active" data-kb-folder="all">全部文档 <span>' + docs.length + '</span></button>' + folders.map(function (folder) { return '<div class="kb-folder-row"><button class="kb-folder' + (String(folder.id) === String(folderId) ? ' is-active' : '') + '" data-kb-folder="' + folder.id + '">' + escapeHtml(folder.title) + '<span>' + docs.filter(function (doc) { return String(doc.folderId) === String(folder.id); }).length + '</span></button><button type="button" class="kb-delete-button" data-kb-delete-folder="' + folder.id + '" title="删除文件夹" aria-label="删除文件夹">×</button></div>'; }).join('');
     $('#kbDocs').innerHTML = visibleDocs.length ? visibleDocs.map(renderKnowledgeDocItem).join('') : '<div class="kb-empty">此目录还没有文档</div>';
     var mode = state.kbEditorMode || 'edit';
-    $('#kbEditor').innerHTML = active ? '<div class="kb-editor-tabs"><button type="button" class="' + (mode === 'edit' ? 'is-active' : '') + '" data-kb-mode="edit">编辑</button><button type="button" class="' + (mode === 'preview' ? 'is-active' : '') + '" data-kb-mode="preview">预览</button><span>Markdown</span></div><input id="kbDocTitle" class="kb-doc-title" value="' + escapeHtml(draft.title || '') + '" placeholder="文档标题"><select id="kbDocFolder"><option value="">未分类</option>' + folders.map(function (folder) { return '<option value="' + folder.id + '"' + (String(folder.id) === String(draft.folderId) ? ' selected' : '') + '>' + escapeHtml(folder.title) + '</option>'; }).join('') + '</select>' + (mode === 'preview' ? '<article class="kb-markdown-preview">' + renderKnowledgeMarkdown(draft.content || '') + '</article>' : '<textarea id="kbDocContent" class="kb-doc-content" placeholder="# 标题\n\n使用 Markdown 记录你的想法、文献笔记和研究材料…">' + escapeHtml(draft.content || '') + '</textarea>') + '<div class="kb-editor-foot"><span>Markdown · 最近更新：' + escapeHtml(active.updated || '尚未保存') + '</span><button id="kbSaveDoc" type="button">保存文档</button></div>' : '<div class="kb-editor-empty">选择左侧文档，或新建一篇文档开始记录。</div>';
+    $('#kbEditor').innerHTML = active ? '<div class="kb-editor-tabs"><button type="button" class="' + (mode === 'edit' ? 'is-active' : '') + '" data-kb-mode="edit">编辑</button><button type="button" class="' + (mode === 'preview' ? 'is-active' : '') + '" data-kb-mode="preview">预览</button><span>Markdown</span></div><input id="kbDocTitle" class="kb-doc-title" value="' + escapeHtml(draft.title || '') + '" placeholder="文档标题"><select id="kbDocFolder"><option value="">未分类</option>' + folders.map(function (folder) { return '<option value="' + folder.id + '"' + (String(folder.id) === String(draft.folderId) ? ' selected' : '') + '>' + escapeHtml(folder.title) + '</option>'; }).join('') + '</select>' + (mode === 'preview' ? '<article class="kb-markdown-preview">' + renderKnowledgeMarkdown(draft.content || '') + '</article>' : '<textarea id="kbDocContent" class="kb-doc-content" placeholder="# 标题\n\n使用 Markdown 记录你的想法、文献笔记和研究材料…">' + escapeHtml(draft.content || '') + '</textarea>') + '<div class="kb-editor-foot"><span>Markdown · 最近更新：' + escapeHtml(active.updated || '尚未保存') + '</span><button id="kbSaveDoc" type="button">立即保存</button></div>' : '<div class="kb-editor-empty">选择左侧文档，或新建一篇文档开始记录。</div>';
     var save = $('#kbSaveDoc'); if (save) save.addEventListener('click', saveKnowledgeDoc);
   }
 
@@ -6321,11 +6398,10 @@
     api('/api/knowledge-base', { method: 'POST', body: JSON.stringify({ action: 'purge-trash', id: id }) }).then(function (res) { if (!res.ok) { toast(res.error || '彻底删除失败'); return; } state.knowledgeBase = res.knowledgeBase; renderKnowledgeBase(); toast('已彻底删除'); });
   }
 
-  function saveKnowledgeDoc() {
-    if (!state.kbDocId) return;
-    var draft = readKnowledgeDraft();
-    api('/api/knowledge-base', { method: 'POST', body: JSON.stringify({ action: 'save-doc', id: state.kbDocId, title: draft.title, content: draft.content, folderId: draft.folderId }) }).then(function (res) { if (!res.ok) { toast(res.error || '保存失败'); return; } state.knowledgeBase = res.knowledgeBase; state.kbDraft = null; renderKnowledgeBase(); toast('Markdown 文档已同步保存'); });
-  }
+  function knowledgePayload() { var draft = readKnowledgeDraft(); return { action: 'save-doc', id: draft.id, title: draft.title, content: draft.content, folderId: draft.folderId }; }
+  function persistKnowledgeDoc(body, automatic) { return api('/api/knowledge-base', { method: 'POST', body: JSON.stringify(body) }).then(function (res) { if (!res.ok) throw new Error(res.error || '保存失败'); state.knowledgeBase = res.knowledgeBase; if (!automatic) { state.kbDraft = null; renderKnowledgeBase(); toast('Markdown 文档已同步保存'); } }); }
+  function queueKnowledgeAutoSave() { if (!state.kbDocId || state.kbTrashOpen) return; var body = knowledgePayload(); queueAutoSave('knowledge:' + body.id, body, persistKnowledgeDoc); }
+  function saveKnowledgeDoc() { if (!state.kbDocId) return; var body = knowledgePayload(); return saveImmediately('knowledge:' + body.id, body, persistKnowledgeDoc); }
 
   function readKnowledgeDraft() {
     var active = ((state.knowledgeBase && state.knowledgeBase.docs) || []).filter(function (doc) { return doc.id === state.kbDocId; })[0] || {};

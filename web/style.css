@@ -6531,3 +6531,17 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .dc-meta { grid-template-columns:.9fr .7fr 1fr 1.2fr .6fr; }
 @media (max-width:1120px) { .project-meta,.dc-meta { grid-template-columns:1fr 1fr; } }
 @media (max-width:620px) { .project-meta,.dc-meta { grid-template-columns:1fr; } }
+
+/* 全局自动保存状态 */
+.global-save-state { display:inline-flex; align-items:center; gap:6px; min-width:92px; color:var(--text-muted); font-size:10px; white-space:nowrap; }
+.global-save-state i { width:7px; height:7px; border-radius:50%; background:var(--text-muted); box-shadow:0 0 0 3px var(--hairline-soft); }
+.global-save-state[data-state="pending"] { color:#9a6b19; }
+.global-save-state[data-state="pending"] i { background:#c18a2d; }
+.global-save-state[data-state="saving"] { color:var(--accent); }
+.global-save-state[data-state="saving"] i { background:var(--accent); animation:autosavePulse 1s ease-in-out infinite; }
+.global-save-state[data-state="saved"] { color:var(--accent); }
+.global-save-state[data-state="saved"] i { background:var(--accent); }
+.global-save-state[data-state="error"] { color:#bc4444; }
+.global-save-state[data-state="error"] i { background:#bc4444; }
+@keyframes autosavePulse { 50% { opacity:.35; transform:scale(.8); } }
+@media (max-width:900px) { .global-save-state { min-width:0; }.global-save-state span { display:none; } }
