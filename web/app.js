@@ -6604,11 +6604,12 @@
     renderKnowledgeFormulas(rich);
     var toolbar = document.createElement('div');
     toolbar.className = 'kb-rich-toolbar';
-    toolbar.innerHTML = '<button type="button" data-kb-command="h1" title="一级标题">H1</button><button type="button" data-kb-command="h2" title="二级标题">H2</button><button type="button" data-kb-command="h3" title="三级标题">H3</button><button type="button" data-kb-command="h4" title="四级标题">H4</button><span class="kb-toolbar-divider" aria-hidden="true"></span><button type="button" data-kb-command="bold" title="加粗"><b>B</b></button><button type="button" data-kb-command="italic" title="斜体"><i>I</i></button><button type="button" data-kb-command="strike" title="删除线"><s>S</s></button><button type="button" data-kb-command="inline-code" title="行内代码">&lt;/&gt;</button><span class="kb-toolbar-divider" aria-hidden="true"></span><button type="button" data-kb-command="list" title="无序列表">列表</button><button type="button" data-kb-command="ordered-list" title="有序列表">1.</button><button type="button" data-kb-command="quote">引用</button><button type="button" data-kb-command="code">代码块</button><button type="button" data-kb-command="divider" title="分隔线">—</button><button type="button" data-kb-command="link">链接</button><label class="kb-font-size-picker" title="先选中文字，再设置字号">字号 <select id="kbFontSize" aria-label="设置选中文字字号"><option value="">默认</option><option value="12">12</option><option value="14">14</option><option value="16">16</option><option value="18">18</option><option value="20">20</option><option value="24">24</option></select></label><label class="kb-color-picker" title="先选中文字，再设置字体颜色">文字颜色 <input id="kbTextColor" type="color" value="#c0392b" aria-label="设置选中文字颜色"></label>';
+    toolbar.innerHTML = '<button type="button" data-kb-command="h1" title="一级标题">H1</button><button type="button" data-kb-command="h2" title="二级标题">H2</button><button type="button" data-kb-command="h3" title="三级标题">H3</button><button type="button" data-kb-command="h4" title="四级标题">H4</button><span class="kb-toolbar-divider" aria-hidden="true"></span><button type="button" data-kb-command="bold" title="加粗"><b>B</b></button><button type="button" data-kb-command="italic" title="斜体"><i>I</i></button><button type="button" data-kb-command="strike" title="删除线"><s>S</s></button><button type="button" data-kb-command="inline-code" title="行内代码">&lt;/&gt;</button><span class="kb-toolbar-divider" aria-hidden="true"></span><button type="button" data-kb-command="list" title="无序列表">列表</button><button type="button" data-kb-command="ordered-list" title="有序列表">1.</button><button type="button" data-kb-command="quote">引用</button><button type="button" data-kb-command="code">代码块</button><button type="button" data-kb-command="divider" title="分隔线">—</button><button type="button" data-kb-command="link">链接</button><span class="kb-font-size-picker" title="先选中文字，再设置字号"><button type="button" data-kb-font-size-toggle aria-expanded="false">字号</button><span id="kbFontSizeMenu" class="kb-font-size-menu" hidden><button type="button" data-kb-font-size="12">12</button><button type="button" data-kb-font-size="14">14</button><button type="button" data-kb-font-size="16">16</button><button type="button" data-kb-font-size="18">18</button><button type="button" data-kb-font-size="20">20</button><button type="button" data-kb-font-size="24">24</button></span></span><label class="kb-color-picker" title="先选中文字，再设置字体颜色">文字颜色 <input id="kbTextColor" type="color" value="#c0392b" aria-label="设置选中文字颜色"></label>';
     rich.before(toolbar);
-    toolbar.addEventListener('mousedown', function (event) { if (event.target.closest('button[data-kb-command]')) event.preventDefault(); });
+    toolbar.addEventListener('mousedown', function (event) { if (event.target.closest('button[data-kb-command], button[data-kb-font-size-toggle], button[data-kb-font-size]')) event.preventDefault(); });
     var colorPicker = $('#kbTextColor', toolbar);
-    var fontSizePicker = $('#kbFontSize', toolbar);
+    var fontSizeMenu = $('#kbFontSizeMenu', toolbar);
+    var fontSizeToggle = $('[data-kb-font-size-toggle]', toolbar);
     var savedRange = null;
     function rememberRichSelection() {
       var selection = window.getSelection();
@@ -6616,8 +6617,7 @@
     }
     colorPicker.addEventListener('pointerdown', rememberRichSelection);
     colorPicker.addEventListener('focus', rememberRichSelection);
-    fontSizePicker.addEventListener('pointerdown', rememberRichSelection);
-    fontSizePicker.addEventListener('focus', rememberRichSelection);
+    toolbar.addEventListener('pointerdown', function (event) { if (event.target.closest('[data-kb-font-size-toggle], [data-kb-font-size]')) rememberRichSelection(); });
     colorPicker.addEventListener('change', function () {
       var color = normalizeKnowledgeColor(colorPicker.value);
       var selection = window.getSelection();
@@ -6638,16 +6638,26 @@
       savedRange = null;
       queueKnowledgeAutoSave();
     });
-    fontSizePicker.addEventListener('change', function () {
-      var fontSize = normalizeKnowledgeFontSize(fontSizePicker.value);
-      if (!fontSize || !savedRange || !rich.contains(savedRange.commonAncestorContainer) || savedRange.collapsed) { toast('请先在正文中选中文字，再选择字号'); fontSizePicker.value = ''; return; }
+    toolbar.addEventListener('click', function (event) {
+      if (event.target.closest('[data-kb-font-size-toggle]')) {
+        var willOpen = fontSizeMenu.hidden;
+        fontSizeMenu.hidden = !willOpen;
+        fontSizeToggle.setAttribute('aria-expanded', String(willOpen));
+        return;
+      }
+      var option = event.target.closest('[data-kb-font-size]');
+      if (!option) return;
+      var fontSize = normalizeKnowledgeFontSize(option.dataset.kbFontSize);
+      fontSizeMenu.hidden = true;
+      fontSizeToggle.setAttribute('aria-expanded', 'false');
+      if (!fontSize || !savedRange || !rich.contains(savedRange.commonAncestorContainer) || savedRange.collapsed) { toast('请先在正文中选中文字，再选择字号'); return; }
       var selection = window.getSelection();
       rich.focus();
       if (!selection) return;
       selection.removeAllRanges();
       selection.addRange(savedRange);
       var range = selection.getRangeAt(0);
-      if (!range.toString().trim()) { toast('请先在正文中选中文字，再选择字号'); fontSizePicker.value = ''; return; }
+      if (!range.toString().trim()) { toast('请先在正文中选中文字，再选择字号'); return; }
       var sized = document.createElement('span');
       sized.style.fontSize = fontSize + 'px';
       sized.appendChild(range.extractContents());
@@ -6656,7 +6666,6 @@
       range.selectNodeContents(sized);
       selection.addRange(range);
       savedRange = null;
-      fontSizePicker.value = '';
       queueKnowledgeAutoSave();
     });
   };
