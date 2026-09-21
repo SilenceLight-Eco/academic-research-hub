@@ -6570,3 +6570,29 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .kb-workspace { height:min(78vh,900px); min-height:530px; }.kb-folders,.kb-docs { min-height:0; overflow:auto; }.kb-editor { min-height:0; overflow:hidden; }.kb-rich-editor,.kb-markdown-preview,.kb-doc-content { min-height:0; }
 @media (max-width:900px) { .kb-workspace { height:auto; min-height:0; }.kb-editor { max-height:72vh; min-height:420px; }.kb-rich-editor,.kb-markdown-preview { max-height:calc(72vh - 170px); } }
 @media (max-width:620px) { .kb-editor { max-height:72vh; min-height:380px; padding:16px; }.kb-rich-editor,.kb-markdown-preview { max-height:calc(72vh - 165px); } }
+
+/* 提高清晰度：侧栏分组名与各模块卡片标题 */
+.nav-group-label {
+  padding: 0 12px 8px;
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.45;
+  letter-spacing: .02em;
+  opacity: 1;
+}
+.card-label {
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.45;
+  letter-spacing: .02em;
+}
+.academic-record-kicker {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: .03em;
+}
