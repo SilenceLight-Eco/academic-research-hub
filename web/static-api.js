@@ -21,8 +21,11 @@
     if (!keys.some(function (key) { return String(item[key] == null ? '' : item[key]) !== String(next[key] == null ? '' : next[key]); })) return;
     var versions = Array.isArray(item.versions) ? item.versions : [];
     var lastEdit = Date.parse(item.updated || '');
-    if (versions.length && !isNaN(lastEdit) && Date.now() - lastEdit < 60000) return;
-    var snapshot = { savedAt: item.updated || new Date().toISOString() };
+    var lastSnapshot = versions.length ? Date.parse(versions[0].savedAt || '') : NaN;
+    var recentlyEdited = !isNaN(lastEdit) && Date.now() - lastEdit < 60000;
+    var recentlyArchived = !isNaN(lastSnapshot) && Date.now() - lastSnapshot < 60000;
+    if (versions.length && recentlyEdited && recentlyArchived) return;
+    var snapshot = { savedAt: !isNaN(lastEdit) ? new Date(lastEdit).toISOString() : new Date().toISOString() };
     keys.forEach(function (key) { snapshot[key] = item[key] == null ? '' : item[key]; });
     versions.unshift(snapshot);
     item.versions = versions.slice(0, 10);
