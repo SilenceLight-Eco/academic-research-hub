@@ -161,6 +161,7 @@
   var autoSaveChain = Promise.resolve();
   var autoSaveRunning = 0;
   var activeVersionHistory = null;
+  var manualSaveStatusTimers = Object.create(null);
 
   function setGlobalSaveState(text, status) {
     var target = $('#globalSaveState');
@@ -223,6 +224,57 @@
     slot.timer = null;
     autoSaveSlots[key] = slot;
     return runAutoSave(key, slot.revision, payload, persist, false);
+  }
+
+  function setManualSaveStatus(button, status) {
+    if (!button) return;
+    var timerKey = button.id || 'manual-save';
+    clearTimeout(manualSaveStatusTimers[timerKey]);
+    button.classList.remove('is-saving', 'is-saved', 'is-save-error');
+    if (status === 'saving') {
+      button.disabled = true;
+      button.textContent = '正在保存';
+      button.classList.add('is-saving');
+      return;
+    }
+    button.disabled = false;
+    button.textContent = status === 'saved' ? '已保存' : '保存失败';
+    button.classList.add(status === 'saved' ? 'is-saved' : 'is-save-error');
+    manualSaveStatusTimers[timerKey] = setTimeout(function () {
+      if (!button.isConnected) return;
+      button.textContent = '立即保存';
+      button.classList.remove('is-saved', 'is-save-error');
+    }, status === 'saved' ? 1500 : 2500);
+  }
+
+  function recycleBinToolbar(kind, label, count) {
+    return '<div class="recycle-bin-toolbar"><span><b>' + escapeHtml(label) + '回收站</b><small>' + count + ' 项</small></span><button type="button" data-empty-trash="' + kind + '"' + (count ? '' : ' disabled') + '>清空回收站</button></div>';
+  }
+
+  function emptyRecycleBin(kind) {
+    var bins = {
+      knowledge: { endpoint: '/api/knowledge-base', action: 'purge-all-trash', state: 'knowledgeBase', response: 'knowledgeBase', render: renderKnowledgeBase, label: '知识库' },
+      note: { endpoint: '/api/note-studio', action: 'purge-all', state: 'noteStudio', response: 'noteStudio', render: renderNoteStudio, label: '笔记' },
+      prompt: { endpoint: '/api/prompt-library', action: 'purge-all', state: 'promptLibrary', response: 'promptLibrary', render: renderPromptLibrary, label: '提示词' },
+      project: { endpoint: '/api/research-projects', action: 'purge-all', state: 'researchProjects', response: 'researchProjects', render: renderResearchProjects, label: '研究项目' },
+      dataCode: { endpoint: '/api/data-code-library', action: 'purge-all', state: 'dataCodeLibrary', response: 'dataCodeLibrary', render: renderDataCodeLibrary, label: '数据与代码' }
+    };
+    var bin = bins[kind];
+    if (!bin) return;
+    var items = (state[bin.state] || {}).trash || [];
+    if (!items.length) return;
+    if (!confirm('确定永久删除回收站中的 ' + items.length + ' 项' + (bin.label ? '「' + bin.label + '」' : '') + '吗？此操作无法恢复。')) return;
+    var button = $('[data-empty-trash="' + kind + '"]');
+    if (button) { button.disabled = true; button.textContent = '正在清空…'; }
+    api(bin.endpoint, { method: 'POST', body: JSON.stringify({ action: bin.action }) }).then(function (res) {
+      if (!res.ok) throw new Error(res.error || '清空失败');
+      state[bin.state] = res[bin.response];
+      bin.render();
+      toast(bin.label + '回收站已清空');
+    }).catch(function (error) {
+      toast((error && error.message) || '清空失败，请检查网络');
+      if (button && button.isConnected) { button.disabled = false; button.textContent = '清空回收站'; }
+    });
   }
 
   function researchHubSnapshot() {
@@ -5337,6 +5389,7 @@
     $('#noteCopy').addEventListener('click', copyNoteForWechat);
     $('#noteNew').addEventListener('click', newNoteStudio);
     $('#noteTrash').addEventListener('click', function () { state.noteTrashOpen = !state.noteTrashOpen; renderNoteStudio(); });
+    document.addEventListener('click', function (e) { var clearTrash = e.target.closest('[data-empty-trash]'); if (clearTrash) emptyRecycleBin(clearTrash.dataset.emptyTrash); });
     $('#noteDelete').addEventListener('click', trashNoteStudio);
     $('#noteList').addEventListener('click', function (e) { var restore = e.target.closest('[data-note-restore]'); if (restore) { restoreNoteStudio(restore.dataset.noteRestore); return; } var purge = e.target.closest('[data-note-purge]'); if (purge) { purgeNoteStudio(purge.dataset.notePurge); return; } var note = e.target.closest('[data-note-id]'); if (!note) return; state.noteId = Number(note.dataset.noteId); renderNoteStudio(); });
     $('#promptNew').addEventListener('click', newPrompt);
@@ -6191,7 +6244,7 @@
   function renderDataCodeLibrary() {
     var library = state.dataCodeLibrary || { items: [], trash: [] }, items = library.items || [], trash = library.trash || [], list = $('#dcList');
     $('#dcTrash').textContent = state.dataCodeTrashOpen ? '返回资源库' : '回收站' + (trash.length ? ' (' + trash.length + ')' : '');
-    if (state.dataCodeTrashOpen) { list.innerHTML = trash.length ? '<div class="dc-list-label">回收站</div>' + trash.map(function (entry) { return '<div class="dc-trash-row"><div><b>' + escapeHtml((entry.item || {}).title || '未命名资源') + '</b><span>' + escapeHtml(entry.deletedAt || '') + '</span></div><div><button type="button" data-dc-restore="' + entry.id + '">恢复</button><button type="button" data-dc-purge="' + entry.id + '">彻底删除</button></div></div>'; }).join('') : '<div class="dc-list-empty">回收站为空</div>'; dataCodeFields().forEach(function (id) { $('#' + id).value = ''; $('#' + id).disabled = true; }); $$('[data-dc-check]').forEach(function (box) { box.checked = false; box.disabled = true; }); $('#dcDelete').hidden = true; renderDataCodeProgress(); return; }
+    if (state.dataCodeTrashOpen) { list.innerHTML = recycleBinToolbar('dataCode', '数据与代码', trash.length) + (trash.length ? trash.map(function (entry) { return '<div class="dc-trash-row"><div><b>' + escapeHtml((entry.item || {}).title || '未命名资源') + '</b><span>' + escapeHtml(entry.deletedAt || '') + '</span></div><div><button type="button" data-dc-restore="' + entry.id + '">恢复</button><button type="button" data-dc-purge="' + entry.id + '">彻底删除</button></div></div>'; }).join('') : '<div class="dc-list-empty">回收站为空</div>'); dataCodeFields().forEach(function (id) { $('#' + id).value = ''; $('#' + id).disabled = true; }); $$('[data-dc-check]').forEach(function (box) { box.checked = false; box.disabled = true; }); $('#dcDelete').hidden = true; renderDataCodeProgress(); return; }
     var categories = Array.from(new Set(items.map(function (item) { return (item.category || '通用').trim() || '通用'; }))).sort();
     var visible = state.dataCodeCategoryFilter === 'all' ? items : items.filter(function (item) { return ((item.category || '通用').trim() || '通用') === state.dataCodeCategoryFilter; });
     if (!visible.some(function (item) { return Number(item.id) === Number(state.dataCodeId); })) state.dataCodeId = visible[0] ? visible[0].id : null;
@@ -6219,7 +6272,7 @@
   function renderResearchProjects() {
     var collection = state.researchProjects || { projects: [], trash: [] }, projects = collection.projects || [], trash = collection.trash || [], list = $('#projectList');
     $('#projectTrash').textContent = state.projectTrashOpen ? '返回项目' : '回收站' + (trash.length ? ' (' + trash.length + ')' : '');
-    if (state.projectTrashOpen) { list.innerHTML = trash.length ? '<div class="project-list-label">回收站</div>' + trash.map(function (entry) { return '<div class="project-trash-row"><div><b>' + escapeHtml((entry.item || {}).title || '未命名项目') + '</b><span>' + escapeHtml(entry.deletedAt || '') + '</span></div><div><button type="button" data-project-restore="' + entry.id + '">恢复</button><button type="button" data-project-purge="' + entry.id + '">彻底删除</button></div></div>'; }).join('') : '<div class="project-list-empty">回收站为空</div>'; projectFields().forEach(function (id) { $('#' + id).value = ''; $('#' + id).disabled = true; }); $('#projectDelete').hidden = true; $('#projectSummary').innerHTML = '<div class="project-summary-empty">可在左侧恢复误删项目。</div>'; return; }
+    if (state.projectTrashOpen) { list.innerHTML = recycleBinToolbar('project', '研究项目', trash.length) + (trash.length ? trash.map(function (entry) { return '<div class="project-trash-row"><div><b>' + escapeHtml((entry.item || {}).title || '未命名项目') + '</b><span>' + escapeHtml(entry.deletedAt || '') + '</span></div><div><button type="button" data-project-restore="' + entry.id + '">恢复</button><button type="button" data-project-purge="' + entry.id + '">彻底删除</button></div></div>'; }).join('') : '<div class="project-list-empty">回收站为空</div>'); projectFields().forEach(function (id) { $('#' + id).value = ''; $('#' + id).disabled = true; }); $('#projectDelete').hidden = true; $('#projectSummary').innerHTML = '<div class="project-summary-empty">可在左侧恢复误删项目。</div>'; return; }
     var categories = Array.from(new Set(projects.map(function (project) { return (project.category || '通用').trim() || '通用'; }))).sort();
     var visible = state.projectCategoryFilter === 'all' ? projects : projects.filter(function (project) { return ((project.category || '通用').trim() || '通用') === state.projectCategoryFilter; });
     if (!visible.some(function (project) { return Number(project.id) === Number(state.projectId); })) state.projectId = visible[0] ? visible[0].id : null;
@@ -6308,7 +6361,7 @@
     var library = state.promptLibrary || { prompts: [], trash: [] }, prompts = library.prompts || [], trash = library.trash || [], list = $('#promptList');
     var fields = ['promptTitle', 'promptCategory', 'promptTags', 'promptBody'];
     $('#promptTrash').textContent = state.promptTrashOpen ? '返回提示词库' : '回收站' + (trash.length ? ' (' + trash.length + ')' : '');
-    if (state.promptTrashOpen) { list.innerHTML = trash.length ? '<div class="prompt-list-label">回收站</div>' + trash.map(function (entry) { return '<div class="prompt-trash-row"><div><b>' + escapeHtml((entry.item || {}).title || '未命名提示词') + '</b><span>' + escapeHtml(entry.deletedAt || '') + '</span></div><div><button type="button" data-prompt-restore="' + entry.id + '">恢复</button><button type="button" data-prompt-purge="' + entry.id + '">彻底删除</button></div></div>'; }).join('') : '<div class="prompt-list-empty">回收站为空</div>'; fields.forEach(function (id) { $('#' + id).value = ''; $('#' + id).disabled = true; }); $('#promptDelete').hidden = true; $('#promptVariables').innerHTML = ''; $('#promptResult').textContent = '可在左侧恢复误删的提示词。'; return; }
+    if (state.promptTrashOpen) { list.innerHTML = recycleBinToolbar('prompt', '提示词', trash.length) + (trash.length ? trash.map(function (entry) { return '<div class="prompt-trash-row"><div><b>' + escapeHtml((entry.item || {}).title || '未命名提示词') + '</b><span>' + escapeHtml(entry.deletedAt || '') + '</span></div><div><button type="button" data-prompt-restore="' + entry.id + '">恢复</button><button type="button" data-prompt-purge="' + entry.id + '">彻底删除</button></div></div>'; }).join('') : '<div class="prompt-list-empty">回收站为空</div>'); fields.forEach(function (id) { $('#' + id).value = ''; $('#' + id).disabled = true; }); $('#promptDelete').hidden = true; $('#promptVariables').innerHTML = ''; $('#promptResult').textContent = '可在左侧恢复误删的提示词。'; return; }
     var categories = Array.from(new Set(prompts.map(function (prompt) { return (prompt.category || '通用').trim() || '通用'; }))).sort();
     var visible = state.promptCategoryFilter === 'all' ? prompts : prompts.filter(function (prompt) { return ((prompt.category || '通用').trim() || '通用') === state.promptCategoryFilter; });
     if (!visible.some(function (prompt) { return Number(prompt.id) === Number(state.promptId); })) state.promptId = visible[0] ? visible[0].id : null;
@@ -6347,7 +6400,7 @@
     var list = $('#noteList'); var editor = $('#noteEditor'); var title = $('#noteTitle'); var style = $('#noteStyle'); var remove = $('#noteDelete');
     $('#noteTrash').textContent = state.noteTrashOpen ? '返回笔记' : '回收站' + (trash.length ? ' (' + trash.length + ')' : '');
     if (state.noteTrashOpen) {
-      list.innerHTML = trash.length ? '<div class="note-list-label">回收站</div>' + trash.map(function (entry) { return '<div class="note-trash-row"><div><b>' + escapeHtml((entry.item || {}).title || '未命名笔记') + '</b><span>' + escapeHtml(entry.deletedAt || '') + '</span></div><div><button type="button" data-note-restore="' + entry.id + '">恢复</button><button type="button" data-note-purge="' + entry.id + '">彻底删除</button></div></div>'; }).join('') : '<div class="note-list-empty">回收站为空</div>';
+      list.innerHTML = recycleBinToolbar('note', '笔记', trash.length) + (trash.length ? trash.map(function (entry) { return '<div class="note-trash-row"><div><b>' + escapeHtml((entry.item || {}).title || '未命名笔记') + '</b><span>' + escapeHtml(entry.deletedAt || '') + '</span></div><div><button type="button" data-note-restore="' + entry.id + '">恢复</button><button type="button" data-note-purge="' + entry.id + '">彻底删除</button></div></div>'; }).join('') : '<div class="note-list-empty">回收站为空</div>');
       title.value = ''; title.disabled = true; editor.value = ''; editor.disabled = true; style.disabled = true; remove.hidden = true; $('#notePreview').innerHTML = '<div class="note-empty">可在左侧恢复误删笔记。</div>'; return;
     }
     if (!notes.some(function (note) { return Number(note.id) === Number(state.noteId); })) state.noteId = notes[0] ? notes[0].id : null;
@@ -6368,9 +6421,9 @@
   }
 
   function readNotePayload() { return { action: 'save', id: state.noteId, title: $('#noteTitle').value, markdown: $('#noteEditor').value, style: $('#noteStyle').value }; }
-  function persistNoteStudio(body, automatic) { return api('/api/note-studio', { method: 'POST', body: JSON.stringify(body) }).then(function (res) { if (!res.ok) throw new Error(res.error || '保存失败'); state.noteStudio = res.noteStudio; if (!automatic) { renderNoteStudio(); toast('笔记已同步保存'); } }); }
+  function persistNoteStudio(body, automatic) { return api('/api/note-studio', { method: 'POST', body: JSON.stringify(body) }).then(function (res) { if (!res.ok) throw new Error(res.error || '保存失败'); state.noteStudio = res.noteStudio; if (!automatic) { renderNoteStudio(); setManualSaveStatus($('#noteSave'), 'saved'); toast('笔记已同步保存'); } }).catch(function (error) { if (!automatic) setManualSaveStatus($('#noteSave'), 'error'); throw error; }); }
   function queueNoteAutoSave() { if (!state.noteId || state.noteTrashOpen) return; var body = readNotePayload(); queueAutoSave('note:' + body.id, body, persistNoteStudio); }
-  function saveNoteStudio() { if (!state.noteId) return; var body = readNotePayload(); return saveImmediately('note:' + body.id, body, persistNoteStudio); }
+  function saveNoteStudio() { if (!state.noteId) return; var body = readNotePayload(); setManualSaveStatus($('#noteSave'), 'saving'); return saveImmediately('note:' + body.id, body, persistNoteStudio); }
 
   function newNoteStudio() { api('/api/note-studio', { method: 'POST', body: JSON.stringify({ action: 'create' }) }).then(function (res) { if (!res.ok) { toast(res.error || '新建失败'); return; } state.noteStudio = res.noteStudio; state.noteTrashOpen = false; state.noteId = res.noteStudio.notes[0].id; renderNoteStudio(); $('#noteTitle').focus(); }); }
   function trashNoteStudio() { if (!state.noteId || !confirm('确定将这篇笔记移入回收站吗？')) return; api('/api/note-studio', { method: 'POST', body: JSON.stringify({ action: 'trash', id: state.noteId }) }).then(function (res) { if (!res.ok) { toast(res.error || '移入回收站失败'); return; } state.noteStudio = res.noteStudio; state.noteId = null; renderNoteStudio(); toast('笔记已移入回收站'); }); }
@@ -6472,7 +6525,7 @@
     if (trashToggle) trashToggle.textContent = state.kbTrashOpen ? '返回知识库' : '回收站' + (trash.length ? ' (' + trash.length + ')' : '');
     if (state.kbTrashOpen) {
       $('#kbFolders').innerHTML = '<div class="kb-trash-note">回收站中的内容不会自动删除。</div>';
-      $('#kbDocs').innerHTML = trash.length ? trash.map(function (entry) { var item = entry.item || {}; return '<div class="kb-trash-item"><div><b>' + escapeHtml(item.title || '未命名项目') + '</b><span>' + (entry.type === 'folder' ? '文件夹' : '文档') + ' · ' + escapeHtml(entry.deletedAt || '') + '</span></div><div><button type="button" data-kb-restore-trash="' + entry.id + '">恢复</button><button type="button" class="kb-purge-button" data-kb-purge-trash="' + entry.id + '">彻底删除</button></div></div>'; }).join('') : '<div class="kb-empty">回收站为空</div>';
+      $('#kbDocs').innerHTML = recycleBinToolbar('knowledge', '知识库', trash.length) + (trash.length ? trash.map(function (entry) { var item = entry.item || {}; return '<div class="kb-trash-item"><div><b>' + escapeHtml(item.title || '未命名项目') + '</b><span>' + (entry.type === 'folder' ? '文件夹' : '文档') + ' · ' + escapeHtml(entry.deletedAt || '') + '</span></div><div><button type="button" data-kb-restore-trash="' + entry.id + '">恢复</button><button type="button" class="kb-purge-button" data-kb-purge-trash="' + entry.id + '">彻底删除</button></div></div>'; }).join('') : '<div class="kb-empty">回收站为空</div>');
       $('#kbEditor').innerHTML = '<div class="kb-editor-empty">可在此恢复误删内容，或选择彻底删除。</div>';
       return;
     }
@@ -6608,31 +6661,56 @@
   }
 
   function richEditorToMarkdown(root) {
+    function isBlock(node) {
+      return node.nodeType === Node.ELEMENT_NODE && /^(h1|h2|h3|p|div|blockquote|pre|ul|ol|li)$/.test(node.tagName.toLowerCase());
+    }
+    function walkChildren(parent) {
+      var output = '';
+      var pendingBreaks = 0;
+      var previousBlock = false;
+      Array.from(parent.childNodes).forEach(function (child) {
+        if (child.nodeType === Node.ELEMENT_NODE && child.tagName.toLowerCase() === 'br') { pendingBreaks += 1; return; }
+        var block = isBlock(child);
+        if (block) {
+          if (previousBlock) output += '\n'.repeat(pendingBreaks + 1);
+          else if (pendingBreaks) output += '\n'.repeat(pendingBreaks);
+          else if (output) output += '\n';
+          output += walk(child);
+          previousBlock = true;
+        } else {
+          if (pendingBreaks) output += '\n'.repeat(pendingBreaks);
+          output += walk(child);
+          previousBlock = false;
+        }
+        pendingBreaks = 0;
+      });
+      if (pendingBreaks) output += '\n'.repeat(pendingBreaks);
+      return output;
+    }
     function walk(node) {
       if (node.nodeType === Node.TEXT_NODE) return node.nodeValue || '';
       if (node.nodeType !== Node.ELEMENT_NODE) return '';
       var tag = node.tagName.toLowerCase();
-      var inner = Array.from(node.childNodes).map(walk).join('');
+      var inner = walkChildren(node);
       if (node.classList.contains('kb-inline-formula')) return '$' + (node.dataset.formula || '') + '$';
-      if (node.classList.contains('kb-formula-block')) return '$$' + (node.dataset.formula || '') + '$$\n\n';
+      if (node.classList.contains('kb-formula-block')) return '$$' + (node.dataset.formula || '') + '$$';
       var color = tag === 'font' ? normalizeKnowledgeColor(node.getAttribute('color')) : (tag === 'span' ? normalizeKnowledgeColor(node.style.color) : '');
       if (color) return '<span style="color:' + color + '">' + inner + '</span>';
-      if (tag === 'h1') return '# ' + inner.trim() + '\n\n';
-      if (tag === 'h2') return '## ' + inner.trim() + '\n\n';
-      if (tag === 'h3') return '### ' + inner.trim() + '\n\n';
+      if (tag === 'h1') return '# ' + inner;
+      if (tag === 'h2') return '## ' + inner;
+      if (tag === 'h3') return '### ' + inner;
       if (tag === 'strong' || tag === 'b') return '**' + inner + '**';
       if (tag === 'em' || tag === 'i') return '*' + inner + '*';
       if (tag === 'code' && node.parentElement && node.parentElement.tagName.toLowerCase() !== 'pre') return '`' + inner + '`';
-      if (tag === 'pre') return '```\n' + (node.textContent || '').trim() + '\n```\n\n';
-      if (tag === 'blockquote') return '> ' + inner.trim().replace(/\n/g, '\n> ') + '\n\n';
-      if (tag === 'li') return '- ' + inner.trim() + '\n';
-      if (tag === 'ul' || tag === 'ol') return inner + '\n';
+      if (tag === 'pre') return '```\n' + (node.textContent || '') + '\n```';
+      if (tag === 'blockquote') return '> ' + inner.replace(/\n/g, '\n> ');
+      if (tag === 'li') return '- ' + inner;
+      if (tag === 'ul' || tag === 'ol') return Array.from(node.children).map(function (item) { return walk(item); }).join('\n');
       if (tag === 'a') return '[' + inner + '](' + (node.getAttribute('href') || '') + ')';
       if (tag === 'br') return '\n';
-      if (tag === 'p' || tag === 'div') return inner.trim() + '\n\n';
       return inner;
     }
-    return Array.from(root.childNodes).map(walk).join('').replace(/\n{3,}/g, '\n\n').trim();
+    return walkChildren(root);
   }
 
   function newKnowledgeDoc() {
@@ -6677,9 +6755,9 @@
   }
 
   function knowledgePayload() { var draft = readKnowledgeDraft(); return { action: 'save-doc', id: draft.id, title: draft.title, content: draft.content, folderId: draft.folderId }; }
-  function persistKnowledgeDoc(body, automatic) { return api('/api/knowledge-base', { method: 'POST', body: JSON.stringify(body) }).then(function (res) { if (!res.ok) throw new Error(res.error || '保存失败'); state.knowledgeBase = res.knowledgeBase; if (!automatic) { state.kbDraft = null; renderKnowledgeBase(); toast('Markdown 文档已同步保存'); } }); }
+  function persistKnowledgeDoc(body, automatic) { return api('/api/knowledge-base', { method: 'POST', body: JSON.stringify(body) }).then(function (res) { if (!res.ok) throw new Error(res.error || '保存失败'); state.knowledgeBase = res.knowledgeBase; if (!automatic) { state.kbDraft = null; var savedDoc = (res.knowledgeBase.docs || []).filter(function (doc) { return String(doc.id) === String(body.id); })[0]; var row = $('#kbDocs [data-kb-doc="' + body.id + '"]'); if (row && row.parentElement) row.parentElement.outerHTML = renderKnowledgeDocItem(savedDoc || body); var label = $('.kb-editor-foot > span', $('#kbEditor')); if (label && savedDoc) label.textContent = 'Markdown · 最近更新：' + (savedDoc.updated || '已保存'); setManualSaveStatus($('#kbSaveDoc'), 'saved'); toast('Markdown 文档已同步保存'); } }).catch(function (error) { if (!automatic) setManualSaveStatus($('#kbSaveDoc'), 'error'); throw error; }); }
   function queueKnowledgeAutoSave() { if (!state.kbDocId || state.kbTrashOpen) return; var body = knowledgePayload(); queueAutoSave('knowledge:' + body.id, body, persistKnowledgeDoc); }
-  function saveKnowledgeDoc() { if (!state.kbDocId) return; var body = knowledgePayload(); return saveImmediately('knowledge:' + body.id, body, persistKnowledgeDoc); }
+  function saveKnowledgeDoc() { if (!state.kbDocId) return; var body = knowledgePayload(); setManualSaveStatus($('#kbSaveDoc'), 'saving'); return saveImmediately('knowledge:' + body.id, body, persistKnowledgeDoc); }
 
   function readKnowledgeDraft() {
     var active = ((state.knowledgeBase && state.knowledgeBase.docs) || []).filter(function (doc) { return doc.id === state.kbDocId; })[0] || {};

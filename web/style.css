@@ -6641,3 +6641,14 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
   letter-spacing: normal;
   font-weight: 600;
 }
+
+/* 回收站与手动保存状态 */
+.recycle-bin-toolbar { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:0 0 10px; padding:8px; border:1px solid var(--hairline-soft); border-radius:7px; background:var(--glass-strong); }
+.recycle-bin-toolbar > span { display:grid; gap:3px; min-width:0; color:var(--text-secondary); font-size:11px; }
+.recycle-bin-toolbar small { color:var(--text-muted); font-size:10px; }
+.recycle-bin-toolbar button { flex:none; margin:0; padding:5px 7px; border:1px solid rgba(188,68,68,.24); border-radius:5px; background:rgba(188,68,68,.06); color:#bc4444; cursor:pointer; font:inherit; font-size:10px; }
+.recycle-bin-toolbar button:hover:not(:disabled) { background:rgba(188,68,68,.12); }
+.recycle-bin-toolbar button:disabled { opacity:.45; cursor:not-allowed; }
+#kbSaveDoc.is-saving,#noteSave.is-saving { opacity:.72; cursor:progress; }
+#kbSaveDoc.is-saved,#noteSave.is-saved { border-color:#44845c; color:#44845c; }
+#kbSaveDoc.is-save-error,#noteSave.is-save-error { border-color:#bc4444; color:#bc4444; }
