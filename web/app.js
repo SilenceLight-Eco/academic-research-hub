@@ -6534,7 +6534,7 @@
   function extractKnowledgeHeadings(content) {
     return String(content || '').split(/\r?\n/).map(function (line) {
       // 兼容早期保存的“#标题”写法；重新保存后会统一为标准 Markdown 的“# 标题”。
-      var matched = line.match(/^(#{1,3})\s*(\S.*?)\s*$/);
+      var matched = line.match(/^(#{1,4})\s*(\S.*?)\s*$/);
       return matched ? { level: matched[1].length, text: matched[2].trim() } : null;
     }).filter(Boolean).slice(0, 20);
   }
@@ -6549,7 +6549,7 @@
   function scrollToKnowledgeHeading() {
     var wanted = state.kbHeadingTarget;
     if (!wanted) return;
-    var target = $$('#kbRichEditor h1, #kbRichEditor h2, #kbRichEditor h3, .kb-markdown-preview h1, .kb-markdown-preview h2, .kb-markdown-preview h3').filter(function (item) { return item.textContent.trim() === wanted; })[0];
+    var target = $$('#kbRichEditor h1, #kbRichEditor h2, #kbRichEditor h3, #kbRichEditor h4, .kb-markdown-preview h1, .kb-markdown-preview h2, .kb-markdown-preview h3, .kb-markdown-preview h4').filter(function (item) { return item.textContent.trim() === wanted; })[0];
     if (target) target.scrollIntoView({ block: 'center', behavior: 'smooth' });
     state.kbHeadingTarget = null;
   }
@@ -6604,9 +6604,11 @@
     renderKnowledgeFormulas(rich);
     var toolbar = document.createElement('div');
     toolbar.className = 'kb-rich-toolbar';
-    toolbar.innerHTML = '<button type="button" data-kb-command="h1">H1</button><button type="button" data-kb-command="h2">H2</button><button type="button" data-kb-command="bold"><b>B</b></button><button type="button" data-kb-command="italic"><i>I</i></button><button type="button" data-kb-command="list">列表</button><button type="button" data-kb-command="quote">引用</button><button type="button" data-kb-command="code">代码</button><button type="button" data-kb-command="link">链接</button><label class="kb-color-picker" title="先选中文字，再设置字体颜色">文字颜色 <input id="kbTextColor" type="color" value="#c0392b" aria-label="设置选中文字颜色"></label>';
+    toolbar.innerHTML = '<button type="button" data-kb-command="h1" title="一级标题">H1</button><button type="button" data-kb-command="h2" title="二级标题">H2</button><button type="button" data-kb-command="h3" title="三级标题">H3</button><button type="button" data-kb-command="h4" title="四级标题">H4</button><span class="kb-toolbar-divider" aria-hidden="true"></span><button type="button" data-kb-command="bold" title="加粗"><b>B</b></button><button type="button" data-kb-command="italic" title="斜体"><i>I</i></button><button type="button" data-kb-command="strike" title="删除线"><s>S</s></button><button type="button" data-kb-command="inline-code" title="行内代码">&lt;/&gt;</button><span class="kb-toolbar-divider" aria-hidden="true"></span><button type="button" data-kb-command="list" title="无序列表">列表</button><button type="button" data-kb-command="ordered-list" title="有序列表">1.</button><button type="button" data-kb-command="quote">引用</button><button type="button" data-kb-command="code">代码块</button><button type="button" data-kb-command="divider" title="分隔线">—</button><button type="button" data-kb-command="link">链接</button><label class="kb-font-size-picker" title="先选中文字，再设置字号">字号 <select id="kbFontSize" aria-label="设置选中文字字号"><option value="">默认</option><option value="12">12</option><option value="14">14</option><option value="16">16</option><option value="18">18</option><option value="20">20</option><option value="24">24</option></select></label><label class="kb-color-picker" title="先选中文字，再设置字体颜色">文字颜色 <input id="kbTextColor" type="color" value="#c0392b" aria-label="设置选中文字颜色"></label>';
     rich.before(toolbar);
+    toolbar.addEventListener('mousedown', function (event) { if (event.target.closest('button[data-kb-command]')) event.preventDefault(); });
     var colorPicker = $('#kbTextColor', toolbar);
+    var fontSizePicker = $('#kbFontSize', toolbar);
     var savedRange = null;
     function rememberRichSelection() {
       var selection = window.getSelection();
@@ -6614,6 +6616,8 @@
     }
     colorPicker.addEventListener('pointerdown', rememberRichSelection);
     colorPicker.addEventListener('focus', rememberRichSelection);
+    fontSizePicker.addEventListener('pointerdown', rememberRichSelection);
+    fontSizePicker.addEventListener('focus', rememberRichSelection);
     colorPicker.addEventListener('change', function () {
       var color = normalizeKnowledgeColor(colorPicker.value);
       var selection = window.getSelection();
@@ -6634,6 +6638,27 @@
       savedRange = null;
       queueKnowledgeAutoSave();
     });
+    fontSizePicker.addEventListener('change', function () {
+      var fontSize = normalizeKnowledgeFontSize(fontSizePicker.value);
+      if (!fontSize || !savedRange || !rich.contains(savedRange.commonAncestorContainer) || savedRange.collapsed) { toast('请先在正文中选中文字，再选择字号'); fontSizePicker.value = ''; return; }
+      var selection = window.getSelection();
+      rich.focus();
+      if (!selection) return;
+      selection.removeAllRanges();
+      selection.addRange(savedRange);
+      var range = selection.getRangeAt(0);
+      if (!range.toString().trim()) { toast('请先在正文中选中文字，再选择字号'); fontSizePicker.value = ''; return; }
+      var sized = document.createElement('span');
+      sized.style.fontSize = fontSize + 'px';
+      sized.appendChild(range.extractContents());
+      range.insertNode(sized);
+      selection.removeAllRanges();
+      range.selectNodeContents(sized);
+      selection.addRange(range);
+      savedRange = null;
+      fontSizePicker.value = '';
+      queueKnowledgeAutoSave();
+    });
   };
 
   function editorContainsSelection(editor, selection) {
@@ -6644,13 +6669,30 @@
     var editor = $('#kbRichEditor');
     if (!editor) return;
     editor.focus();
-    if (command === 'h1') document.execCommand('formatBlock', false, 'H1');
-    else if (command === 'h2') document.execCommand('formatBlock', false, 'H2');
+    if (/^h[1-4]$/.test(command)) document.execCommand('formatBlock', false, command.toUpperCase());
     else if (command === 'list') document.execCommand('insertUnorderedList', false, null);
+    else if (command === 'ordered-list') document.execCommand('insertOrderedList', false, null);
     else if (command === 'quote') document.execCommand('formatBlock', false, 'BLOCKQUOTE');
     else if (command === 'code') document.execCommand('formatBlock', false, 'PRE');
+    else if (command === 'strike') document.execCommand('strikeThrough', false, null);
+    else if (command === 'divider') document.execCommand('insertHorizontalRule', false, null);
+    else if (command === 'inline-code') wrapKnowledgeSelection(editor, 'code');
     else if (command === 'link') { var url = prompt('链接地址（https://…）：'); if (url && /^https?:\/\//i.test(url.trim())) document.execCommand('createLink', false, url.trim()); }
     else document.execCommand(command, false, null);
+  }
+
+  function wrapKnowledgeSelection(editor, tagName) {
+    var selection = window.getSelection();
+    if (!selection || !selection.rangeCount || !editorContainsSelection(editor, selection)) return;
+    var range = selection.getRangeAt(0);
+    if (range.collapsed || !range.toString().trim()) { toast('请先在正文中选中文字'); return; }
+    var wrapper = document.createElement(tagName);
+    wrapper.appendChild(range.extractContents());
+    range.insertNode(wrapper);
+    selection.removeAllRanges();
+    range.selectNodeContents(wrapper);
+    selection.addRange(range);
+    queueKnowledgeAutoSave();
   }
 
   function currentKnowledgeLine(editor) {
@@ -6687,7 +6729,7 @@
   function autoFormatKnowledgeCurrentLine(editor, beforeSpace) {
     var line = currentKnowledgeLine(editor);
     if (!line) return false;
-    var heading = line.text.match(beforeSpace ? /^(#{1,3})\s?([^#\s].*?)$/ : /^(#{1,3})\s?([^#\s].*?)\s+$/);
+    var heading = line.text.match(beforeSpace ? /^(#{1,4})\s?([^#\s].*?)$/ : /^(#{1,4})\s?([^#\s].*?)\s+$/);
     if (heading) {
       if (!clearKnowledgeLine(line.range)) return false;
       document.execCommand('formatBlock', false, 'H' + heading[1].length);
@@ -6725,7 +6767,7 @@
     while (block && block.parentElement !== editor) block = block.parentElement;
     if (!block || block === editor) block = editor;
     var text = (block.textContent || '').replace(/\u00a0/g, ' ');
-    var matched = text.match(beforeSpace ? /^(#{1,3})\s?([^#\s].*?)$/ : /^(#{1,3})\s?([^#\s].*?)\s+$/);
+    var matched = text.match(beforeSpace ? /^(#{1,4})\s?([^#\s].*?)$/ : /^(#{1,4})\s?([^#\s].*?)\s+$/);
     if (!matched) return false;
     var heading = document.createElement('h' + matched[1].length);
     heading.textContent = matched[2];
@@ -6773,7 +6815,7 @@
 
   function richEditorToMarkdown(root) {
     function isBlock(node) {
-      return node.nodeType === Node.ELEMENT_NODE && /^(h1|h2|h3|p|div|blockquote|pre|ul|ol|li)$/.test(node.tagName.toLowerCase());
+      return node.nodeType === Node.ELEMENT_NODE && /^(h1|h2|h3|h4|p|div|blockquote|pre|ul|ol|li|hr)$/.test(node.tagName.toLowerCase());
     }
     function walkChildren(parent) {
       var output = '';
@@ -6806,17 +6848,22 @@
       if (node.classList.contains('kb-inline-formula')) return '$' + (node.dataset.formula || '') + '$';
       if (node.classList.contains('kb-formula-block')) return '$$' + (node.dataset.formula || '') + '$$';
       var color = tag === 'font' ? normalizeKnowledgeColor(node.getAttribute('color')) : (tag === 'span' ? normalizeKnowledgeColor(node.style.color) : '');
-      if (color) return '<span style="color:' + color + '">' + inner + '</span>';
+      var fontSize = tag === 'span' ? normalizeKnowledgeFontSize(node.style.fontSize) : '';
+      if (color || fontSize) return '<span style="' + (color ? 'color:' + color : '') + (color && fontSize ? ';' : '') + (fontSize ? 'font-size:' + fontSize + 'px' : '') + '">' + inner + '</span>';
       if (tag === 'h1') return '# ' + inner;
       if (tag === 'h2') return '## ' + inner;
       if (tag === 'h3') return '### ' + inner;
+      if (tag === 'h4') return '#### ' + inner;
       if (tag === 'strong' || tag === 'b') return '**' + inner + '**';
       if (tag === 'em' || tag === 'i') return '*' + inner + '*';
+      if (tag === 's' || tag === 'strike' || tag === 'del') return '~~' + inner + '~~';
       if (tag === 'code' && node.parentElement && node.parentElement.tagName.toLowerCase() !== 'pre') return '`' + inner + '`';
       if (tag === 'pre') return '```\n' + (node.textContent || '') + '\n```';
       if (tag === 'blockquote') return '> ' + inner.replace(/\n/g, '\n> ');
       if (tag === 'li') return '- ' + inner;
-      if (tag === 'ul' || tag === 'ol') return Array.from(node.children).map(function (item) { return walk(item); }).join('\n');
+      if (tag === 'ul') return Array.from(node.children).map(function (item) { return walk(item); }).join('\n');
+      if (tag === 'ol') return Array.from(node.children).map(function (item, index) { return (index + 1) + '. ' + walkChildren(item); }).join('\n');
+      if (tag === 'hr') return '---';
       if (tag === 'a') return '[' + inner + '](' + (node.getAttribute('href') || '') + ')';
       if (tag === 'br') return '\n';
       return inner;
@@ -6882,16 +6929,20 @@
     var raw = String(source || '').replace(/```([\s\S]*?)```/g, function (_, code) { var token = '@@KB_CODE_' + codeBlocks.length + '@@'; codeBlocks.push('<pre><code>' + escapeHtml(code.trim()) + '</code></pre>'); return token; });
     raw = extractKnowledgeColorTokens(raw, colorSpans);
     var text = escapeHtml(raw);
-    var lines = text.split('\n'); var html = []; var inList = false;
-    function closeList() { if (inList) { html.push('</ul>'); inList = false; } }
+    var lines = text.split('\n'); var html = []; var listType = '';
+    function closeList() { if (listType) { html.push('</' + listType + '>'); listType = ''; } }
+    function openList(type) { if (listType !== type) { closeList(); html.push('<' + type + '>'); listType = type; } }
     lines.forEach(function (line) {
       if (/^@@KB_CODE_\d+@@$/.test(line)) { closeList(); html.push(line); return; }
       // 新旧文档都支持：# 标题 和 #标题 在编辑器中都会显示为标题。
+      if (/^####\s*\S/.test(line)) { closeList(); html.push('<h4>' + markdownInline(line.replace(/^####\s*/, '')) + '</h4>'); return; }
       if (/^###\s*\S/.test(line)) { closeList(); html.push('<h3>' + markdownInline(line.replace(/^###\s*/, '')) + '</h3>'); return; }
       if (/^##\s*\S/.test(line)) { closeList(); html.push('<h2>' + markdownInline(line.replace(/^##\s*/, '')) + '</h2>'); return; }
       if (/^#\s*\S/.test(line)) { closeList(); html.push('<h1>' + markdownInline(line.replace(/^#\s*/, '')) + '</h1>'); return; }
+      if (/^---+\s*$/.test(line)) { closeList(); html.push('<hr>'); return; }
       if (/^>\s?/.test(line)) { closeList(); html.push('<blockquote>' + markdownInline(line.replace(/^>\s?/, '')) + '</blockquote>'); return; }
-      if (/^[-*]\s+/.test(line)) { if (!inList) { html.push('<ul>'); inList = true; } html.push('<li>' + markdownInline(line.replace(/^[-*]\s+/, '')) + '</li>'); return; }
+      if (/^\d+\.\s+/.test(line)) { openList('ol'); html.push('<li>' + markdownInline(line.replace(/^\d+\.\s+/, '')) + '</li>'); return; }
+      if (/^[-*]\s+/.test(line)) { openList('ul'); html.push('<li>' + markdownInline(line.replace(/^[-*]\s+/, '')) + '</li>'); return; }
       closeList(); html.push(line ? '<p>' + markdownInline(line) + '</p>' : '<br>');
     });
     closeList();
@@ -6901,19 +6952,21 @@
   function extractKnowledgeColorTokens(source, colorSpans) {
     var output = '';
     var index = 0;
-    var opener = /<span\s+style\s*=\s*(["'])\s*color\s*:\s*(#[0-9a-f]{3}(?:[0-9a-f]{3})?)\s*;?\s*\1\s*>/i;
+    var opener = /<span\s+style\s*=\s*(["'])([^"']*)\1\s*>/i;
     while (index < source.length) {
       var opening = opener.exec(source.slice(index));
       if (!opening || opening.index !== 0) { output += source.charAt(index); index += 1; continue; }
       var contentStart = index + opening[0].length;
       var closing = findKnowledgeSpanEnd(source, contentStart);
       if (!closing) { output += opening[0]; index = contentStart; continue; }
-      var color = normalizeKnowledgeColor(opening[2]);
+      var color = normalizeKnowledgeColor((opening[2].match(/(?:^|;)\s*color\s*:\s*([^;]+)/i) || [])[1]);
+      var fontSize = normalizeKnowledgeFontSize((opening[2].match(/(?:^|;)\s*font-size\s*:\s*([^;]+)/i) || [])[1]);
+      if (!color && !fontSize) { output += opening[0]; index = contentStart; continue; }
       var colorIndex = colorSpans.length;
       var token = '@@KB_COLOR_' + colorIndex + '@@';
       var content = source.slice(contentStart, closing.start);
       colorSpans.push(null);
-      colorSpans[colorIndex] = { color: color, content: extractKnowledgeColorTokens(content, colorSpans) };
+      colorSpans[colorIndex] = { color: color, fontSize: fontSize, content: extractKnowledgeColorTokens(content, colorSpans) };
       output += token;
       index = closing.end;
     }
@@ -6936,7 +6989,11 @@
   function restoreKnowledgeColorTokens(html, colorSpans) {
     return html.replace(/@@KB_COLOR_(\d+)@@/g, function (_, i) {
       var colorSpan = colorSpans[Number(i)];
-      return colorSpan ? '<span style="color:' + colorSpan.color + '">' + restoreKnowledgeColorTokens(markdownInline(escapeHtml(colorSpan.content)), colorSpans) + '</span>' : '';
+      if (!colorSpan) return '';
+      var styles = [];
+      if (colorSpan.color) styles.push('color:' + colorSpan.color);
+      if (colorSpan.fontSize) styles.push('font-size:' + colorSpan.fontSize + 'px');
+      return '<span style="' + styles.join(';') + '">' + restoreKnowledgeColorTokens(markdownInline(escapeHtml(colorSpan.content)), colorSpans) + '</span>';
     });
   }
 
@@ -6949,8 +7006,13 @@
     return '#' + rgb.slice(1).map(function (part) { return Number(part).toString(16).padStart(2, '0'); }).join('');
   }
 
+  function normalizeKnowledgeFontSize(value) {
+    var matched = String(value || '').trim().match(/^(12|14|16|18|20|24)(?:px)?$/);
+    return matched ? Number(matched[1]) : '';
+  }
+
   function markdownInline(text) {
-    return text.replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\*([^*]+)\*/g, '<em>$1</em>').replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>').replace(/\$([^$]+)\$/g, '<span class="kb-inline-formula" data-formula="$1">$1</span>');
+    return text.replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/~~([^~]+)~~/g, '<s>$1</s>').replace(/\*([^*]+)\*/g, '<em>$1</em>').replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>').replace(/\$([^$]+)\$/g, '<span class="kb-inline-formula" data-formula="$1">$1</span>');
   }
 
   // ===== 操作：文件夹 =====
