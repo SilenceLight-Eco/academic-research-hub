@@ -13,10 +13,13 @@
   var workspaceRevisionKnown = false;
   var workspaceRowExists = false;
   var workspaceBasePayload = null;
+  var workspaceSessionGeneration = 0;
   var workspaceLoadPromise = null;
+  var workspaceWriteChain = Promise.resolve();
   var pendingWorkspaceConflict = null;
   var activeWritePayload = null;
   var activeWriteRevision = null;
+  var applyingBrowserSnapshot = false;
   var saveTimer = null;
   var focusKeys = ['academic-workbench-theme', 'wb_pomo_counts', 'wb_focus_preset', 'wb_focus_log', 'wb_focus_state'];
   var researchHubKeys = ['research-hub-crossref-email', 'research-hub-crossref-citations-v1', 'research-hub-stages-v1', 'research-hub-fields-v1', 'research-hub-cards-v1', 'research-hub-theme'];
@@ -32,7 +35,67 @@
     return new Date(timestamp).toISOString();
   }
   function copyPayload(payload) { return JSON.parse(JSON.stringify(payload || {})); }
+  function cloneValue(value) { return value === undefined ? undefined : JSON.parse(JSON.stringify(value)); }
+  function samePayload(left, right) { return JSON.stringify(left) === JSON.stringify(right); }
+  function payloadModifiedAt(payload) {
+    var latest = 0;
+    var timestampKeys = ['updated', 'updatedAt', 'updated_at', 'modifiedAt', 'modified_at', 'created', 'createdAt', 'created_at', 'deletedAt', 'deleted_at', 'savedAt', 'saved_at'];
+    function visit(value, key) {
+      if (!value || typeof value !== 'object') {
+        if (timestampKeys.indexOf(key) >= 0 && typeof value === 'string') { var parsed = Date.parse(value); if (!isNaN(parsed)) latest = Math.max(latest, parsed); }
+        return;
+      }
+      Object.keys(value).forEach(function (childKey) { visit(value[childKey], childKey); });
+    }
+    visit(payload, '');
+    return latest;
+  }
+  function mergeWorkspaceValue(base, local, cloud, localModifiedAt, cloudModifiedAt) {
+    if (samePayload(local, base)) return cloneValue(cloud);
+    if (samePayload(cloud, base)) return cloneValue(local);
+    if (samePayload(local, cloud)) return cloneValue(local);
+    if (Array.isArray(local) && Array.isArray(cloud)) {
+      var keyed = local.concat(cloud, Array.isArray(base) ? base : []).every(function (item) { return item && typeof item === 'object' && Object.prototype.hasOwnProperty.call(item, 'id'); });
+      if (!keyed) return cloneValue(localModifiedAt > cloudModifiedAt ? local : cloud);
+      var localItems = Object.create(null); var cloudItems = Object.create(null); var baseItems = Object.create(null);
+      local.forEach(function (item) { localItems[String(item.id)] = item; });
+      cloud.forEach(function (item) { cloudItems[String(item.id)] = item; });
+      (Array.isArray(base) ? base : []).forEach(function (item) { baseItems[String(item.id)] = item; });
+      var first = localModifiedAt > cloudModifiedAt ? local : cloud;
+      var second = first === local ? cloud : local;
+      var ids = [];
+      first.concat(second).forEach(function (item) { var id = String(item.id); if (ids.indexOf(id) < 0) ids.push(id); });
+      var result = [];
+      ids.forEach(function (id) {
+        var hasLocal = Object.prototype.hasOwnProperty.call(localItems, id);
+        var hasCloud = Object.prototype.hasOwnProperty.call(cloudItems, id);
+        var hasBase = Object.prototype.hasOwnProperty.call(baseItems, id);
+        if (!hasLocal && !hasCloud) return;
+        if (!hasLocal) { if (hasBase && samePayload(cloudItems[id], baseItems[id])) return; result.push(cloneValue(cloudItems[id])); return; }
+        if (!hasCloud) { if (hasBase && samePayload(localItems[id], baseItems[id])) return; result.push(cloneValue(localItems[id])); return; }
+        result.push(mergeWorkspaceValue(baseItems[id], localItems[id], cloudItems[id], Math.max(localModifiedAt, payloadModifiedAt(localItems[id])), Math.max(cloudModifiedAt, payloadModifiedAt(cloudItems[id]))));
+      });
+      return result;
+    }
+    if (local && cloud && typeof local === 'object' && typeof cloud === 'object' && !Array.isArray(local) && !Array.isArray(cloud)) {
+      var baseObject = base && typeof base === 'object' && !Array.isArray(base) ? base : {};
+      var keys = Array.from(new Set(Object.keys(baseObject).concat(Object.keys(local), Object.keys(cloud))));
+      var merged = {};
+      keys.forEach(function (key) {
+        var hasBase = Object.prototype.hasOwnProperty.call(baseObject, key);
+        var hasLocal = Object.prototype.hasOwnProperty.call(local, key);
+        var hasCloud = Object.prototype.hasOwnProperty.call(cloud, key);
+        if (!hasLocal && !hasCloud) return;
+        if (!hasLocal) { if (hasBase && samePayload(cloud[key], baseObject[key])) return; merged[key] = cloneValue(cloud[key]); return; }
+        if (!hasCloud) { if (hasBase && samePayload(local[key], baseObject[key])) return; merged[key] = cloneValue(local[key]); return; }
+        merged[key] = mergeWorkspaceValue(baseObject[key], local[key], cloud[key], localModifiedAt, cloudModifiedAt);
+      });
+      return merged;
+    }
+    return cloneValue(localModifiedAt > cloudModifiedAt ? local : cloud);
+  }
   function resetWorkspaceSession() {
+    workspaceSessionGeneration += 1;
     clearTimeout(saveTimer);
     workspace = null;
     workspaceRevision = null;
@@ -114,20 +177,37 @@
     if (establishBase) workspaceBasePayload = copyPayload(workspace);
     return workspace;
   }
-  async function saveWorkspace(nextPayload, expectedRevision, forceConflictOverride) {
-    var user = await getUser();
-    if (!user) return;
-    var payload = nextPayload || activeWritePayload || currentPayload();
+  function saveWorkspace(nextPayload, expectedRevision, forceConflictOverride, modifiedAt) {
+    var payload = copyPayload(nextPayload || activeWritePayload || currentPayload());
+    var basePayload = copyPayload(workspaceBasePayload || {});
     var baseRevision = arguments.length > 1 ? expectedRevision : activeWriteRevision;
+    var localModifiedAt = Math.max(Number(modifiedAt) || Date.now(), payloadModifiedAt(payload));
+    var generation = workspaceSessionGeneration;
+    var userPromise = getUser();
     payload.browser = browserSnapshot();
     payload.researchHub = researchSnapshot();
-    if (pendingWorkspaceConflict && !forceConflictOverride) throw conflictError(payload, pendingWorkspaceConflict.cloudUpdatedAt);
-    var updatedAt = nextRevision(forceConflictOverride && pendingWorkspaceConflict ? pendingWorkspaceConflict.cloudUpdatedAt : baseRevision);
-    var row = { user_id: user.id, payload: payload, updated_at: updatedAt };
+    var force = forceConflictOverride === true;
+    var queued = workspaceWriteChain.catch(function () {}).then(function () {
+      return userPromise.then(function (user) {
+        if (!user || generation !== workspaceSessionGeneration) return;
+        return commitWorkspace(user, generation, payload, basePayload, baseRevision, force, localModifiedAt, 0);
+      });
+    });
+    workspaceWriteChain = queued.then(function () {}, function () {});
+    return queued;
+  }
+  function notifyCloudReload() {
+    window.__academicCloudReloadRequired = true;
+    window.dispatchEvent(new CustomEvent('academic-workspace-auto-merged'));
+  }
+  async function commitWorkspace(user, generation, payload, basePayload, baseRevision, forceConflictOverride, localModifiedAt, attempt) {
+    if (generation !== workspaceSessionGeneration) return;
     if (forceConflictOverride) {
-      var forced = await client.from('user_workspaces').upsert(row, { onConflict: 'user_id' }).select('updated_at').single();
+      var forcedAt = nextRevision(pendingWorkspaceConflict && pendingWorkspaceConflict.cloudUpdatedAt);
+      var forced = await client.from('user_workspaces').upsert({ user_id: user.id, payload: payload, updated_at: forcedAt }, { onConflict: 'user_id' }).select('updated_at').single();
       if (forced.error) throw forced.error;
-      workspaceRevision = forced.data.updated_at || updatedAt;
+      if (generation !== workspaceSessionGeneration) return;
+      workspaceRevision = forced.data.updated_at || forcedAt;
       workspaceRevisionKnown = true;
       workspaceRowExists = true;
       pendingWorkspaceConflict = null;
@@ -135,6 +215,9 @@
       workspaceBasePayload = copyPayload(payload);
       return;
     }
+    if (samePayload(payload, workspaceBasePayload) && baseRevision === workspaceRevision) return;
+    var updatedAt = nextRevision(baseRevision);
+    var row = { user_id: user.id, payload: payload, updated_at: updatedAt };
     var conditionalUpdate = client.from('user_workspaces').update({ payload: payload, updated_at: updatedAt }).eq('user_id', user.id);
     if (baseRevision) conditionalUpdate = conditionalUpdate.eq('updated_at', baseRevision);
     else conditionalUpdate = conditionalUpdate.is('updated_at', null);
@@ -142,10 +225,36 @@
       ? await conditionalUpdate.select('updated_at').maybeSingle()
       : await client.from('user_workspaces').insert(row).select('updated_at').maybeSingle();
     if (result.error && result.error.code !== '23505') throw result.error;
+    if (generation !== workspaceSessionGeneration) return;
     if (result.error || !result.data) {
       var latest = await client.from('user_workspaces').select('payload,updated_at').eq('user_id', user.id).maybeSingle();
       if (latest.error) throw latest.error;
-      throw conflictError(payload, latest.data && latest.data.updated_at);
+      if (generation !== workspaceSessionGeneration) return;
+      var latestPayload = latest.data && latest.data.payload || {};
+      var latestRevision = latest.data && latest.data.updated_at || null;
+      if (!latest.data) {
+        workspaceRevision = null;
+        workspaceRowExists = false;
+        workspaceRevisionKnown = true;
+      } else {
+        workspaceRevision = latestRevision;
+        workspaceRowExists = true;
+        workspaceRevisionKnown = true;
+      }
+      var cloudModifiedAt = Math.max(Date.parse(latestRevision || '') || 0, payloadModifiedAt(latestPayload));
+      var merged = mergeWorkspaceValue(basePayload, payload, latestPayload, localModifiedAt, cloudModifiedAt);
+      if (!merged || typeof merged !== 'object' || Array.isArray(merged)) merged = copyPayload(latestPayload);
+      pendingWorkspaceConflict = null;
+      workspace = copyPayload(latestPayload);
+      workspaceBasePayload = copyPayload(latestPayload);
+      if (samePayload(merged, latestPayload) || attempt >= 4) {
+        notifyCloudReload();
+        return;
+      }
+      await commitWorkspace(user, generation, merged, copyPayload(latestPayload), latestRevision, false, localModifiedAt, attempt + 1);
+      if (generation !== workspaceSessionGeneration) return;
+      notifyCloudReload();
+      return;
     }
     workspaceRevision = result.data.updated_at || updatedAt;
     workspaceRevisionKnown = true;
@@ -155,22 +264,32 @@
   }
   function applyBrowser(payload) {
     var values = (payload && payload.browser) || {};
-    focusKeys.concat(researchHubKeys).forEach(function (k) { if (Object.prototype.hasOwnProperty.call(values, k)) values[k] === null ? localStorage.removeItem(k) : localStorage.setItem(k, values[k]); });
-    Object.keys((payload && payload.researchHub) || {}).forEach(function (k) { if (researchHubKeys.indexOf(k) >= 0) localStorage.setItem(k, payload.researchHub[k]); });
+    var previousApplying = applyingBrowserSnapshot;
+    applyingBrowserSnapshot = true;
+    try {
+      focusKeys.concat(researchHubKeys).forEach(function (k) { if (Object.prototype.hasOwnProperty.call(values, k)) values[k] === null ? localStorage.removeItem(k) : localStorage.setItem(k, values[k]); });
+      Object.keys((payload && payload.researchHub) || {}).forEach(function (k) { if (researchHubKeys.indexOf(k) >= 0) localStorage.setItem(k, payload.researchHub[k]); });
+    } finally { applyingBrowserSnapshot = previousApplying; }
   }
   function queueSave() {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(function () {
       loadWorkspace().then(function (latestPayload) {
         if (!latestPayload) return;
-        return saveWorkspace(copyPayload(latestPayload), workspaceRevision);
+        return saveWorkspace(copyPayload(latestPayload), workspaceRevision, false, Date.now());
       }).catch(function (error) {
         if (error.workspaceConflict) window.dispatchEvent(new CustomEvent('academic-workspace-conflict', { detail: error.workspaceConflict }));
       });
     }, 750);
   }
   var originalSetItem = Storage.prototype.setItem;
-  Storage.prototype.setItem = function (name, value) { originalSetItem.call(this, name, value); if (this === localStorage && (focusKeys.indexOf(name) >= 0 || researchHubKeys.indexOf(name) >= 0)) queueSave(); };
+  Storage.prototype.setItem = function (name, value) {
+    var isLocal = this === localStorage;
+    var oldValue = isLocal ? this.getItem(name) : null;
+    var nextValue = String(value);
+    originalSetItem.call(this, name, value);
+    if (isLocal && !applyingBrowserSnapshot && oldValue !== nextValue && (focusKeys.indexOf(name) >= 0 || researchHubKeys.indexOf(name) >= 0)) queueSave();
+  };
 
   window.fetch = async function (input, options) {
     var requestUrl = typeof input === 'string' ? input : input.url;

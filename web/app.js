@@ -114,12 +114,33 @@
 
   var apiWriteChain = Promise.resolve();
   var activeWorkspaceConflict = null;
+  var cloudReloadScheduled = false;
+
+  function scheduleCloudWorkspaceReload() {
+    if (cloudReloadScheduled) return;
+    cloudReloadScheduled = true;
+    function reloadWhenSaved() {
+      flushAllAutoSaves();
+      Promise.all([apiWriteChain.catch(function () {}), autoSaveChain.catch(function () {})]).then(function () {
+        if (hasPendingAutoSave()) { setTimeout(reloadWhenSaved, 80); return; }
+        window.location.reload();
+      });
+    }
+    setTimeout(reloadWhenSaved, 120);
+  }
+
+  window.addEventListener('academic-workspace-auto-merged', scheduleCloudWorkspaceReload);
 
   function api(url, options) {
     function request() {
       return fetch(url, Object.assign({ headers: { 'Content-Type': 'application/json' } }, options))
         .then(function (r) { return r.json(); })
         .then(function (data) {
+          if (window.__academicCloudReloadRequired) {
+            window.__academicCloudReloadRequired = false;
+            scheduleCloudWorkspaceReload();
+            return data;
+          }
           if (data && data.workspaceConflict) showWorkspaceConflict(data.workspaceConflict);
           if (data && data.ok !== false && account && options && options.method === 'POST' && url.indexOf('/api/sync') !== 0 && url.indexOf('/api/backup') !== 0 && url.indexOf('/api/auth/') !== 0) setTimeout(syncData, 0);
           return data;
@@ -6684,7 +6705,7 @@
       closeList(); html.push(line ? '<p>' + markdownInline(line) + '</p>' : '<br>');
     });
     closeList();
-    return restoreKnowledgeColorTokens(html.join(), colorSpans).replace(/@@KB_CODE_(\d+)@@/g, function (_, i) { return codeBlocks[Number(i)] || ''; });
+    return restoreKnowledgeColorTokens(html.join(''), colorSpans).replace(/@@KB_CODE_(\d+)@@/g, function (_, i) { return codeBlocks[Number(i)] || ''; });
   }
 
   function extractKnowledgeColorTokens(source, colorSpans) {
