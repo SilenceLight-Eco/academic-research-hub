@@ -6595,11 +6595,11 @@
     rich.innerHTML = renderKnowledgeMarkdown(source.value || '');
     rich.addEventListener('keydown', function (event) {
       if (event.key !== ' ' || event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return;
-      if (autoFormatKnowledgeHeading(rich, true) || autoFormatKnowledgeFormula(rich, true)) event.preventDefault();
+      if (autoFormatKnowledgeCurrentLine(rich, true) || autoFormatKnowledgeHeading(rich, true) || autoFormatKnowledgeFormula(rich, true)) event.preventDefault();
     });
     // 不依赖 inputType / data：部分浏览器和中文输入法不会在 input 事件中返回空格字符。
     // 只在当前段落已经符合 Markdown 触发语法时才会转换，因此每次输入检查也不会影响普通文本。
-    rich.addEventListener('input', function () { autoFormatKnowledgeHeading(rich, false); autoFormatKnowledgeFormula(rich, false); });
+    rich.addEventListener('input', function () { if (!autoFormatKnowledgeCurrentLine(rich, false)) { autoFormatKnowledgeHeading(rich, false); autoFormatKnowledgeFormula(rich, false); } });
     source.replaceWith(rich);
     renderKnowledgeFormulas(rich);
     var toolbar = document.createElement('div');
@@ -6651,6 +6651,70 @@
     else if (command === 'code') document.execCommand('formatBlock', false, 'PRE');
     else if (command === 'link') { var url = prompt('链接地址（https://…）：'); if (url && /^https?:\/\//i.test(url.trim())) document.execCommand('createLink', false, url.trim()); }
     else document.execCommand(command, false, null);
+  }
+
+  function currentKnowledgeLine(editor) {
+    var selection = window.getSelection();
+    if (!selection || !selection.rangeCount || !selection.isCollapsed || !editorContainsSelection(editor, selection)) return null;
+    var original = selection.getRangeAt(0).cloneRange();
+    try {
+      // lineboundary 由浏览器按真实换行计算，适用于已有文档的 <p>、<div>、<br> 等不同结构。
+      if (typeof selection.modify !== 'function') return null;
+      selection.modify('extend', 'backward', 'lineboundary');
+      var lineRange = selection.getRangeAt(0).cloneRange();
+      var text = selection.toString().replace(/\u00a0/g, ' ');
+      return { range: lineRange, text: text };
+    } finally {
+      selection.removeAllRanges();
+      selection.addRange(original);
+    }
+  }
+
+  function selectKnowledgeRange(range) {
+    var selection = window.getSelection();
+    if (!selection) return false;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return true;
+  }
+
+  function clearKnowledgeLine(range) {
+    range.deleteContents();
+    range.collapse(true);
+    return selectKnowledgeRange(range);
+  }
+
+  function autoFormatKnowledgeCurrentLine(editor, beforeSpace) {
+    var line = currentKnowledgeLine(editor);
+    if (!line) return false;
+    var heading = line.text.match(beforeSpace ? /^(#{1,3})\s?([^#\s].*?)$/ : /^(#{1,3})\s?([^#\s].*?)\s+$/);
+    if (heading) {
+      if (!clearKnowledgeLine(line.range)) return false;
+      document.execCommand('formatBlock', false, 'H' + heading[1].length);
+      document.execCommand('insertText', false, heading[2]);
+      return true;
+    }
+    var list = line.text.match(beforeSpace ? /^[-*]$/ : /^[-*]\s+$/);
+    if (list) {
+      if (!clearKnowledgeLine(line.range)) return false;
+      document.execCommand('insertUnorderedList', false, null);
+      return true;
+    }
+    var formulaText = beforeSpace ? line.text : line.text.replace(/\s+$/, '');
+    var formulaMatch = formulaText.match(/^\$\$([\s\S]+)\$\$$/) || formulaText.match(/^\$([^$]+)\$$/);
+    if (!formulaMatch || !clearKnowledgeLine(line.range)) return false;
+    var selection = window.getSelection();
+    if (!selection || !selection.rangeCount) return false;
+    var isBlock = formulaText.indexOf('$$') === 0;
+    var formula = document.createElement(isBlock ? 'div' : 'span');
+    formula.className = isBlock ? 'kb-formula-block' : 'kb-inline-formula';
+    formula.dataset.formula = formulaMatch[1]; formula.contentEditable = 'false';
+    formula.setAttribute('aria-label', '公式：' + formulaMatch[1]);
+    var insertAt = selection.getRangeAt(0); insertAt.insertNode(formula);
+    renderKnowledgeFormula(formula);
+    insertAt.setStartAfter(formula); insertAt.collapse(true);
+    selection.removeAllRanges(); selection.addRange(insertAt);
+    return true;
   }
 
   function autoFormatKnowledgeHeading(editor, beforeSpace) {
