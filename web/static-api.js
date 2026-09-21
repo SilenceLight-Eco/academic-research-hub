@@ -9,6 +9,14 @@
   window.__academicAuthReady = client.auth.getSession();
   client.auth.onAuthStateChange(function (event) { if (event === 'PASSWORD_RECOVERY') { window.__academicPasswordRecovery = true; window.dispatchEvent(new CustomEvent('academic-password-recovery')); } });
   var workspace = null;
+  var workspaceRevision = null;
+  var workspaceRevisionKnown = false;
+  var workspaceRowExists = false;
+  var workspaceBasePayload = null;
+  var workspaceLoadPromise = null;
+  var pendingWorkspaceConflict = null;
+  var activeWritePayload = null;
+  var activeWriteRevision = null;
   var saveTimer = null;
   var focusKeys = ['academic-workbench-theme', 'wb_pomo_counts', 'wb_focus_preset', 'wb_focus_log', 'wb_focus_state'];
   var researchHubKeys = ['research-hub-crossref-email', 'research-hub-crossref-citations-v1', 'research-hub-stages-v1', 'research-hub-fields-v1', 'research-hub-cards-v1', 'research-hub-theme'];
@@ -17,6 +25,31 @@
   function nowId() { return Date.now(); }
   function nowText() { return new Date().toLocaleString('sv-SE').slice(0, 16).replace('T', ' '); }
   function dateText() { return new Date().toISOString().slice(0, 10); }
+  function nextRevision(previous) {
+    var timestamp = Date.now();
+    var previousTime = Date.parse(previous || '');
+    if (!isNaN(previousTime) && timestamp <= previousTime) timestamp = previousTime + 1;
+    return new Date(timestamp).toISOString();
+  }
+  function copyPayload(payload) { return JSON.parse(JSON.stringify(payload || {})); }
+  function resetWorkspaceSession() {
+    clearTimeout(saveTimer);
+    workspace = null;
+    workspaceRevision = null;
+    workspaceRevisionKnown = false;
+    workspaceRowExists = false;
+    workspaceBasePayload = null;
+    workspaceLoadPromise = null;
+    pendingWorkspaceConflict = null;
+    activeWritePayload = null;
+    activeWriteRevision = null;
+  }
+  function conflictError(localData, cloudUpdatedAt) {
+    pendingWorkspaceConflict = { localData: copyPayload(localData), cloudUpdatedAt: cloudUpdatedAt || '' };
+    var error = new Error('另一台设备已保存较新的工作台内容，请选择保留本机版本或载入云端版本。');
+    error.workspaceConflict = pendingWorkspaceConflict;
+    return error;
+  }
   function archiveVersion(item, keys, next) {
     if (!keys.some(function (key) { return String(item[key] == null ? '' : item[key]) !== String(next[key] == null ? '' : next[key]); })) return;
     var versions = Array.isArray(item.versions) ? item.versions : [];
@@ -39,10 +72,20 @@
   // depend on a network round-trip during a page refresh.
   async function getUser() { await window.__academicAuthReady; var result = await client.auth.getSession(); return result.data.session ? result.data.session.user : null; }
   async function loadWorkspace() {
+    if (pendingWorkspaceConflict) { workspace = pendingWorkspaceConflict.localData; return workspace; }
+    if (workspaceLoadPromise) return workspaceLoadPromise;
+    workspaceLoadPromise = loadWorkspaceFromCloud();
+    var activeLoad = workspaceLoadPromise;
+    try { return await activeLoad; }
+    finally { if (workspaceLoadPromise === activeLoad) workspaceLoadPromise = null; }
+  }
+  async function loadWorkspaceFromCloud() {
     var user = await getUser();
     if (!user) return null;
-    var result = await client.from('user_workspaces').select('payload').eq('user_id', user.id).maybeSingle();
+    var result = await client.from('user_workspaces').select('payload,updated_at').eq('user_id', user.id).maybeSingle();
     if (result.error) throw result.error;
+    var establishBase = !workspaceRevisionKnown;
+    if (establishBase) { workspaceRowExists = Boolean(result.data); workspaceRevision = result.data ? result.data.updated_at || null : null; workspaceRevisionKnown = true; }
     workspace = (result.data && result.data.payload) || { todos: [], journal: [], publications: [], browser: {}, researchHub: {} };
     workspace.todos = Array.isArray(workspace.todos) ? workspace.todos : [];
     workspace.journal = Array.isArray(workspace.journal) ? workspace.journal : [];
@@ -68,23 +111,64 @@
     ['funding', 'awards', 'conferences'].forEach(function (kind) { if (!Array.isArray(workspace.academicRecords[kind])) workspace.academicRecords[kind] = []; });
     workspace.browser = workspace.browser || {};
     workspace.researchHub = workspace.researchHub || {};
+    if (establishBase) workspaceBasePayload = copyPayload(workspace);
     return workspace;
   }
-  async function saveWorkspace() {
+  async function saveWorkspace(nextPayload, expectedRevision, forceConflictOverride) {
     var user = await getUser();
     if (!user) return;
-    var payload = currentPayload();
+    var payload = nextPayload || activeWritePayload || currentPayload();
+    var baseRevision = arguments.length > 1 ? expectedRevision : activeWriteRevision;
     payload.browser = browserSnapshot();
     payload.researchHub = researchSnapshot();
-    var result = await client.from('user_workspaces').upsert({ user_id: user.id, payload: payload, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
-    if (result.error) throw result.error;
+    if (pendingWorkspaceConflict && !forceConflictOverride) throw conflictError(payload, pendingWorkspaceConflict.cloudUpdatedAt);
+    var updatedAt = nextRevision(forceConflictOverride && pendingWorkspaceConflict ? pendingWorkspaceConflict.cloudUpdatedAt : baseRevision);
+    var row = { user_id: user.id, payload: payload, updated_at: updatedAt };
+    if (forceConflictOverride) {
+      var forced = await client.from('user_workspaces').upsert(row, { onConflict: 'user_id' }).select('updated_at').single();
+      if (forced.error) throw forced.error;
+      workspaceRevision = forced.data.updated_at || updatedAt;
+      workspaceRevisionKnown = true;
+      workspaceRowExists = true;
+      pendingWorkspaceConflict = null;
+      workspace = payload;
+      workspaceBasePayload = copyPayload(payload);
+      return;
+    }
+    var conditionalUpdate = client.from('user_workspaces').update({ payload: payload, updated_at: updatedAt }).eq('user_id', user.id);
+    if (baseRevision) conditionalUpdate = conditionalUpdate.eq('updated_at', baseRevision);
+    else conditionalUpdate = conditionalUpdate.is('updated_at', null);
+    var result = workspaceRowExists
+      ? await conditionalUpdate.select('updated_at').maybeSingle()
+      : await client.from('user_workspaces').insert(row).select('updated_at').maybeSingle();
+    if (result.error && result.error.code !== '23505') throw result.error;
+    if (result.error || !result.data) {
+      var latest = await client.from('user_workspaces').select('payload,updated_at').eq('user_id', user.id).maybeSingle();
+      if (latest.error) throw latest.error;
+      throw conflictError(payload, latest.data && latest.data.updated_at);
+    }
+    workspaceRevision = result.data.updated_at || updatedAt;
+    workspaceRevisionKnown = true;
+    workspaceRowExists = true;
+    workspace = payload;
+    workspaceBasePayload = copyPayload(payload);
   }
   function applyBrowser(payload) {
     var values = (payload && payload.browser) || {};
     focusKeys.concat(researchHubKeys).forEach(function (k) { if (Object.prototype.hasOwnProperty.call(values, k)) values[k] === null ? localStorage.removeItem(k) : localStorage.setItem(k, values[k]); });
     Object.keys((payload && payload.researchHub) || {}).forEach(function (k) { if (researchHubKeys.indexOf(k) >= 0) localStorage.setItem(k, payload.researchHub[k]); });
   }
-  function queueSave() { clearTimeout(saveTimer); saveTimer = setTimeout(function () { saveWorkspace().catch(function () {}); }, 750); }
+  function queueSave() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(function () {
+      loadWorkspace().then(function (latestPayload) {
+        if (!latestPayload) return;
+        return saveWorkspace(copyPayload(latestPayload), workspaceRevision);
+      }).catch(function (error) {
+        if (error.workspaceConflict) window.dispatchEvent(new CustomEvent('academic-workspace-conflict', { detail: error.workspaceConflict }));
+      });
+    }, 750);
+  }
   var originalSetItem = Storage.prototype.setItem;
   Storage.prototype.setItem = function (name, value) { originalSetItem.call(this, name, value); if (this === localStorage && (focusKeys.indexOf(name) >= 0 || researchHubKeys.indexOf(name) >= 0)) queueSave(); };
 
@@ -96,38 +180,52 @@
     var body = options && options.body ? JSON.parse(options.body) : {};
     try {
       if (path === '/api/auth/me') { var me = await getUser(); return response({ user: me ? { email: me.email } : null }); }
-      if (path === '/api/auth/login') { var login = await client.auth.signInWithPassword({ email: body.email, password: body.password }); if (login.error) return response({ error: login.error.message }, 401); workspace = null; return response({ ok: true, user: { email: login.data.user.email } }); }
-      if (path === '/api/auth/register') { var signup = await client.auth.signUp({ email: body.email, password: body.password }); if (signup.error) return response({ error: signup.error.message }, 400); if (signup.data.session) workspace = null; return response({ ok: true, user: { email: body.email } }); }
+      if (path === '/api/auth/login') { var login = await client.auth.signInWithPassword({ email: body.email, password: body.password }); if (login.error) return response({ error: login.error.message }, 401); resetWorkspaceSession(); return response({ ok: true, user: { email: login.data.user.email } }); }
+      if (path === '/api/auth/register') { var signup = await client.auth.signUp({ email: body.email, password: body.password }); if (signup.error) return response({ error: signup.error.message }, 400); if (signup.data.session) resetWorkspaceSession(); return response({ ok: true, user: { email: body.email } }); }
       if (path === '/api/auth/reset-password') { var reset = await client.auth.resetPasswordForEmail(String(body.email || '').trim(), { redirectTo: location.href.split('#')[0] }); if (reset.error) return response({ error: reset.error.message }, 400); return response({ ok: true }); }
       if (path === '/api/auth/change-password') { var passwordUser = await getUser(); if (!passwordUser) return response({ error: '请先登录' }, 401); if (!body.recovery) { var verified = await client.auth.signInWithPassword({ email: passwordUser.email, password: String(body.currentPassword || '') }); if (verified.error) return response({ error: '当前密码不正确' }, 400); } var changed = await client.auth.updateUser({ password: String(body.password || '') }); if (changed.error) return response({ error: changed.error.message }, 400); return response({ ok: true }); }
-      if (path === '/api/auth/logout') { await client.auth.signOut(); workspace = null; return response({ ok: true }); }
+      if (path === '/api/auth/logout') { await client.auth.signOut(); resetWorkspaceSession(); return response({ ok: true }); }
       if (path === '/api/sync') {
         if (method === 'GET') { var existing = await loadWorkspace(); if (!existing) return response({ error: '请先登录' }, 401); applyBrowser(existing); return response({ data: existing }); }
         var user = await getUser(); if (!user) return response({ error: '请先登录' }, 401);
-        workspace = Object.assign(currentPayload(), body.data || {}); await saveWorkspace(); return response({ ok: true });
+        var syncData = await loadWorkspace();
+        if (!syncData) return response({ error: '请先登录' }, 401);
+        var syncRevision = workspaceRevision;
+        var incoming = body.data || {};
+        ['todos', 'journal', 'researchHub'].forEach(function (key) {
+          if (Object.prototype.hasOwnProperty.call(incoming, key) && JSON.stringify(incoming[key]) !== JSON.stringify(workspaceBasePayload && workspaceBasePayload[key])) syncData[key] = incoming[key];
+        });
+        workspace = syncData;
+        activeWritePayload = workspace;
+        activeWriteRevision = syncRevision;
+        await saveWorkspace(workspace, syncRevision);
+        return response({ ok: true });
       }
       var data = await loadWorkspace();
       if (!data && method === 'GET') data = currentPayload();
       if (!data) return response({ error: '请先登录后使用浏览器版工作台' }, 401);
-      if (path === '/api/backup') { if (!await getUser()) return response({ error: '请先登录后使用数据备份' }, 401); if (method === 'GET') return response({ ok: true, data: data }); var backup = body.backup; if (!backup || backup.format !== 'academic-research-hub-backup' || backup.version !== 1 || !backup.data || typeof backup.data !== 'object' || Array.isArray(backup.data)) return response({ ok: false, error: '备份文件格式无效或版本不受支持' }, 400); if (JSON.stringify(backup.data).length > 20000000) return response({ ok: false, error: '备份文件超过 20 MB' }, 413); workspace = JSON.parse(JSON.stringify(backup.data)); applyBrowser(workspace); await saveWorkspace(); return response({ ok: true, restoredAt: nowText() }); }
+      var dataRevision = workspaceRevision;
+      activeWritePayload = data;
+      activeWriteRevision = dataRevision;
+      if (path === '/api/backup') { if (!await getUser()) return response({ error: '请先登录后使用数据备份' }, 401); if (method === 'GET') return response({ ok: true, data: data }); var backup = body.backup; if (!backup || backup.format !== 'academic-research-hub-backup' || backup.version !== 1 || !backup.data || typeof backup.data !== 'object' || Array.isArray(backup.data)) return response({ ok: false, error: '备份文件格式无效或版本不受支持' }, 400); if (JSON.stringify(backup.data).length > 20000000) return response({ ok: false, error: '备份文件超过 20 MB' }, 413); workspace = JSON.parse(JSON.stringify(backup.data)); activeWritePayload = workspace; applyBrowser(workspace); await saveWorkspace(workspace, dataRevision, body.overrideConflict === true); return response({ ok: true, restoredAt: nowText() }); }
       if (path === '/api/note-studio' && body.action === 'save') { var historyNotes = data.noteStudio && data.noteStudio.notes || []; var historyNote = historyNotes.filter(function (item) { return String(item.id) === String(body.id); })[0]; if (historyNote) archiveVersion(historyNote, ['title', 'markdown', 'style'], { title: String(body.title || '未命名笔记').trim(), markdown: String(body.markdown || ''), style: ['paper', 'ink', 'mint'].indexOf(body.style) >= 0 ? body.style : 'paper' }); }
       if (path === '/api/prompt-library' && body.action === 'save') { var historyPrompts = data.promptLibrary && data.promptLibrary.prompts || []; var historyPrompt = historyPrompts.filter(function (item) { return String(item.id) === String(body.id); })[0]; if (historyPrompt) archiveVersion(historyPrompt, ['title', 'category', 'tags', 'body'], { title: String(body.title || '未命名提示词').trim(), category: String(body.category || '通用').trim(), tags: String(body.tags || '').trim(), body: String(body.body || '') }); }
       if (path === '/api/knowledge-base' && body.action === 'save-doc') { var historyDocs = data.knowledgeBase && data.knowledgeBase.docs || []; var historyDoc = historyDocs.filter(function (item) { return String(item.id) === String(body.id); })[0]; if (historyDoc) archiveVersion(historyDoc, ['title', 'content', 'folderId'], { title: String(body.title || '未命名文档').trim(), content: String(body.content || ''), folderId: body.folderId || '' }); }
-      if (path === '/api/note-studio') { var notes = data.noteStudio || (data.noteStudio = { notes: [], trash: [] }); notes.notes = Array.isArray(notes.notes) ? notes.notes : []; notes.trash = Array.isArray(notes.trash) ? notes.trash : []; if (method === 'GET') return response({ ok: true, noteStudio: notes }); if (body.action === 'create') notes.notes.unshift({ id: nowId(), title: '未命名笔记', markdown: '', style: 'paper', updated: nowText() }); if (body.action === 'save') notes.notes.forEach(function (note) { if (String(note.id) === String(body.id)) { note.title = String(body.title || '未命名笔记').trim(); note.markdown = String(body.markdown || ''); note.style = ['paper', 'ink', 'mint'].indexOf(body.style) >= 0 ? body.style : 'paper'; note.updated = nowText(); } }); if (body.action === 'trash') { var removedNote = notes.notes.filter(function (note) { return String(note.id) === String(body.id); })[0]; if (removedNote) { notes.trash.unshift({ id: nowId(), item: removedNote, deletedAt: nowText() }); notes.notes = notes.notes.filter(function (note) { return String(note.id) !== String(body.id); }); } } if (body.action === 'restore') { var restoredNote = notes.trash.filter(function (entry) { return String(entry.id) === String(body.id); })[0]; if (restoredNote && restoredNote.item) { notes.notes.unshift(restoredNote.item); notes.trash = notes.trash.filter(function (entry) { return String(entry.id) !== String(body.id); }); } } if (body.action === 'purge') notes.trash = notes.trash.filter(function (entry) { return String(entry.id) !== String(body.id); }); await saveWorkspace(); return response({ ok: true, noteStudio: notes }); }
-      if (path === '/api/prompt-library') { var library = data.promptLibrary || (data.promptLibrary = { prompts: [], trash: [] }); library.prompts = Array.isArray(library.prompts) ? library.prompts : []; library.trash = Array.isArray(library.trash) ? library.trash : []; if (method === 'GET') return response({ ok: true, promptLibrary: library }); if (body.action === 'create') library.prompts.unshift({ id: nowId(), title: '未命名提示词', category: '通用', tags: '', body: '', updated: nowText() }); if (body.action === 'save') library.prompts.forEach(function (prompt) { if (String(prompt.id) === String(body.id)) { prompt.title = String(body.title || '未命名提示词').trim(); prompt.category = String(body.category || '通用').trim(); prompt.tags = String(body.tags || '').trim(); prompt.body = String(body.body || ''); prompt.updated = nowText(); } }); if (body.action === 'trash') { var removedPrompt = library.prompts.filter(function (prompt) { return String(prompt.id) === String(body.id); })[0]; if (removedPrompt) { library.trash.unshift({ id: nowId(), item: removedPrompt, deletedAt: nowText() }); library.prompts = library.prompts.filter(function (prompt) { return String(prompt.id) !== String(body.id); }); } } if (body.action === 'restore') { var restoredPrompt = library.trash.filter(function (entry) { return String(entry.id) === String(body.id); })[0]; if (restoredPrompt && restoredPrompt.item) { library.prompts.unshift(restoredPrompt.item); library.trash = library.trash.filter(function (entry) { return String(entry.id) !== String(body.id); }); } } if (body.action === 'purge') library.trash = library.trash.filter(function (entry) { return String(entry.id) !== String(body.id); }); await saveWorkspace(); return response({ ok: true, promptLibrary: library }); }
-      if (path === '/api/research-projects') { var projects = data.researchProjects || (data.researchProjects = { projects: [], trash: [] }); projects.projects = Array.isArray(projects.projects) ? projects.projects : []; projects.trash = Array.isArray(projects.trash) ? projects.trash : []; if (method === 'GET') return response({ ok: true, researchProjects: projects }); if (body.action === 'create') projects.projects.unshift({ id: nowId(), title: '未命名项目', category: '通用', status: '规划中', goal: '', start: '', end: '', progress: 0, members: '', milestones: '', resources: '', updated: nowText() }); if (body.action === 'save') projects.projects.forEach(function (project) { if (String(project.id) === String(body.id)) { project.title = String(body.title || '未命名项目').trim(); project.category = String(body.category || '通用').trim() || '通用'; project.status = ['规划中', '进行中', '已完成', '暂停'].indexOf(body.status) >= 0 ? body.status : '规划中'; project.goal = String(body.goal || ''); project.start = String(body.start || ''); project.end = String(body.end || ''); project.progress = Math.max(0, Math.min(100, Number(body.progress) || 0)); project.members = String(body.members || ''); project.milestones = String(body.milestones || ''); project.resources = String(body.resources || ''); project.updated = nowText(); } }); if (body.action === 'trash') { var removedProject = projects.projects.filter(function (project) { return String(project.id) === String(body.id); })[0]; if (removedProject) { projects.trash.unshift({ id: nowId(), item: removedProject, deletedAt: nowText() }); projects.projects = projects.projects.filter(function (project) { return String(project.id) !== String(body.id); }); } } if (body.action === 'restore') { var restoredProject = projects.trash.filter(function (entry) { return String(entry.id) === String(body.id); })[0]; if (restoredProject && restoredProject.item) { projects.projects.unshift(restoredProject.item); projects.trash = projects.trash.filter(function (entry) { return String(entry.id) !== String(body.id); }); } } if (body.action === 'purge') projects.trash = projects.trash.filter(function (entry) { return String(entry.id) !== String(body.id); }); await saveWorkspace(); return response({ ok: true, researchProjects: projects }); }
-      if (path === '/api/data-code-library') { var dataCode = data.dataCodeLibrary || (data.dataCodeLibrary = { items: [], trash: [] }); dataCode.items = Array.isArray(dataCode.items) ? dataCode.items : []; dataCode.trash = Array.isArray(dataCode.trash) ? dataCode.trash : []; if (method === 'GET') return response({ ok: true, dataCodeLibrary: dataCode }); if (body.action === 'create') dataCode.items.unshift({ id: nowId(), title: '未命名数据资源', category: '通用', kind: '数据集', projectId: '', paperTitle: '', source: '', coverage: '', version: 'v1.0', environment: '', location: '', description: '', variables: '', runOrder: '', checks: {}, updated: nowText() }); if (body.action === 'save') dataCode.items.forEach(function (item) { if (String(item.id) === String(body.id)) { item.title = String(body.title || '未命名数据资源').trim(); item.category = String(body.category || '通用').trim() || '通用'; item.kind = ['数据集', '分析代码', '复现包'].indexOf(body.kind) >= 0 ? body.kind : '数据集'; item.projectId = String(body.projectId || ''); item.paperTitle = String(body.paperTitle || ''); item.source = String(body.source || ''); item.coverage = String(body.coverage || ''); item.version = String(body.version || ''); item.environment = String(body.environment || ''); item.location = String(body.location || ''); item.description = String(body.description || ''); item.variables = String(body.variables || ''); item.runOrder = String(body.runOrder || ''); item.checks = body.checks && typeof body.checks === 'object' ? body.checks : {}; item.updated = nowText(); } }); if (body.action === 'trash') { var removedDataCode = dataCode.items.filter(function (item) { return String(item.id) === String(body.id); })[0]; if (removedDataCode) { dataCode.trash.unshift({ id: nowId(), item: removedDataCode, deletedAt: nowText() }); dataCode.items = dataCode.items.filter(function (item) { return String(item.id) !== String(body.id); }); } } if (body.action === 'restore') { var restoredDataCode = dataCode.trash.filter(function (entry) { return String(entry.id) === String(body.id); })[0]; if (restoredDataCode && restoredDataCode.item) { dataCode.items.unshift(restoredDataCode.item); dataCode.trash = dataCode.trash.filter(function (entry) { return String(entry.id) !== String(body.id); }); } } if (body.action === 'purge') dataCode.trash = dataCode.trash.filter(function (entry) { return String(entry.id) !== String(body.id); }); await saveWorkspace(); return response({ ok: true, dataCodeLibrary: dataCode }); }
+      if (path === '/api/note-studio') { var notes = data.noteStudio || (data.noteStudio = { notes: [], trash: [] }); notes.notes = Array.isArray(notes.notes) ? notes.notes : []; notes.trash = Array.isArray(notes.trash) ? notes.trash : []; if (method === 'GET') return response({ ok: true, noteStudio: notes }); if (body.action === 'create') notes.notes.unshift({ id: nowId(), title: '未命名笔记', markdown: '', style: 'paper', updated: nowText() }); if (body.action === 'save') notes.notes.forEach(function (note) { if (String(note.id) === String(body.id)) { note.title = String(body.title || '未命名笔记').trim(); note.markdown = String(body.markdown || ''); note.style = ['paper', 'ink', 'mint'].indexOf(body.style) >= 0 ? body.style : 'paper'; note.updated = nowText(); } }); if (body.action === 'trash') { var removedNote = notes.notes.filter(function (note) { return String(note.id) === String(body.id); })[0]; if (removedNote) { notes.trash.unshift({ id: nowId(), item: removedNote, deletedAt: nowText() }); notes.notes = notes.notes.filter(function (note) { return String(note.id) !== String(body.id); }); } } if (body.action === 'restore') { var restoredNote = notes.trash.filter(function (entry) { return String(entry.id) === String(body.id); })[0]; if (restoredNote && restoredNote.item) { notes.notes.unshift(restoredNote.item); notes.trash = notes.trash.filter(function (entry) { return String(entry.id) !== String(body.id); }); } } if (body.action === 'purge') notes.trash = notes.trash.filter(function (entry) { return String(entry.id) !== String(body.id); }); await saveWorkspace(data, dataRevision); return response({ ok: true, noteStudio: notes }); }
+      if (path === '/api/prompt-library') { var library = data.promptLibrary || (data.promptLibrary = { prompts: [], trash: [] }); library.prompts = Array.isArray(library.prompts) ? library.prompts : []; library.trash = Array.isArray(library.trash) ? library.trash : []; if (method === 'GET') return response({ ok: true, promptLibrary: library }); if (body.action === 'create') library.prompts.unshift({ id: nowId(), title: '未命名提示词', category: '通用', tags: '', body: '', updated: nowText() }); if (body.action === 'save') library.prompts.forEach(function (prompt) { if (String(prompt.id) === String(body.id)) { prompt.title = String(body.title || '未命名提示词').trim(); prompt.category = String(body.category || '通用').trim(); prompt.tags = String(body.tags || '').trim(); prompt.body = String(body.body || ''); prompt.updated = nowText(); } }); if (body.action === 'trash') { var removedPrompt = library.prompts.filter(function (prompt) { return String(prompt.id) === String(body.id); })[0]; if (removedPrompt) { library.trash.unshift({ id: nowId(), item: removedPrompt, deletedAt: nowText() }); library.prompts = library.prompts.filter(function (prompt) { return String(prompt.id) !== String(body.id); }); } } if (body.action === 'restore') { var restoredPrompt = library.trash.filter(function (entry) { return String(entry.id) === String(body.id); })[0]; if (restoredPrompt && restoredPrompt.item) { library.prompts.unshift(restoredPrompt.item); library.trash = library.trash.filter(function (entry) { return String(entry.id) !== String(body.id); }); } } if (body.action === 'purge') library.trash = library.trash.filter(function (entry) { return String(entry.id) !== String(body.id); }); await saveWorkspace(data, dataRevision); return response({ ok: true, promptLibrary: library }); }
+      if (path === '/api/research-projects') { var projects = data.researchProjects || (data.researchProjects = { projects: [], trash: [] }); projects.projects = Array.isArray(projects.projects) ? projects.projects : []; projects.trash = Array.isArray(projects.trash) ? projects.trash : []; if (method === 'GET') return response({ ok: true, researchProjects: projects }); if (body.action === 'create') projects.projects.unshift({ id: nowId(), title: '未命名项目', category: '通用', status: '规划中', goal: '', start: '', end: '', progress: 0, members: '', milestones: '', resources: '', updated: nowText() }); if (body.action === 'save') projects.projects.forEach(function (project) { if (String(project.id) === String(body.id)) { project.title = String(body.title || '未命名项目').trim(); project.category = String(body.category || '通用').trim() || '通用'; project.status = ['规划中', '进行中', '已完成', '暂停'].indexOf(body.status) >= 0 ? body.status : '规划中'; project.goal = String(body.goal || ''); project.start = String(body.start || ''); project.end = String(body.end || ''); project.progress = Math.max(0, Math.min(100, Number(body.progress) || 0)); project.members = String(body.members || ''); project.milestones = String(body.milestones || ''); project.resources = String(body.resources || ''); project.updated = nowText(); } }); if (body.action === 'trash') { var removedProject = projects.projects.filter(function (project) { return String(project.id) === String(body.id); })[0]; if (removedProject) { projects.trash.unshift({ id: nowId(), item: removedProject, deletedAt: nowText() }); projects.projects = projects.projects.filter(function (project) { return String(project.id) !== String(body.id); }); } } if (body.action === 'restore') { var restoredProject = projects.trash.filter(function (entry) { return String(entry.id) === String(body.id); })[0]; if (restoredProject && restoredProject.item) { projects.projects.unshift(restoredProject.item); projects.trash = projects.trash.filter(function (entry) { return String(entry.id) !== String(body.id); }); } } if (body.action === 'purge') projects.trash = projects.trash.filter(function (entry) { return String(entry.id) !== String(body.id); }); await saveWorkspace(data, dataRevision); return response({ ok: true, researchProjects: projects }); }
+      if (path === '/api/data-code-library') { var dataCode = data.dataCodeLibrary || (data.dataCodeLibrary = { items: [], trash: [] }); dataCode.items = Array.isArray(dataCode.items) ? dataCode.items : []; dataCode.trash = Array.isArray(dataCode.trash) ? dataCode.trash : []; if (method === 'GET') return response({ ok: true, dataCodeLibrary: dataCode }); if (body.action === 'create') dataCode.items.unshift({ id: nowId(), title: '未命名数据资源', category: '通用', kind: '数据集', projectId: '', paperTitle: '', source: '', coverage: '', version: 'v1.0', environment: '', location: '', description: '', variables: '', runOrder: '', checks: {}, updated: nowText() }); if (body.action === 'save') dataCode.items.forEach(function (item) { if (String(item.id) === String(body.id)) { item.title = String(body.title || '未命名数据资源').trim(); item.category = String(body.category || '通用').trim() || '通用'; item.kind = ['数据集', '分析代码', '复现包'].indexOf(body.kind) >= 0 ? body.kind : '数据集'; item.projectId = String(body.projectId || ''); item.paperTitle = String(body.paperTitle || ''); item.source = String(body.source || ''); item.coverage = String(body.coverage || ''); item.version = String(body.version || ''); item.environment = String(body.environment || ''); item.location = String(body.location || ''); item.description = String(body.description || ''); item.variables = String(body.variables || ''); item.runOrder = String(body.runOrder || ''); item.checks = body.checks && typeof body.checks === 'object' ? body.checks : {}; item.updated = nowText(); } }); if (body.action === 'trash') { var removedDataCode = dataCode.items.filter(function (item) { return String(item.id) === String(body.id); })[0]; if (removedDataCode) { dataCode.trash.unshift({ id: nowId(), item: removedDataCode, deletedAt: nowText() }); dataCode.items = dataCode.items.filter(function (item) { return String(item.id) !== String(body.id); }); } } if (body.action === 'restore') { var restoredDataCode = dataCode.trash.filter(function (entry) { return String(entry.id) === String(body.id); })[0]; if (restoredDataCode && restoredDataCode.item) { dataCode.items.unshift(restoredDataCode.item); dataCode.trash = dataCode.trash.filter(function (entry) { return String(entry.id) !== String(body.id); }); } } if (body.action === 'purge') dataCode.trash = dataCode.trash.filter(function (entry) { return String(entry.id) !== String(body.id); }); await saveWorkspace(data, dataRevision); return response({ ok: true, dataCodeLibrary: dataCode }); }
       if (path === '/api/overview') return response(overview());
       if (path === '/api/study-progress' && method === 'POST') {
         var percent = Math.max(0, Math.min(100, Number(body.percent) || 0));
         data.studyProgress = { configured: true, label: String(body.label || '学业进度').trim() || '学业进度', stage: String(body.stage || '').trim(), percent: percent, start: String(body.start || '').trim(), end: String(body.end || '').trim(), elapsed_days: Number(body.elapsed_days) || 0, remain_days: Number(body.remain_days) || 0 };
-        await saveWorkspace(); return response({ ok: true, phd: overview().phd });
+        await saveWorkspace(data, dataRevision); return response({ ok: true, phd: overview().phd });
       }
       if (path === '/api/graduation-settings' && method === 'POST') {
         var required = Math.max(0, Math.floor(Number(body.required) || 0));
         var achieved = Math.max(0, Math.floor(Number(body.achieved) || 0));
         data.graduationConfig = { label: 'C刊/SCI论文', achieved: achieved, required: required };
-        await saveWorkspace(); return response({ ok: true, graduation: graduation(data.publications, data.graduationConfig) });
+        await saveWorkspace(data, dataRevision); return response({ ok: true, graduation: graduation(data.publications, data.graduationConfig) });
       }
       if (path === '/api/news') return response({ ok: true, data: { news: {}, weather: null } });
       if (path === '/api/todos') {
@@ -135,25 +233,25 @@
         if (body.action === 'add' && String(body.text || '').trim()) data.todos.push({ id: nowId(), text: String(body.text).trim(), done: false, created: nowText(), deadline: body.deadline || '', priority: body.priority || '普通' });
         if (body.action === 'toggle') data.todos.forEach(function (item) { if (item.id === body.id) item.done = !item.done; });
         if (body.action === 'delete') data.todos = data.todos.filter(function (item) { return item.id !== body.id; });
-        await saveWorkspace(); return response({ ok: true, todos: data.todos });
+        await saveWorkspace(data, dataRevision); return response({ ok: true, todos: data.todos });
       }
       if (path === '/api/journal') {
         if (method === 'GET') return response(data.journal);
         if (body.action === 'delete') data.journal = data.journal.filter(function (item) { return item.id !== body.id; });
         else if (String(body.content || '').trim()) data.journal.unshift({ id: nowId(), date: body.date || dateText(), type: body.type || '日常', content: String(body.content).trim(), created: nowText() });
-        await saveWorkspace(); return response({ ok: true, journal: data.journal });
+        await saveWorkspace(data, dataRevision); return response({ ok: true, journal: data.journal });
       }
       if (path === '/api/publications') {
         if (method === 'GET') return response({ publications: data.publications, graduation: graduation(data.publications, data.graduationConfig) });
         if (body.action === 'add' && String(body.title || '').trim()) data.publications.push({ id: nowId(), title: String(body.title).trim(), type: body.type || 'c_journal', journal: String(body.journal || '').trim(), date: String(body.date || '').trim(), note: String(body.note || '').trim(), created: nowText() });
         if (body.action === 'delete') data.publications = data.publications.filter(function (item) { return item.id !== body.id; });
-        await saveWorkspace(); return response({ ok: true, publications: data.publications, graduation: graduation(data.publications, data.graduationConfig) });
+        await saveWorkspace(data, dataRevision); return response({ ok: true, publications: data.publications, graduation: graduation(data.publications, data.graduationConfig) });
       }
       if (path === '/api/academic-records') {
         var records = data.academicRecords || (data.academicRecords = { funding: [], awards: [], conferences: [] });
         if (body.action === 'add' && ['funding', 'awards', 'conferences'].indexOf(body.kind) >= 0 && String(body.title || '').trim()) records[body.kind].unshift({ id: nowId(), title: String(body.title).trim(), meta: String(body.meta || '').trim(), details: body.details && typeof body.details === 'object' ? body.details : {}, date: dateText() });
         if (body.action === 'delete') ['funding', 'awards', 'conferences'].forEach(function (kind) { records[kind] = records[kind].filter(function (item) { return item.id !== body.id; }); });
-        await saveWorkspace(); return response({ ok: true, records: records });
+        await saveWorkspace(data, dataRevision); return response({ ok: true, records: records });
       }
       if (path === '/api/knowledge-base') {
         var kb = data.knowledgeBase || (data.knowledgeBase = { folders: [], docs: [] });
@@ -169,9 +267,12 @@
         if (body.action === 'restore-trash') { var restored = kb.trash.filter(function (entry) { return String(entry.id) === String(body.id); })[0]; if (restored && restored.item) { if (restored.type === 'doc' && !kb.docs.some(function (doc) { return String(doc.id) === String(restored.item.id); })) kb.docs.unshift(restored.item); if (restored.type === 'folder' && !kb.folders.some(function (folder) { return String(folder.id) === String(restored.item.id); })) { kb.folders.push(restored.item); kb.docs.forEach(function (doc) { if ((restored.documentIds || []).some(function (docId) { return String(docId) === String(doc.id); }) && !doc.folderId) doc.folderId = restored.item.id; }); } kb.trash = kb.trash.filter(function (entry) { return String(entry.id) !== String(body.id); }); } }
         if (body.action === 'purge-trash') kb.trash = kb.trash.filter(function (entry) { return String(entry.id) !== String(body.id); });
         if (body.action === 'reorder-docs' && Array.isArray(body.ids)) { var rank = {}; body.ids.forEach(function (id, index) { rank[String(id)] = index; }); kb.docs.sort(function (a, b) { return (rank[String(a.id)] == null ? 999999 : rank[String(a.id)]) - (rank[String(b.id)] == null ? 999999 : rank[String(b.id)]); }); }
-        await saveWorkspace(); return response({ ok: true, knowledgeBase: kb });
+        await saveWorkspace(data, dataRevision); return response({ ok: true, knowledgeBase: kb });
       }
       return response({ ok: false, error: '此功能需要本地 Python 服务' }, 501);
-    } catch (error) { return response({ error: error.message || '云端同步失败' }, 500); }
+    } catch (error) {
+      if (error.workspaceConflict) return response({ ok: false, workspaceConflict: error.workspaceConflict, error: error.message }, 409);
+      return response({ ok: false, error: error.message || '云端同步失败' }, 500);
+    }
   };
 })(window.__nativeFetch = window.fetch.bind(window));

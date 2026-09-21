@@ -112,13 +112,23 @@
   function $(sel, root) { return (root || document).querySelector(sel); }
   function $$(sel, root) { return Array.from((root || document).querySelectorAll(sel)); }
 
+  var apiWriteChain = Promise.resolve();
+  var activeWorkspaceConflict = null;
+
   function api(url, options) {
-    return fetch(url, Object.assign({ headers: { 'Content-Type': 'application/json' } }, options))
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        if (account && options && options.method === 'POST' && url.indexOf('/api/sync') !== 0 && url.indexOf('/api/backup') !== 0 && url.indexOf('/api/auth/') !== 0) setTimeout(syncData, 0);
-        return data;
-      });
+    function request() {
+      return fetch(url, Object.assign({ headers: { 'Content-Type': 'application/json' } }, options))
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data && data.workspaceConflict) showWorkspaceConflict(data.workspaceConflict);
+          if (data && data.ok !== false && account && options && options.method === 'POST' && url.indexOf('/api/sync') !== 0 && url.indexOf('/api/backup') !== 0 && url.indexOf('/api/auth/') !== 0) setTimeout(syncData, 0);
+          return data;
+        });
+    }
+    if (!options || options.method !== 'POST') return request();
+    var queued = apiWriteChain.catch(function () {}).then(request);
+    apiWriteChain = queued.then(function () {}, function () {});
+    return queued;
   }
 
   var account = null;
@@ -288,6 +298,59 @@
   }
 
   function closeBackupModal() { $('#backupModal').hidden = true; $('#backupFileInput').value = ''; }
+
+  function showWorkspaceConflict(conflict) {
+    if (!conflict || !conflict.localData) return;
+    activeWorkspaceConflict = conflict;
+    $('#syncConflictError').hidden = true;
+    $('#syncConflictModal').hidden = false;
+    $('#syncConflictReload').disabled = false;
+    $('#syncConflictKeepLocal').disabled = false;
+    setGlobalSaveState('等待处理同步冲突', 'error');
+    flushAllAutoSaves();
+  }
+
+  function useCloudWorkspace() {
+    if (!confirm('载入云端版本会放弃此设备尚未同步的修改。确定继续吗？')) return;
+    $('#syncConflictKeepLocal').disabled = true;
+    $('#syncConflictReload').disabled = true;
+    Promise.all([apiWriteChain.catch(function () {}), autoSaveChain.catch(function () {})]).then(function () {
+      activeWorkspaceConflict = null;
+      window.location.reload();
+    });
+  }
+
+  function keepLocalWorkspace() {
+    if (!activeWorkspaceConflict || !activeWorkspaceConflict.localData) return;
+    if (!confirm('将用此设备的版本覆盖云端版本。覆盖前会先下载一份冲突副本，确定继续吗？')) return;
+    $('#syncConflictKeepLocal').disabled = true;
+    $('#syncConflictReload').disabled = true;
+    Promise.all([apiWriteChain.catch(function () {}), autoSaveChain.catch(function () {})]).then(function () {
+      if (!activeWorkspaceConflict || !activeWorkspaceConflict.localData) throw new Error('冲突数据已失效，请重新载入云端版本。');
+      var localData = JSON.parse(JSON.stringify(activeWorkspaceConflict.localData));
+      downloadBackup(localData, 'sync-conflict');
+      return api('/api/backup', { method: 'POST', body: JSON.stringify({ backup: { format: 'academic-research-hub-backup', version: 1, data: localData }, overrideConflict: true }) });
+    })
+      .then(function (result) {
+        if (!result || !result.ok) {
+          $('#syncConflictError').textContent = (result && result.error) || '保留本机版本失败，请重试。';
+          $('#syncConflictError').hidden = false;
+          $('#syncConflictKeepLocal').disabled = false;
+          $('#syncConflictReload').disabled = false;
+          return;
+        }
+        activeWorkspaceConflict = null;
+        $('#syncConflictModal').hidden = true;
+        toast('已保留本机版本，正在同步并重新载入');
+        setTimeout(function () { window.location.reload(); }, 700);
+      })
+      .catch(function (error) {
+        $('#syncConflictError').textContent = error.message || '同步失败，请检查网络后重试。';
+        $('#syncConflictError').hidden = false;
+        $('#syncConflictKeepLocal').disabled = false;
+        $('#syncConflictReload').disabled = false;
+      });
+  }
 
   function backupFileName(suffix) {
     var date = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
@@ -5148,6 +5211,9 @@
     $('#backupExport').addEventListener('click', exportWorkspaceBackup);
     $('#backupImport').addEventListener('click', function () { $('#backupFileInput').click(); });
     $('#backupFileInput').addEventListener('change', importWorkspaceBackup);
+    $('#syncConflictReload').addEventListener('click', useCloudWorkspace);
+    $('#syncConflictKeepLocal').addEventListener('click', keepLocalWorkspace);
+    window.addEventListener('academic-workspace-conflict', function (event) { showWorkspaceConflict(event.detail); });
     $('#versionHistoryClose').addEventListener('click', closeVersionHistory);
     $('#versionHistoryBackdrop').addEventListener('click', closeVersionHistory);
     $('#versionHistoryList').addEventListener('click', function (event) { var entry = event.target.closest('[data-version-index]'); if (entry) renderVersionHistory(Number(entry.dataset.versionIndex)); });

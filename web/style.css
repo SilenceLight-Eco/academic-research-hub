@@ -6550,6 +6550,11 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .backup-card { width:min(430px,calc(100vw - 40px)); }
 .backup-restore-button { padding:10px; border:1px solid var(--card-border); border-radius:8px; background:var(--input-bg); color:var(--text-secondary); cursor:pointer; font:13px "Noto Sans SC",sans-serif; }
 .backup-warning { padding:10px 12px; border-radius:8px; background:rgba(193,138,45,.09); color:var(--text-muted); font-size:11px; line-height:1.7; }
+.sync-conflict-modal { z-index:10000; }
+.sync-conflict-card { width:min(480px,calc(100vw - 36px)); }
+.sync-conflict-actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:16px; }
+.sync-conflict-actions button { min-height:42px; }
+.sync-conflict-error { padding:9px 11px; border-radius:8px; background:rgba(188,68,68,.1); color:#bc4444; font-size:12px; line-height:1.6; }
 .version-history-card { width:min(780px,calc(100vw - 36px)); max-height:min(720px,calc(100vh - 36px)); overflow:auto; }
 .version-history-layout { display:grid; grid-template-columns:minmax(180px,.65fr) minmax(280px,1fr); gap:12px; min-height:250px; max-height:48vh; }
 .version-history-list { display:grid; align-content:start; gap:5px; overflow:auto; padding-right:3px; }
