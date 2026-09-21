@@ -6597,8 +6597,9 @@
       if (event.key !== ' ' || event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return;
       if (autoFormatKnowledgeHeading(rich, true) || autoFormatKnowledgeFormula(rich, true)) event.preventDefault();
     });
-    // 部分输入法不会可靠触发 keydown；保留 input 作为后备。
-    rich.addEventListener('input', function (event) { if (event.inputType === 'insertText' && event.data === ' ') { autoFormatKnowledgeHeading(rich, false); autoFormatKnowledgeFormula(rich, false); } });
+    // 不依赖 inputType / data：部分浏览器和中文输入法不会在 input 事件中返回空格字符。
+    // 只在当前段落已经符合 Markdown 触发语法时才会转换，因此每次输入检查也不会影响普通文本。
+    rich.addEventListener('input', function () { autoFormatKnowledgeHeading(rich, false); autoFormatKnowledgeFormula(rich, false); });
     source.replaceWith(rich);
     renderKnowledgeFormulas(rich);
     var toolbar = document.createElement('div');
