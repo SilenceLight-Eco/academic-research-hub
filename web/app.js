@@ -6592,7 +6592,12 @@
     rich.id = 'kbRichEditor'; rich.className = 'kb-rich-editor'; rich.contentEditable = 'true';
     rich.setAttribute('role', 'textbox'); rich.setAttribute('aria-label', '所见即所得文档编辑器');
     rich.innerHTML = renderKnowledgeMarkdown(source.value || '');
-    rich.addEventListener('input', function (event) { if (event.inputType === 'insertText' && event.data === ' ') { autoFormatKnowledgeHeading(rich); autoFormatKnowledgeFormula(rich); } });
+    rich.addEventListener('keydown', function (event) {
+      if (event.key !== ' ' || event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return;
+      if (autoFormatKnowledgeHeading(rich, true) || autoFormatKnowledgeFormula(rich, true)) event.preventDefault();
+    });
+    // 部分输入法不会可靠触发 keydown；保留 input 作为后备。
+    rich.addEventListener('input', function (event) { if (event.inputType === 'insertText' && event.data === ' ') { autoFormatKnowledgeHeading(rich, false); autoFormatKnowledgeFormula(rich, false); } });
     source.replaceWith(rich);
     renderKnowledgeFormulas(rich);
     var toolbar = document.createElement('div');
@@ -6646,35 +6651,37 @@
     else document.execCommand(command, false, null);
   }
 
-  function autoFormatKnowledgeHeading(editor) {
+  function autoFormatKnowledgeHeading(editor, beforeSpace) {
     var selection = window.getSelection();
-    if (!selection || !selection.rangeCount) return;
+    if (!selection || !selection.rangeCount) return false;
     var node = selection.anchorNode;
     var block = node && (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement);
     while (block && block.parentElement !== editor) block = block.parentElement;
     if (!block || block === editor) block = editor;
     var text = (block.textContent || '').replace(/\u00a0/g, ' ');
-    var matched = text.match(/^(#{1,3})\s?([^#\s].*)\s$/);
-    if (!matched) return;
+    var matched = text.match(beforeSpace ? /^(#{1,3})\s?([^#\s].*?)$/ : /^(#{1,3})\s?([^#\s].*?)\s+$/);
+    if (!matched) return false;
     var heading = document.createElement('h' + matched[1].length);
     heading.textContent = matched[2];
     if (block === editor) { editor.textContent = ''; editor.appendChild(heading); }
     else block.replaceWith(heading);
     var range = document.createRange(); range.selectNodeContents(heading); range.collapse(false);
     selection.removeAllRanges(); selection.addRange(range);
+    return true;
   }
 
-  function autoFormatKnowledgeFormula(editor) {
+  function autoFormatKnowledgeFormula(editor, beforeSpace) {
     var selection = window.getSelection();
-    if (!selection || !selection.rangeCount) return;
+    if (!selection || !selection.rangeCount) return false;
     var node = selection.anchorNode;
     var block = node && (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement);
     while (block && block.parentElement !== editor) block = block.parentElement;
     if (!block || block === editor) block = editor;
     var text = (block.textContent || '').replace(/\u00a0/g, ' ');
-    var matched = text.match(/^\$\$([\s\S]+)\$\$\s$/) || text.match(/^\$([^$]+)\$\s$/);
-    if (!matched) return;
-    var isBlock = text.indexOf('$$') === 0;
+    var candidate = beforeSpace ? text : text.replace(/\s+$/, '');
+    var matched = candidate.match(/^\$\$([\s\S]+)\$\$$/) || candidate.match(/^\$([^$]+)\$$/);
+    if (!matched) return false;
+    var isBlock = candidate.indexOf('$$') === 0;
     var formula = document.createElement(isBlock ? 'div' : 'span');
     formula.className = isBlock ? 'kb-formula-block' : 'kb-inline-formula';
     formula.dataset.formula = matched[1]; formula.contentEditable = 'false';
@@ -6684,6 +6691,7 @@
     renderKnowledgeFormula(formula);
     var range = document.createRange(); range.setStartAfter(formula); range.collapse(true);
     selection.removeAllRanges(); selection.addRange(range);
+    return true;
   }
 
   function renderKnowledgeFormula(element) {
