@@ -115,6 +115,8 @@
   var apiWriteChain = Promise.resolve();
   var activeWorkspaceConflict = null;
   var cloudReloadScheduled = false;
+  var pendingExitFlush = false;
+  var exitFlushStarted = false;
 
   function scheduleCloudWorkspaceReload() {
     if (cloudReloadScheduled) return;
@@ -133,7 +135,9 @@
 
   function api(url, options) {
     function request() {
-      return fetch(url, Object.assign({ headers: { 'Content-Type': 'application/json' } }, options))
+      var requestOptions = Object.assign({ headers: { 'Content-Type': 'application/json' } }, options);
+      if (pendingExitFlush) requestOptions.keepalive = true;
+      return fetch(url, requestOptions)
         .then(function (r) { return r.json(); })
         .then(function (data) {
           if (window.__academicCloudReloadRequired) {
@@ -160,6 +164,7 @@
   var autoSaveSlots = {};
   var autoSaveChain = Promise.resolve();
   var autoSaveRunning = 0;
+  var AUTO_SAVE_INTERVAL = 180000;
   var activeVersionHistory = null;
   var manualSaveStatusTimers = Object.create(null);
 
@@ -175,55 +180,88 @@
     return autoSaveRunning > 0 || Object.keys(autoSaveSlots).some(function (key) { return Boolean(autoSaveSlots[key].timer); });
   }
 
+  function hasUnsavedChanges() {
+    return Object.keys(autoSaveSlots).some(function (key) { return Boolean(autoSaveSlots[key].dirty); });
+  }
+
   function runAutoSave(key, revision, payload, persist, automatic) {
     autoSaveRunning += 1;
+    var activeSlot = autoSaveSlots[key];
+    if (activeSlot) activeSlot.inFlight = (activeSlot.inFlight || 0) + 1;
     setGlobalSaveState('保存中…', 'saving');
     autoSaveChain = autoSaveChain.catch(function () {}).then(function () { return persist(payload, automatic); }).then(function () {
       autoSaveRunning = Math.max(0, autoSaveRunning - 1);
       var slot = autoSaveSlots[key];
-      if (slot && slot.revision === revision && !hasPendingAutoSave()) {
+      if (slot) {
+        slot.inFlight = Math.max(0, (slot.inFlight || 0) - 1);
+        if (slot.revision === revision) slot.dirty = false;
+      }
+      if (slot && slot.revision === revision && !hasPendingAutoSave() && !hasUnsavedChanges()) {
         var time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
         setGlobalSaveState((automatic ? '已自动保存 ' : '已保存 ') + time, 'saved');
       }
     }, function () {
       autoSaveRunning = Math.max(0, autoSaveRunning - 1);
+      var slot = autoSaveSlots[key];
+      if (slot) slot.inFlight = Math.max(0, (slot.inFlight || 0) - 1);
       setGlobalSaveState('保存失败，请检查网络', 'error');
     });
     return autoSaveChain;
   }
 
   function queueAutoSave(key, payload, persist) {
-    var slot = autoSaveSlots[key] || { revision: 0, timer: null };
+    var slot = autoSaveSlots[key] || { revision: 0, timer: null, inFlight: 0, dirty: false };
     slot.revision += 1;
-    if (slot.timer) clearTimeout(slot.timer);
-    var revision = slot.revision;
     slot.payload = payload;
     slot.persist = persist;
-    slot.timer = setTimeout(function () {
+    slot.dirty = true;
+    if (!slot.timer) slot.timer = setTimeout(function () {
       slot.timer = null;
-      runAutoSave(key, revision, payload, persist, true);
-    }, 900);
+      runAutoSave(key, slot.revision, slot.payload, slot.persist, true);
+    }, AUTO_SAVE_INTERVAL);
     autoSaveSlots[key] = slot;
     setGlobalSaveState('有更改待保存', 'pending');
   }
 
-  function flushAllAutoSaves() {
+  function flushAllAutoSaves(forceInFlight) {
     Object.keys(autoSaveSlots).forEach(function (key) {
       var slot = autoSaveSlots[key];
-      if (!slot.timer || !slot.persist) return;
-      clearTimeout(slot.timer);
-      slot.timer = null;
+      if (!slot.dirty || !slot.persist || (slot.inFlight && !forceInFlight)) return;
+      if (slot.timer) { clearTimeout(slot.timer); slot.timer = null; }
       runAutoSave(key, slot.revision, slot.payload, slot.persist, true);
     });
   }
 
   function saveImmediately(key, payload, persist) {
-    var slot = autoSaveSlots[key] || { revision: 0, timer: null };
+    var slot = autoSaveSlots[key] || { revision: 0, timer: null, inFlight: 0, dirty: false };
     slot.revision += 1;
     if (slot.timer) clearTimeout(slot.timer);
     slot.timer = null;
+    slot.payload = payload;
+    slot.persist = persist;
+    slot.dirty = true;
     autoSaveSlots[key] = slot;
     return runAutoSave(key, slot.revision, payload, persist, false);
+  }
+
+  function handleBeforeUnload(event) {
+    rememberScroll();
+    if (!hasUnsavedChanges()) return;
+    pendingExitFlush = true;
+    exitFlushStarted = true;
+    flushAllAutoSaves(true);
+    event.preventDefault();
+    event.returnValue = '尚有修改未保存，是否保存后离开？';
+    setTimeout(function () {
+      if (!document.hidden) { pendingExitFlush = false; exitFlushStarted = false; }
+    }, 0);
+    return '';
+  }
+
+  function flushAutoSavesOnPageHide() {
+    if (exitFlushStarted || !hasUnsavedChanges()) return;
+    pendingExitFlush = true;
+    flushAllAutoSaves(true);
   }
 
   function setManualSaveStatus(button, status) {
@@ -5429,8 +5467,7 @@
       if (event.origin !== location.origin || !event.data || event.data.type !== 'academic-research-hub-open-knowledge-base') return;
       switchPanel('knowledge-base');
     });
-    document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') flushAllAutoSaves(); });
-    window.addEventListener('pagehide', flushAllAutoSaves);
+    window.addEventListener('pagehide', flushAutoSavesOnPageHide);
 
     // 论文删除（事件委托）
     $('#pubList').addEventListener('click', function (e) {
@@ -7200,7 +7237,8 @@
     positionNavInk(false);
     initTopbarStuck();
     initCmdk();
-    window.addEventListener('beforeunload', rememberScroll);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('pageshow', function () { pendingExitFlush = false; exitFlushStarted = false; });
     window.addEventListener('hashchange', applyHash);
   }
 
