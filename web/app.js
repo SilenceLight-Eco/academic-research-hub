@@ -6533,7 +6533,8 @@
 
   function extractKnowledgeHeadings(content) {
     return String(content || '').split(/\r?\n/).map(function (line) {
-      var matched = line.match(/^(#{1,3})\s+(.+?)\s*$/);
+      // 兼容早期保存的“#标题”写法；重新保存后会统一为标准 Markdown 的“# 标题”。
+      var matched = line.match(/^(#{1,3})\s*(\S.*?)\s*$/);
       return matched ? { level: matched[1].length, text: matched[2].trim() } : null;
     }).filter(Boolean).slice(0, 20);
   }
@@ -6820,9 +6821,10 @@
     function closeList() { if (inList) { html.push('</ul>'); inList = false; } }
     lines.forEach(function (line) {
       if (/^@@KB_CODE_\d+@@$/.test(line)) { closeList(); html.push(line); return; }
-      if (/^###\s+/.test(line)) { closeList(); html.push('<h3>' + markdownInline(line.replace(/^###\s+/, '')) + '</h3>'); return; }
-      if (/^##\s+/.test(line)) { closeList(); html.push('<h2>' + markdownInline(line.replace(/^##\s+/, '')) + '</h2>'); return; }
-      if (/^#\s+/.test(line)) { closeList(); html.push('<h1>' + markdownInline(line.replace(/^#\s+/, '')) + '</h1>'); return; }
+      // 新旧文档都支持：# 标题 和 #标题 在编辑器中都会显示为标题。
+      if (/^###\s*\S/.test(line)) { closeList(); html.push('<h3>' + markdownInline(line.replace(/^###\s*/, '')) + '</h3>'); return; }
+      if (/^##\s*\S/.test(line)) { closeList(); html.push('<h2>' + markdownInline(line.replace(/^##\s*/, '')) + '</h2>'); return; }
+      if (/^#\s*\S/.test(line)) { closeList(); html.push('<h1>' + markdownInline(line.replace(/^#\s*/, '')) + '</h1>'); return; }
       if (/^>\s?/.test(line)) { closeList(); html.push('<blockquote>' + markdownInline(line.replace(/^>\s?/, '')) + '</blockquote>'); return; }
       if (/^[-*]\s+/.test(line)) { if (!inList) { html.push('<ul>'); inList = true; } html.push('<li>' + markdownInline(line.replace(/^[-*]\s+/, '')) + '</li>'); return; }
       closeList(); html.push(line ? '<p>' + markdownInline(line) + '</p>' : '<br>');
