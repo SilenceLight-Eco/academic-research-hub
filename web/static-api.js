@@ -7,19 +7,40 @@
   var client = window.supabase.createClient(url, key, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
   // Exposed so the workbench waits until the saved session has been restored.
   window.__academicAuthReady = client.auth.getSession();
-  window.__academicFeishuExport = async function (payload) {
+  async function feishuRequest(functionName, payload) {
     var sessionResult = await client.auth.getSession();
     var session = sessionResult && sessionResult.data && sessionResult.data.session;
-    if (!session) throw new Error('请先登录工作台，再导出到飞书');
-    var result = await window.__nativeFetch(url + '/functions/v1/feishu-export', {
+    if (!session) throw new Error('请先登录工作台，再连接飞书');
+    var result = await window.__nativeFetch(url + '/functions/v1/' + functionName, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token, 'apikey': key },
       body: JSON.stringify(payload || {})
     });
     var data = await result.json().catch(function () { return {}; });
-    if (!result.ok || !data.ok) throw new Error(data.error || '飞书导出失败，请检查服务端配置');
+    if (!result.ok || !data.ok) throw new Error(data.error || '飞书操作失败，请检查服务端配置');
     return data;
+  }
+  window.__academicFeishuExport = function (payload) {
+    return feishuRequest('feishu-sync', Object.assign({}, payload || {}, { action: 'export' }));
   };
+  window.__academicFeishuImport = function (documentId) {
+    return feishuRequest('feishu-sync', { action: 'import', documentId: documentId });
+  };
+  window.__academicFeishuStatus = function () {
+    return feishuRequest('feishu-sync', { action: 'status' });
+  };
+  window.__academicFeishuConnect = async function () {
+    var result = await feishuRequest('feishu-oauth-start', {});
+    if (!result.authUrl) throw new Error('飞书授权地址生成失败');
+    window.location.assign(result.authUrl);
+  };
+  var feishuCallbackResult = new URLSearchParams(window.location.search).get('feishu');
+  if (feishuCallbackResult === 'connected' || feishuCallbackResult === 'error') {
+    window.__academicFeishuCallbackResult = feishuCallbackResult;
+    var cleanUrl = new URL(window.location.href);
+    cleanUrl.searchParams.delete('feishu');
+    window.history.replaceState({}, '', cleanUrl.pathname + cleanUrl.search + cleanUrl.hash);
+  }
   client.auth.onAuthStateChange(function (event) { if (event === 'PASSWORD_RECOVERY') { window.__academicPasswordRecovery = true; window.dispatchEvent(new CustomEvent('academic-password-recovery')); } });
   var workspace = null;
   var workspaceRevision = null;

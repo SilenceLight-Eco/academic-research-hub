@@ -5430,7 +5430,9 @@
     bindNoteTextColor();
     $('#noteStyle').addEventListener('change', function () { renderNotePreview(); queueNoteAutoSave(); });
     $('#noteFeishuUrl').addEventListener('input', queueNoteAutoSave);
+    $('#noteFeishuConnect').addEventListener('click', connectFeishu);
     $('#noteFeishuOpen').addEventListener('click', function () { openFeishuDocument($('#noteFeishuUrl').value); });
+    $('#noteFeishuImport').addEventListener('click', importNoteFromFeishu);
     $('#noteFeishuExport').addEventListener('click', exportNoteToFeishu);
     $('#noteSave').addEventListener('click', saveNoteStudio);
     $('#noteHistory').addEventListener('click', function () { openVersionHistory('note'); });
@@ -5482,7 +5484,7 @@
     $('#kbDocs').addEventListener('dragend', function () { state.kbDraggingDocId = null; $$('.kb-doc.is-dragging').forEach(function (item) { item.classList.remove('is-dragging'); }); });
     $('#kbDocs').addEventListener('dragover', function (e) { if (state.kbDraggingDocId) e.preventDefault(); });
     $('#kbDocs').addEventListener('drop', function (e) { var target = e.target.closest('[data-kb-doc]'); if (!target || !state.kbDraggingDocId) return; e.preventDefault(); reorderKnowledgeDoc(state.kbDraggingDocId, Number(target.dataset.kbDoc)); });
-    $('#kbEditor').addEventListener('click', function (e) { var history = e.target.closest('[data-version-history]'); if (history) { openVersionHistory('knowledge'); return; } if (e.target.closest('#kbFeishuOpen')) { openFeishuDocument($('#kbFeishuUrl').value); return; } if (e.target.closest('#kbFeishuExport')) { exportKnowledgeToFeishu(); return; } var action = e.target.closest('[data-kb-command]'); if (action) { runKnowledgeRichCommand(action.dataset.kbCommand); return; } var toggle = e.target.closest('[data-kb-mode]'); if (!toggle) return; state.kbDraft = readKnowledgeDraft(); state.kbEditorMode = toggle.dataset.kbMode; renderKnowledgeBase(); });
+    $('#kbEditor').addEventListener('click', function (e) { var history = e.target.closest('[data-version-history]'); if (history) { openVersionHistory('knowledge'); return; } if (e.target.closest('#kbFeishuConnect')) { connectFeishu(); return; } if (e.target.closest('#kbFeishuOpen')) { openFeishuDocument($('#kbFeishuUrl').value); return; } if (e.target.closest('#kbFeishuImport')) { importKnowledgeFromFeishu(); return; } if (e.target.closest('#kbFeishuExport')) { exportKnowledgeToFeishu(); return; } var action = e.target.closest('[data-kb-command]'); if (action) { runKnowledgeRichCommand(action.dataset.kbCommand); return; } var toggle = e.target.closest('[data-kb-mode]'); if (!toggle) return; state.kbDraft = readKnowledgeDraft(); state.kbEditorMode = toggle.dataset.kbMode; renderKnowledgeBase(); });
     $('#kbEditor').addEventListener('input', function (e) { if (e.target.closest('#kbDocTitle, #kbDocContent, #kbRichEditor, #kbFeishuUrl')) queueKnowledgeAutoSave(); });
     $('#kbEditor').addEventListener('change', function (e) { if (e.target.closest('#kbDocFolder')) queueKnowledgeAutoSave(); });
     window.addEventListener('message', function (event) {
@@ -6529,14 +6531,14 @@
     $('#noteTrash').textContent = state.noteTrashOpen ? '返回笔记' : '回收站' + (trash.length ? ' (' + trash.length + ')' : '');
     if (state.noteTrashOpen) {
       list.innerHTML = recycleBinToolbar('note', '笔记', trash.length) + (trash.length ? trash.map(function (entry) { return '<div class="note-trash-row"><div><b>' + escapeHtml((entry.item || {}).title || '未命名笔记') + '</b><span>' + escapeHtml(entry.deletedAt || '') + '</span></div><div><button type="button" data-note-restore="' + entry.id + '">恢复</button><button type="button" data-note-purge="' + entry.id + '">彻底删除</button></div></div>'; }).join('') : '<div class="note-list-empty">回收站为空</div>');
-      title.value = ''; title.disabled = true; editor.value = ''; editor.disabled = true; style.disabled = true; remove.hidden = true; $('#noteFeishuUrl').value = ''; $('#noteFeishuUrl').disabled = true; $('#noteFeishuOpen').disabled = true; $('#noteFeishuExport').disabled = true; $('#notePreview').innerHTML = '<div class="note-empty">可在左侧恢复误删笔记。</div>'; return;
+      title.value = ''; title.disabled = true; editor.value = ''; editor.disabled = true; style.disabled = true; remove.hidden = true; $('#noteFeishuUrl').value = ''; $('#noteFeishuUrl').disabled = true; $('#noteFeishuConnect').disabled = true; $('#noteFeishuOpen').disabled = true; $('#noteFeishuImport').disabled = true; $('#noteFeishuExport').disabled = true; $('#notePreview').innerHTML = '<div class="note-empty">可在左侧恢复误删笔记。</div>'; return;
     }
     if (!notes.some(function (note) { return Number(note.id) === Number(state.noteId); })) state.noteId = notes[0] ? notes[0].id : null;
     var active = activeNoteStudio();
     list.innerHTML = notes.length ? '<div class="note-list-label">我的笔记 <span>' + notes.length + '</span></div>' + notes.map(function (note) { return '<button type="button" class="note-list-item' + (Number(note.id) === Number(state.noteId) ? ' is-active' : '') + '" data-note-id="' + note.id + '"><b>' + escapeHtml(note.title || '未命名笔记') + '</b><span>' + escapeHtml(note.updated || '') + '</span></button>'; }).join('') : '<div class="note-list-empty">还没有笔记<br>点击右上角新建</div>';
     title.disabled = !active; editor.disabled = !active; style.disabled = !active; remove.hidden = !active;
     title.value = active ? active.title || '' : ''; editor.value = active ? active.markdown || '' : ''; style.value = active ? active.style || 'paper' : 'paper';
-    $('#noteFeishuUrl').value = active ? active.feishuUrl || '' : ''; $('#noteFeishuUrl').disabled = !active; $('#noteFeishuOpen').disabled = !active; $('#noteFeishuExport').disabled = !active;
+    $('#noteFeishuUrl').value = active ? active.feishuUrl || '' : ''; $('#noteFeishuUrl').disabled = !active; $('#noteFeishuConnect').disabled = !active; $('#noteFeishuOpen').disabled = !active; $('#noteFeishuImport').disabled = !active; $('#noteFeishuExport').disabled = !active;
     renderNotePreview();
   }
 
@@ -6571,6 +6573,18 @@
     window.open(url, '_blank', 'noopener,noreferrer');
   }
 
+  function feishuDocumentId(value) {
+    var safeUrl = normalizeFeishuUrl(value);
+    if (!safeUrl) return '';
+    try { var path = new URL(safeUrl).pathname; var match = path.match(/\/(?:docx|docs|doc)\/([A-Za-z0-9_-]{8,128})(?:\/|$)/); return match ? match[1] : ''; }
+    catch (error) { return ''; }
+  }
+
+  function connectFeishu() {
+    if (typeof window.__academicFeishuConnect !== 'function') { toast('飞书授权服务尚未部署'); return; }
+    window.__academicFeishuConnect().catch(function (error) { toast(error.message || '启动飞书授权失败'); });
+  }
+
   function exportMarkdownToFeishu(title, markdown) {
     if (typeof window.__academicFeishuExport !== 'function') return Promise.reject(new Error('飞书导出服务尚未部署，请先配置 Supabase Edge Function'));
     var content = String(markdown || '');
@@ -6592,6 +6606,22 @@
       $('#noteFeishuUrl').value = note.feishuUrl;
       return saveImmediately('note:' + note.id, readNotePayload(), persistNoteStudio).then(function () { toast('已导出到飞书，文档链接已保存'); });
     }).catch(function (error) { toast(error.message || '飞书导出失败'); }).finally(function () { button.disabled = !state.noteId; button.textContent = '导出到飞书'; });
+  }
+
+  function importNoteFromFeishu() {
+    if (!state.noteId) return;
+    var documentId = feishuDocumentId($('#noteFeishuUrl').value);
+    if (!documentId) { toast('请先粘贴有效的飞书文档链接'); return; }
+    if (!confirm('从飞书导入会覆盖当前笔记内容，继续吗？')) return;
+    var noteId = state.noteId; var button = $('#noteFeishuImport');
+    button.disabled = true; button.textContent = '正在导入…';
+    if (typeof window.__academicFeishuImport !== 'function') { toast('飞书读取服务尚未部署'); button.disabled = false; button.textContent = '从飞书导入'; return; }
+    window.__academicFeishuImport(documentId).then(function (result) {
+      var note = activeNoteStudio(); if (!note || Number(note.id) !== Number(noteId)) throw new Error('笔记已切换，请重新选择后再试');
+      note.title = result.title || note.title || '飞书文档'; note.markdown = result.markdown || ''; note.feishuDocId = result.documentId || documentId; note.feishuUrl = result.documentUrl || $('#noteFeishuUrl').value; note.feishuExportedAt = new Date().toISOString();
+      $('#noteTitle').value = note.title; $('#noteEditor').value = note.markdown; $('#noteFeishuUrl').value = note.feishuUrl; renderNotePreview();
+      return saveImmediately('note:' + note.id, readNotePayload(), persistNoteStudio).then(function () { toast('已从飞书导入并保存'); });
+    }).catch(function (error) { toast(error.message || '飞书导入失败'); }).finally(function () { button.disabled = !state.noteId; button.textContent = '从飞书导入'; });
   }
 
   function newNoteStudio() { api('/api/note-studio', { method: 'POST', body: JSON.stringify({ action: 'create' }) }).then(function (res) { if (!res.ok) { toast(res.error || '新建失败'); return; } state.noteStudio = res.noteStudio; state.noteTrashOpen = false; state.noteId = res.noteStudio.notes[0].id; renderNoteStudio(); $('#noteTitle').focus(); }); }
@@ -6711,7 +6741,7 @@
     var editorFoot = $('.kb-editor-foot', $('#kbEditor'));
     if (active) {
       var feishuRow = document.createElement('div'); feishuRow.className = 'feishu-link-row kb-feishu-link-row';
-      feishuRow.innerHTML = '<input id="kbFeishuUrl" type="url" aria-label="飞书文档链接" placeholder="粘贴关联的飞书文档链接"><button id="kbFeishuOpen" type="button">打开</button><button id="kbFeishuExport" type="button">导出到飞书</button>';
+      feishuRow.innerHTML = '<input id="kbFeishuUrl" type="url" aria-label="飞书文档链接" placeholder="粘贴关联的飞书文档链接"><button id="kbFeishuConnect" type="button">连接飞书</button><button id="kbFeishuOpen" type="button">打开</button><button id="kbFeishuImport" type="button">从飞书导入</button><button id="kbFeishuExport" type="button">导出到飞书</button>';
       $('#kbEditor').insertBefore(feishuRow, editorFoot);
       $('#kbFeishuUrl').value = draft.feishuUrl || '';
     }
@@ -7079,6 +7109,24 @@
       $('#kbFeishuUrl').value = doc.feishuUrl;
       return saveImmediately('knowledge:' + body.id, knowledgePayload(), persistKnowledgeDoc).then(function () { toast('已导出到飞书，文档链接已保存'); });
     }).catch(function (error) { toast(error.message || '飞书导出失败'); }).finally(function () { if (!button.isConnected) return; button.disabled = !state.kbDocId; button.textContent = '导出到飞书'; });
+  }
+
+  function importKnowledgeFromFeishu() {
+    if (!state.kbDocId) return;
+    var documentId = feishuDocumentId($('#kbFeishuUrl').value);
+    if (!documentId) { toast('请先粘贴有效的飞书文档链接'); return; }
+    var current = readKnowledgeDraft();
+    if (current.content && !confirm('从飞书导入会覆盖当前知识库文档内容，继续吗？')) return;
+    var docId = state.kbDocId; var button = $('#kbFeishuImport');
+    button.disabled = true; button.textContent = '正在导入…';
+    if (typeof window.__academicFeishuImport !== 'function') { toast('飞书读取服务尚未部署'); button.disabled = false; button.textContent = '从飞书导入'; return; }
+    window.__academicFeishuImport(documentId).then(function (result) {
+      var doc = ((state.knowledgeBase && state.knowledgeBase.docs) || []).filter(function (item) { return String(item.id) === String(docId); })[0];
+      if (!doc || String(state.kbDocId) !== String(docId)) throw new Error('知识库文档已切换，请重新选择后再试');
+      doc.title = result.title || doc.title || '飞书文档'; doc.content = result.markdown || ''; doc.feishuDocId = result.documentId || documentId; doc.feishuUrl = result.documentUrl || $('#kbFeishuUrl').value; doc.feishuExportedAt = new Date().toISOString();
+      state.kbDraft = Object.assign({}, doc); renderKnowledgeBase();
+      return saveImmediately('knowledge:' + docId, knowledgePayload(), persistKnowledgeDoc).then(function () { toast('已从飞书导入并保存'); });
+    }).catch(function (error) { toast(error.message || '飞书导入失败'); }).finally(function () { var currentButton = $('#kbFeishuImport'); if (currentButton) { currentButton.disabled = !state.kbDocId; currentButton.textContent = '从飞书导入'; } });
   }
 
   function readKnowledgeDraft() {
@@ -7545,6 +7593,8 @@
 
   // ===== 初始化 =====
   function init() {
+    if (window.__academicFeishuCallbackResult === 'connected') toast('飞书账号已连接');
+    else if (window.__academicFeishuCallbackResult === 'error') toast('飞书授权未完成，请确认应用回调地址和权限');
     // 彻底移除已下线功能的侧栏节点，避免旧版样式或扩展插件将其重新显示。
     $$('.retired-content').forEach(function (node) { node.remove(); });
     $$('.dashboard-retired').forEach(function (node) { node.remove(); });

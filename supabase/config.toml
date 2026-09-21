@@ -1,2 +1,11 @@
 [functions.feishu-export]
 verify_jwt = true
+
+[functions.feishu-oauth-start]
+verify_jwt = true
+
+[functions.feishu-oauth-callback]
+verify_jwt = false
+
+[functions.feishu-sync]
+verify_jwt = true
