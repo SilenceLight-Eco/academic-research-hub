@@ -2,6 +2,8 @@
 
 This repository combines [Academic Workbench](https://github.com/wujing855/academic-workbench) with [Offline Research Hub](https://github.com/ShutterZor/offline-research-hub).
 
+See [Feishu document integration setup](docs/feishu-integration.md) for linking and exporting Knowledge Base documents and notes.
+
 Run `python server.py`, then open `http://127.0.0.1:8765`. The sidebar's **论文管线** panel embeds the Research Hub workflow for tracking working papers, submissions, and publications; that panel stores its data only in your browser's local storage.
 
 See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for upstream attribution and licensing notices.

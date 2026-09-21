@@ -1,0 +1,2 @@
+[functions.feishu-export]
+verify_jwt = true

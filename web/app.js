@@ -5429,6 +5429,9 @@
     $('#noteEditor').addEventListener('input', function () { renderNotePreview(); queueNoteAutoSave(); });
     bindNoteTextColor();
     $('#noteStyle').addEventListener('change', function () { renderNotePreview(); queueNoteAutoSave(); });
+    $('#noteFeishuUrl').addEventListener('input', queueNoteAutoSave);
+    $('#noteFeishuOpen').addEventListener('click', function () { openFeishuDocument($('#noteFeishuUrl').value); });
+    $('#noteFeishuExport').addEventListener('click', exportNoteToFeishu);
     $('#noteSave').addEventListener('click', saveNoteStudio);
     $('#noteHistory').addEventListener('click', function () { openVersionHistory('note'); });
     $('#noteCopy').addEventListener('click', copyNoteForWechat);
@@ -5479,8 +5482,8 @@
     $('#kbDocs').addEventListener('dragend', function () { state.kbDraggingDocId = null; $$('.kb-doc.is-dragging').forEach(function (item) { item.classList.remove('is-dragging'); }); });
     $('#kbDocs').addEventListener('dragover', function (e) { if (state.kbDraggingDocId) e.preventDefault(); });
     $('#kbDocs').addEventListener('drop', function (e) { var target = e.target.closest('[data-kb-doc]'); if (!target || !state.kbDraggingDocId) return; e.preventDefault(); reorderKnowledgeDoc(state.kbDraggingDocId, Number(target.dataset.kbDoc)); });
-    $('#kbEditor').addEventListener('click', function (e) { var history = e.target.closest('[data-version-history]'); if (history) { openVersionHistory('knowledge'); return; } var action = e.target.closest('[data-kb-command]'); if (action) { runKnowledgeRichCommand(action.dataset.kbCommand); return; } var toggle = e.target.closest('[data-kb-mode]'); if (!toggle) return; state.kbDraft = readKnowledgeDraft(); state.kbEditorMode = toggle.dataset.kbMode; renderKnowledgeBase(); });
-    $('#kbEditor').addEventListener('input', function (e) { if (e.target.closest('#kbDocTitle, #kbDocContent, #kbRichEditor')) queueKnowledgeAutoSave(); });
+    $('#kbEditor').addEventListener('click', function (e) { var history = e.target.closest('[data-version-history]'); if (history) { openVersionHistory('knowledge'); return; } if (e.target.closest('#kbFeishuOpen')) { openFeishuDocument($('#kbFeishuUrl').value); return; } if (e.target.closest('#kbFeishuExport')) { exportKnowledgeToFeishu(); return; } var action = e.target.closest('[data-kb-command]'); if (action) { runKnowledgeRichCommand(action.dataset.kbCommand); return; } var toggle = e.target.closest('[data-kb-mode]'); if (!toggle) return; state.kbDraft = readKnowledgeDraft(); state.kbEditorMode = toggle.dataset.kbMode; renderKnowledgeBase(); });
+    $('#kbEditor').addEventListener('input', function (e) { if (e.target.closest('#kbDocTitle, #kbDocContent, #kbRichEditor, #kbFeishuUrl')) queueKnowledgeAutoSave(); });
     $('#kbEditor').addEventListener('change', function (e) { if (e.target.closest('#kbDocFolder')) queueKnowledgeAutoSave(); });
     window.addEventListener('message', function (event) {
       if (event.origin !== location.origin || !event.data || event.data.type !== 'academic-research-hub-open-knowledge-base') return;
@@ -6526,13 +6529,14 @@
     $('#noteTrash').textContent = state.noteTrashOpen ? '返回笔记' : '回收站' + (trash.length ? ' (' + trash.length + ')' : '');
     if (state.noteTrashOpen) {
       list.innerHTML = recycleBinToolbar('note', '笔记', trash.length) + (trash.length ? trash.map(function (entry) { return '<div class="note-trash-row"><div><b>' + escapeHtml((entry.item || {}).title || '未命名笔记') + '</b><span>' + escapeHtml(entry.deletedAt || '') + '</span></div><div><button type="button" data-note-restore="' + entry.id + '">恢复</button><button type="button" data-note-purge="' + entry.id + '">彻底删除</button></div></div>'; }).join('') : '<div class="note-list-empty">回收站为空</div>');
-      title.value = ''; title.disabled = true; editor.value = ''; editor.disabled = true; style.disabled = true; remove.hidden = true; $('#notePreview').innerHTML = '<div class="note-empty">可在左侧恢复误删笔记。</div>'; return;
+      title.value = ''; title.disabled = true; editor.value = ''; editor.disabled = true; style.disabled = true; remove.hidden = true; $('#noteFeishuUrl').value = ''; $('#noteFeishuUrl').disabled = true; $('#noteFeishuOpen').disabled = true; $('#noteFeishuExport').disabled = true; $('#notePreview').innerHTML = '<div class="note-empty">可在左侧恢复误删笔记。</div>'; return;
     }
     if (!notes.some(function (note) { return Number(note.id) === Number(state.noteId); })) state.noteId = notes[0] ? notes[0].id : null;
     var active = activeNoteStudio();
     list.innerHTML = notes.length ? '<div class="note-list-label">我的笔记 <span>' + notes.length + '</span></div>' + notes.map(function (note) { return '<button type="button" class="note-list-item' + (Number(note.id) === Number(state.noteId) ? ' is-active' : '') + '" data-note-id="' + note.id + '"><b>' + escapeHtml(note.title || '未命名笔记') + '</b><span>' + escapeHtml(note.updated || '') + '</span></button>'; }).join('') : '<div class="note-list-empty">还没有笔记<br>点击右上角新建</div>';
     title.disabled = !active; editor.disabled = !active; style.disabled = !active; remove.hidden = !active;
     title.value = active ? active.title || '' : ''; editor.value = active ? active.markdown || '' : ''; style.value = active ? active.style || 'paper' : 'paper';
+    $('#noteFeishuUrl').value = active ? active.feishuUrl || '' : ''; $('#noteFeishuUrl').disabled = !active; $('#noteFeishuOpen').disabled = !active; $('#noteFeishuExport').disabled = !active;
     renderNotePreview();
   }
 
@@ -6545,10 +6549,50 @@
     renderKnowledgeFormulas(preview);
   }
 
-  function readNotePayload() { return { action: 'save', id: state.noteId, title: $('#noteTitle').value, markdown: $('#noteEditor').value, style: $('#noteStyle').value }; }
+  function readNotePayload() { var active = activeNoteStudio() || {}; return { action: 'save', id: state.noteId, title: $('#noteTitle').value, markdown: $('#noteEditor').value, style: $('#noteStyle').value, feishuUrl: $('#noteFeishuUrl').value, feishuDocId: active.feishuDocId || '', feishuExportedAt: active.feishuExportedAt || '' }; }
   function persistNoteStudio(body, automatic) { return api('/api/note-studio', { method: 'POST', body: JSON.stringify(body) }).then(function (res) { if (!res.ok) throw new Error(res.error || '保存失败'); state.noteStudio = res.noteStudio; if (!automatic) { renderNoteStudio(); setManualSaveStatus($('#noteSave'), 'saved'); toast('笔记已同步保存'); } }).catch(function (error) { if (!automatic) setManualSaveStatus($('#noteSave'), 'error'); throw error; }); }
   function queueNoteAutoSave() { if (!state.noteId || state.noteTrashOpen) return; var body = readNotePayload(); queueAutoSave('note:' + body.id, body, persistNoteStudio); }
   function saveNoteStudio() { if (!state.noteId) return; var body = readNotePayload(); setManualSaveStatus($('#noteSave'), 'saving'); return saveImmediately('note:' + body.id, body, persistNoteStudio); }
+
+  function normalizeFeishuUrl(value) {
+    var raw = String(value || '').trim();
+    if (!raw) return '';
+    try {
+      var parsed = new URL(raw);
+      var host = parsed.hostname.toLowerCase();
+      if (parsed.protocol !== 'https:' || !(host === 'feishu.cn' || host.endsWith('.feishu.cn') || host === 'larksuite.com' || host.endsWith('.larksuite.com'))) return '';
+      return parsed.href;
+    } catch (error) { return ''; }
+  }
+
+  function openFeishuDocument(value) {
+    var url = normalizeFeishuUrl(value);
+    if (!url) { toast('请填写有效的飞书文档链接'); return; }
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+
+  function exportMarkdownToFeishu(title, markdown) {
+    if (typeof window.__academicFeishuExport !== 'function') return Promise.reject(new Error('飞书导出服务尚未部署，请先配置 Supabase Edge Function'));
+    var content = String(markdown || '');
+    if (String(title || '').trim() && !/^#\s+/.test(content)) content = '# ' + String(title).trim() + (content ? '\n\n' + content : '');
+    return window.__academicFeishuExport({ title: String(title || '未命名文档').trim(), markdown: content });
+  }
+
+  function exportNoteToFeishu() {
+    if (!state.noteId) return;
+    var button = $('#noteFeishuExport'); var body = readNotePayload();
+    button.disabled = true; button.textContent = '正在导出…';
+    saveImmediately('note:' + body.id, body, persistNoteStudio).then(function () {
+      return exportMarkdownToFeishu(body.title, body.markdown);
+    }).then(function (result) {
+      var note = activeNoteStudio(); if (!note) throw new Error('笔记已切换，请重新选择后再试');
+      note.feishuUrl = result.documentUrl || result.document_url || '';
+      note.feishuDocId = result.documentId || result.document_id || '';
+      note.feishuExportedAt = new Date().toISOString();
+      $('#noteFeishuUrl').value = note.feishuUrl;
+      return saveImmediately('note:' + note.id, readNotePayload(), persistNoteStudio).then(function () { toast('已导出到飞书，文档链接已保存'); });
+    }).catch(function (error) { toast(error.message || '飞书导出失败'); }).finally(function () { button.disabled = !state.noteId; button.textContent = '导出到飞书'; });
+  }
 
   function newNoteStudio() { api('/api/note-studio', { method: 'POST', body: JSON.stringify({ action: 'create' }) }).then(function (res) { if (!res.ok) { toast(res.error || '新建失败'); return; } state.noteStudio = res.noteStudio; state.noteTrashOpen = false; state.noteId = res.noteStudio.notes[0].id; renderNoteStudio(); $('#noteTitle').focus(); }); }
   function trashNoteStudio() { if (!state.noteId || !confirm('确定将这篇笔记移入回收站吗？')) return; api('/api/note-studio', { method: 'POST', body: JSON.stringify({ action: 'trash', id: state.noteId }) }).then(function (res) { if (!res.ok) { toast(res.error || '移入回收站失败'); return; } state.noteStudio = res.noteStudio; state.noteId = null; renderNoteStudio(); toast('笔记已移入回收站'); }); }
@@ -6665,6 +6709,12 @@
     var mode = state.kbEditorMode || 'edit';
     $('#kbEditor').innerHTML = active ? '<div class="kb-editor-tabs"><button type="button" class="' + (mode === 'edit' ? 'is-active' : '') + '" data-kb-mode="edit">编辑</button><button type="button" class="' + (mode === 'preview' ? 'is-active' : '') + '" data-kb-mode="preview">预览</button><span>Markdown</span></div><input id="kbDocTitle" class="kb-doc-title" value="' + escapeHtml(draft.title || '') + '" placeholder="文档标题"><select id="kbDocFolder"><option value="">未分类</option>' + folders.map(function (folder) { return '<option value="' + folder.id + '"' + (String(folder.id) === String(draft.folderId) ? ' selected' : '') + '>' + escapeHtml(folder.title) + '</option>'; }).join('') + '</select>' + (mode === 'preview' ? '<article class="kb-markdown-preview">' + renderKnowledgeMarkdown(draft.content || '') + '</article>' : '<textarea id="kbDocContent" class="kb-doc-content" placeholder="# 标题\n\n使用 Markdown 记录你的想法、文献笔记和研究材料…">' + escapeHtml(draft.content || '') + '</textarea>') + '<div class="kb-editor-foot"><span>Markdown · 最近更新：' + escapeHtml(active.updated || '尚未保存') + '</span><button id="kbSaveDoc" type="button">立即保存</button></div>' : '<div class="kb-editor-empty">' + (folderId === 'all' ? '选择左侧文档，或新建一篇文档开始记录。' : '此文件夹还没有文档，可在此文件夹中新建文档。') + '</div>';
     var editorFoot = $('.kb-editor-foot', $('#kbEditor'));
+    if (active) {
+      var feishuRow = document.createElement('div'); feishuRow.className = 'feishu-link-row kb-feishu-link-row';
+      feishuRow.innerHTML = '<input id="kbFeishuUrl" type="url" aria-label="飞书文档链接" placeholder="粘贴关联的飞书文档链接"><button id="kbFeishuOpen" type="button">打开</button><button id="kbFeishuExport" type="button">导出到飞书</button>';
+      $('#kbEditor').insertBefore(feishuRow, editorFoot);
+      $('#kbFeishuUrl').value = draft.feishuUrl || '';
+    }
     if (editorFoot) { var historyButton = document.createElement('button'); historyButton.type = 'button'; historyButton.dataset.versionHistory = 'knowledge'; historyButton.textContent = '版本记录' + (active.versions && active.versions.length ? ' (' + active.versions.length + ')' : ''); editorFoot.insertBefore(historyButton, $('#kbSaveDoc')); }
     var save = $('#kbSaveDoc'); if (save) save.addEventListener('click', saveKnowledgeDoc);
   }
@@ -7009,15 +7059,32 @@
     api('/api/knowledge-base', { method: 'POST', body: JSON.stringify({ action: 'purge-trash', id: id }) }).then(function (res) { if (!res.ok) { toast(res.error || '彻底删除失败'); return; } state.knowledgeBase = res.knowledgeBase; renderKnowledgeBase(); toast('已彻底删除'); });
   }
 
-  function knowledgePayload() { var draft = readKnowledgeDraft(); return { action: 'save-doc', id: draft.id, title: draft.title, content: draft.content, folderId: draft.folderId }; }
+  function knowledgePayload() { var draft = readKnowledgeDraft(); return { action: 'save-doc', id: draft.id, title: draft.title, content: draft.content, folderId: draft.folderId, feishuUrl: draft.feishuUrl, feishuDocId: draft.feishuDocId, feishuExportedAt: draft.feishuExportedAt }; }
   function persistKnowledgeDoc(body, automatic) { return api('/api/knowledge-base', { method: 'POST', body: JSON.stringify(body) }).then(function (res) { if (!res.ok) throw new Error(res.error || '保存失败'); state.knowledgeBase = res.knowledgeBase; if (!automatic) { state.kbDraft = null; var savedDoc = (res.knowledgeBase.docs || []).filter(function (doc) { return String(doc.id) === String(body.id); })[0]; var row = $('#kbDocs [data-kb-doc="' + body.id + '"]'); if (row && row.parentElement) row.parentElement.outerHTML = renderKnowledgeDocItem(savedDoc || body); var label = $('.kb-editor-foot > span', $('#kbEditor')); if (label && savedDoc) label.textContent = 'Markdown · 最近更新：' + (savedDoc.updated || '已保存'); setManualSaveStatus($('#kbSaveDoc'), 'saved'); toast('Markdown 文档已同步保存'); } }).catch(function (error) { if (!automatic) setManualSaveStatus($('#kbSaveDoc'), 'error'); throw error; }); }
   function queueKnowledgeAutoSave() { if (!state.kbDocId || state.kbTrashOpen) return; var body = knowledgePayload(); queueAutoSave('knowledge:' + body.id, body, persistKnowledgeDoc); }
   function saveKnowledgeDoc() { if (!state.kbDocId) return; var body = knowledgePayload(); setManualSaveStatus($('#kbSaveDoc'), 'saving'); return saveImmediately('knowledge:' + body.id, body, persistKnowledgeDoc); }
 
+  function exportKnowledgeToFeishu() {
+    if (!state.kbDocId) return;
+    var button = $('#kbFeishuExport'); var body = knowledgePayload();
+    button.disabled = true; button.textContent = '正在导出…';
+    saveImmediately('knowledge:' + body.id, body, persistKnowledgeDoc).then(function () {
+      return exportMarkdownToFeishu(body.title, body.content);
+    }).then(function (result) {
+      var doc = ((state.knowledgeBase && state.knowledgeBase.docs) || []).filter(function (item) { return String(item.id) === String(body.id); })[0];
+      if (!doc) throw new Error('知识库文档已切换，请重新选择后再试');
+      doc.feishuUrl = result.documentUrl || result.document_url || '';
+      doc.feishuDocId = result.documentId || result.document_id || '';
+      doc.feishuExportedAt = new Date().toISOString();
+      $('#kbFeishuUrl').value = doc.feishuUrl;
+      return saveImmediately('knowledge:' + body.id, knowledgePayload(), persistKnowledgeDoc).then(function () { toast('已导出到飞书，文档链接已保存'); });
+    }).catch(function (error) { toast(error.message || '飞书导出失败'); }).finally(function () { if (!button.isConnected) return; button.disabled = !state.kbDocId; button.textContent = '导出到飞书'; });
+  }
+
   function readKnowledgeDraft() {
     var active = ((state.knowledgeBase && state.knowledgeBase.docs) || []).filter(function (doc) { return doc.id === state.kbDocId; })[0] || {};
     var rich = $('#kbRichEditor');
-    return { id: state.kbDocId, title: $('#kbDocTitle') ? $('#kbDocTitle').value : active.title || '', content: $('#kbDocContent') ? $('#kbDocContent').value : (rich ? richEditorToMarkdown(rich) : (state.kbDraft ? state.kbDraft.content : active.content || '')), folderId: $('#kbDocFolder') ? $('#kbDocFolder').value : (state.kbDraft ? state.kbDraft.folderId : active.folderId || '') };
+    return { id: state.kbDocId, title: $('#kbDocTitle') ? $('#kbDocTitle').value : active.title || '', content: $('#kbDocContent') ? $('#kbDocContent').value : (rich ? richEditorToMarkdown(rich) : (state.kbDraft ? state.kbDraft.content : active.content || '')), folderId: $('#kbDocFolder') ? $('#kbDocFolder').value : (state.kbDraft ? state.kbDraft.folderId : active.folderId || ''), feishuUrl: $('#kbFeishuUrl') ? $('#kbFeishuUrl').value : (state.kbDraft ? state.kbDraft.feishuUrl : active.feishuUrl || ''), feishuDocId: active.feishuDocId || '', feishuExportedAt: active.feishuExportedAt || '' };
   }
 
   function renderKnowledgeMarkdown(source) {
