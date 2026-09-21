@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>学术工作台</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='%230F766E' stroke='%230F766E' stroke-width='2'/><circle cx='16' cy='16' r='5' fill='%230F766E'/></svg>">
-  <link rel="stylesheet" href="style.css?v=20260921-46">
+  <link rel="stylesheet" href="style.css?v=20260921-47">
   <style>.sidebar-nav .retired-content{display:none!important}</style>
   <link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Serif+SC:wght@400;600;700&family=Noto+Sans+SC:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500&display=swap">
 </head>
@@ -339,7 +339,7 @@
         <div class="note-head"><div><div class="card-dot"></div><div class="card-label">公众号笔记</div><p>用 Markdown 写作，按公众号排版复制。</p></div><div class="note-actions"><button type="button" id="noteTrash">回收站</button><button type="button" id="noteNew">+ 新建笔记</button><select id="noteStyle" aria-label="排版风格"><option value="paper">雅纸</option><option value="ink">墨黑</option><option value="mint">薄荷</option></select><button type="button" id="noteHistory">版本记录</button><button type="button" id="noteSave">立即保存</button><button type="button" id="noteCopy">复制公众号格式</button></div></div>
         <div class="note-studio-grid">
           <aside class="note-list" id="noteList"></aside>
-          <section class="note-editor-card"><div class="note-pane-label"><input id="noteTitle" aria-label="笔记标题" placeholder="未命名笔记"><button type="button" id="noteDelete" title="移入回收站">×</button></div><textarea id="noteEditor" spellcheck="true" placeholder="# 一篇值得分享的笔记\n\n用 **加粗**、引用、列表和代码块组织内容。\n\n> 写下你的观点。"></textarea><div class="note-editor-tip">支持：标题、加粗、斜体、引用、列表、链接、代码块与行内公式。</div></section>
+          <section class="note-editor-card"><div class="note-pane-label"><input id="noteTitle" aria-label="笔记标题" placeholder="未命名笔记"><button type="button" id="noteDelete" title="移入回收站">×</button></div><div class="note-markdown-toolbar"><label for="noteTextColor">文字颜色 <input id="noteTextColor" type="color" value="#c0392b" aria-label="设置选中文字颜色"></label><span>先选中文字，再选择颜色</span></div><textarea id="noteEditor" spellcheck="true" placeholder="# 一篇值得分享的笔记\n\n用 **加粗**、引用、列表和代码块组织内容。\n\n> 写下你的观点。"></textarea><div class="note-editor-tip">支持：标题、加粗、斜体、文字颜色、引用、列表、链接、代码块与行内公式。</div></section>
           <section class="note-preview-card"><div class="note-pane-label">公众号预览 <span>实时排版</span></div><article class="wechat-article" id="notePreview" data-note-style="paper"></article></section>
         </div>
       </section>
@@ -1310,7 +1310,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-  <script src="static-api.js?v=20260921-46"></script>
-  <script src="app.js?v=20260921-46"></script>
+  <script src="static-api.js?v=20260921-47"></script>
+  <script src="app.js?v=20260921-47"></script>
 </body>
 </html>

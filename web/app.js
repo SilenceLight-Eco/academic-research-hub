@@ -5309,6 +5309,7 @@
     $('#kbNewFolder').addEventListener('click', newKnowledgeFolder);
     $('#noteTitle').addEventListener('input', function () { renderNotePreview(); queueNoteAutoSave(); });
     $('#noteEditor').addEventListener('input', function () { renderNotePreview(); queueNoteAutoSave(); });
+    bindNoteTextColor();
     $('#noteStyle').addEventListener('change', function () { renderNotePreview(); queueNoteAutoSave(); });
     $('#noteSave').addEventListener('click', saveNoteStudio);
     $('#noteHistory').addEventListener('click', function () { openVersionHistory('note'); });
@@ -6375,6 +6376,29 @@
     return article.outerHTML;
   }
 
+  function bindNoteTextColor() {
+    var editor = $('#noteEditor');
+    var picker = $('#noteTextColor');
+    if (!editor || !picker) return;
+    var savedSelection = { start: 0, end: 0 };
+    function rememberSelection() { savedSelection = { start: editor.selectionStart, end: editor.selectionEnd }; }
+    picker.addEventListener('pointerdown', rememberSelection);
+    picker.addEventListener('focus', rememberSelection);
+    picker.addEventListener('change', function () {
+      var color = normalizeKnowledgeColor(picker.value);
+      var start = savedSelection.start;
+      var end = savedSelection.end;
+      if (!color || start === end) { toast('请先在正文中选中文字，再选择颜色'); return; }
+      var selectedText = editor.value.slice(start, end);
+      if (!selectedText.trim()) { toast('请先在正文中选中文字，再选择颜色'); return; }
+      var opening = '<span style="color:' + color + '">';
+      editor.setRangeText(opening + selectedText + '</span>', start, end, 'select');
+      editor.focus();
+      editor.setSelectionRange(start + opening.length, start + opening.length + selectedText.length);
+      editor.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
+
   function copyNoteForWechat() {
     var markdown = ($('#noteEditor').value || '').trim();
     if (!markdown) { toast('请先写一点内容'); return; }
@@ -6462,9 +6486,41 @@
     renderKnowledgeFormulas(rich);
     var toolbar = document.createElement('div');
     toolbar.className = 'kb-rich-toolbar';
-    toolbar.innerHTML = '<button type="button" data-kb-command="h1">H1</button><button type="button" data-kb-command="h2">H2</button><button type="button" data-kb-command="bold"><b>B</b></button><button type="button" data-kb-command="italic"><i>I</i></button><button type="button" data-kb-command="list">列表</button><button type="button" data-kb-command="quote">引用</button><button type="button" data-kb-command="code">代码</button><button type="button" data-kb-command="link">链接</button>';
+    toolbar.innerHTML = '<button type="button" data-kb-command="h1">H1</button><button type="button" data-kb-command="h2">H2</button><button type="button" data-kb-command="bold"><b>B</b></button><button type="button" data-kb-command="italic"><i>I</i></button><button type="button" data-kb-command="list">列表</button><button type="button" data-kb-command="quote">引用</button><button type="button" data-kb-command="code">代码</button><button type="button" data-kb-command="link">链接</button><label class="kb-color-picker" title="先选中文字，再设置字体颜色">文字颜色 <input id="kbTextColor" type="color" value="#c0392b" aria-label="设置选中文字颜色"></label>';
     rich.before(toolbar);
+    var colorPicker = $('#kbTextColor', toolbar);
+    var savedRange = null;
+    function rememberRichSelection() {
+      var selection = window.getSelection();
+      if (selection && selection.rangeCount && editorContainsSelection(rich, selection)) savedRange = selection.getRangeAt(0).cloneRange();
+    }
+    colorPicker.addEventListener('pointerdown', rememberRichSelection);
+    colorPicker.addEventListener('focus', rememberRichSelection);
+    colorPicker.addEventListener('change', function () {
+      var color = normalizeKnowledgeColor(colorPicker.value);
+      var selection = window.getSelection();
+      if (!color || !savedRange || !rich.contains(savedRange.commonAncestorContainer) || savedRange.collapsed) { toast('请先在正文中选中文字，再选择颜色'); return; }
+      rich.focus();
+      if (!selection) return;
+      selection.removeAllRanges();
+      selection.addRange(savedRange);
+      var range = selection.getRangeAt(0);
+      if (!range.toString().trim()) { toast('请先在正文中选中文字，再选择颜色'); return; }
+      var colored = document.createElement('span');
+      colored.style.color = color;
+      colored.appendChild(range.extractContents());
+      range.insertNode(colored);
+      selection.removeAllRanges();
+      range.selectNodeContents(colored);
+      selection.addRange(range);
+      savedRange = null;
+      queueKnowledgeAutoSave();
+    });
   };
+
+  function editorContainsSelection(editor, selection) {
+    return !!(selection.anchorNode && selection.focusNode && editor.contains(selection.anchorNode) && editor.contains(selection.focusNode));
+  }
 
   function runKnowledgeRichCommand(command) {
     var editor = $('#kbRichEditor');
@@ -6538,6 +6594,8 @@
       var inner = Array.from(node.childNodes).map(walk).join('');
       if (node.classList.contains('kb-inline-formula')) return '$' + (node.dataset.formula || '') + '$';
       if (node.classList.contains('kb-formula-block')) return '$$' + (node.dataset.formula || '') + '$$\n\n';
+      var color = tag === 'font' ? normalizeKnowledgeColor(node.getAttribute('color')) : (tag === 'span' ? normalizeKnowledgeColor(node.style.color) : '');
+      if (color) return '<span style="color:' + color + '">' + inner + '</span>';
       if (tag === 'h1') return '# ' + inner.trim() + '\n\n';
       if (tag === 'h2') return '## ' + inner.trim() + '\n\n';
       if (tag === 'h3') return '### ' + inner.trim() + '\n\n';
@@ -6610,7 +6668,10 @@
 
   function renderKnowledgeMarkdown(source) {
     var codeBlocks = [];
-    var text = escapeHtml(String(source || '')).replace(/```([\s\S]*?)```/g, function (_, code) { var token = '@@KB_CODE_' + codeBlocks.length + '@@'; codeBlocks.push('<pre><code>' + code.trim() + '</code></pre>'); return token; });
+    var colorSpans = [];
+    var raw = String(source || '').replace(/```([\s\S]*?)```/g, function (_, code) { var token = '@@KB_CODE_' + codeBlocks.length + '@@'; codeBlocks.push('<pre><code>' + escapeHtml(code.trim()) + '</code></pre>'); return token; });
+    raw = extractKnowledgeColorTokens(raw, colorSpans);
+    var text = escapeHtml(raw);
     var lines = text.split('\n'); var html = []; var inList = false;
     function closeList() { if (inList) { html.push('</ul>'); inList = false; } }
     lines.forEach(function (line) {
@@ -6623,7 +6684,58 @@
       closeList(); html.push(line ? '<p>' + markdownInline(line) + '</p>' : '<br>');
     });
     closeList();
-    return html.join('').replace(/@@KB_CODE_(\d+)@@/g, function (_, i) { return codeBlocks[Number(i)] || ''; });
+    return restoreKnowledgeColorTokens(html.join(), colorSpans).replace(/@@KB_CODE_(\d+)@@/g, function (_, i) { return codeBlocks[Number(i)] || ''; });
+  }
+
+  function extractKnowledgeColorTokens(source, colorSpans) {
+    var output = '';
+    var index = 0;
+    var opener = /<span\s+style\s*=\s*(["'])\s*color\s*:\s*(#[0-9a-f]{3}(?:[0-9a-f]{3})?)\s*;?\s*\1\s*>/i;
+    while (index < source.length) {
+      var opening = opener.exec(source.slice(index));
+      if (!opening || opening.index !== 0) { output += source.charAt(index); index += 1; continue; }
+      var contentStart = index + opening[0].length;
+      var closing = findKnowledgeSpanEnd(source, contentStart);
+      if (!closing) { output += opening[0]; index = contentStart; continue; }
+      var color = normalizeKnowledgeColor(opening[2]);
+      var colorIndex = colorSpans.length;
+      var token = '@@KB_COLOR_' + colorIndex + '@@';
+      var content = source.slice(contentStart, closing.start);
+      colorSpans.push(null);
+      colorSpans[colorIndex] = { color: color, content: extractKnowledgeColorTokens(content, colorSpans) };
+      output += token;
+      index = closing.end;
+    }
+    return output;
+  }
+
+  function findKnowledgeSpanEnd(source, start) {
+    var tags = /<\/?span\b[^>]*>/gi;
+    tags.lastIndex = start;
+    var depth = 1;
+    var tag;
+    while ((tag = tags.exec(source))) {
+      if (/^<\//.test(tag[0])) depth -= 1;
+      else if (!/\/\s*>$/.test(tag[0])) depth += 1;
+      if (depth === 0) return { start: tag.index, end: tags.lastIndex };
+    }
+    return null;
+  }
+
+  function restoreKnowledgeColorTokens(html, colorSpans) {
+    return html.replace(/@@KB_COLOR_(\d+)@@/g, function (_, i) {
+      var colorSpan = colorSpans[Number(i)];
+      return colorSpan ? '<span style="color:' + colorSpan.color + '">' + restoreKnowledgeColorTokens(markdownInline(escapeHtml(colorSpan.content)), colorSpans) + '</span>' : '';
+    });
+  }
+
+  function normalizeKnowledgeColor(value) {
+    var color = String(value || '').trim().toLowerCase();
+    if (/^#[0-9a-f]{6}$/.test(color)) return color;
+    if (/^#[0-9a-f]{3}$/.test(color)) return '#' + color.slice(1).split('').map(function (digit) { return digit + digit; }).join('');
+    var rgb = color.match(/^rgb\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)$/);
+    if (!rgb || rgb.slice(1).some(function (part) { return Number(part) > 255; })) return '';
+    return '#' + rgb.slice(1).map(function (part) { return Number(part).toString(16).padStart(2, '0'); }).join('');
   }
 
   function markdownInline(text) {
