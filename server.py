@@ -651,6 +651,12 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length") or 0)
         if length <= 0:
             return {}
+        raw = self.rfile.read(length)
+        try:
+            body = json.loads(raw.decode("utf-8"))
+            return body if isinstance(body, dict) else {}
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return {}
 
     def _session_token(self):
         cookie = SimpleCookie(self.headers.get("Cookie", ""))
@@ -678,11 +684,6 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Set-Cookie", "arh_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0")
         self.end_headers()
         self.wfile.write(b'{"ok": true}')
-        raw = self.rfile.read(length)
-        try:
-            return json.loads(raw.decode("utf-8"))
-        except Exception:
-            return {}
 
     def _log(self, *args):
         pass  # 静默访问日志，保持终端干净
@@ -737,6 +738,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(401, {"error": "请先登录"})
             else:
                 self._send(200, {"data": AUTH_STORE.load_data(user["id"])})
+        elif path == "/api/backup":
+            user = self._user()
+            if not user:
+                self._send(401, {"error": "请先登录"})
+            else:
+                self._send(200, {"ok": True, "data": AUTH_STORE.load_data(user["id"])})
         elif path == "/" or path == "/index.html":
             self._serve_static("/index.html")
         elif path.startswith("/static/"):
@@ -837,6 +844,17 @@ class Handler(BaseHTTPRequestHandler):
             if len(json.dumps(payload, ensure_ascii=False)) > 5_000_000:
                 return self._send(413, {"error": "同步数据过大"})
             AUTH_STORE.save_data(user["id"], payload)
+            return self._send(200, {"ok": True})
+        elif path == "/api/backup":
+            user = self._user()
+            if not user:
+                return self._send(401, {"error": "请先登录"})
+            backup = self._body().get("backup")
+            if not isinstance(backup, dict) or backup.get("format") != "academic-research-hub-backup" or backup.get("version") != 1 or not isinstance(backup.get("data"), dict):
+                return self._send(400, {"ok": False, "error": "备份文件格式无效或版本不受支持"})
+            if len(json.dumps(backup["data"], ensure_ascii=False)) > 20_000_000:
+                return self._send(413, {"ok": False, "error": "备份文件超过 20 MB"})
+            AUTH_STORE.save_data(user["id"], backup["data"])
             return self._send(200, {"ok": True})
         elif path == "/api/todos":
             body = self._body()

@@ -6545,3 +6545,19 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .global-save-state[data-state="error"] i { background:#bc4444; }
 @keyframes autosavePulse { 50% { opacity:.35; transform:scale(.8); } }
 @media (max-width:900px) { .global-save-state { min-width:0; }.global-save-state span { display:none; } }
+.backup-open-button { padding:7px 10px; border:1px solid var(--hairline); border-radius:7px; background:var(--glass-strong); color:var(--text-secondary); cursor:pointer; font:11px "Noto Sans SC",sans-serif; white-space:nowrap; }
+.backup-open-button:hover,.backup-restore-button:hover { border-color:var(--accent); color:var(--accent); }
+.backup-card { width:min(430px,calc(100vw - 40px)); }
+.backup-restore-button { padding:10px; border:1px solid var(--card-border); border-radius:8px; background:var(--input-bg); color:var(--text-secondary); cursor:pointer; font:13px "Noto Sans SC",sans-serif; }
+.backup-warning { padding:10px 12px; border-radius:8px; background:rgba(193,138,45,.09); color:var(--text-muted); font-size:11px; line-height:1.7; }
+.version-history-card { width:min(780px,calc(100vw - 36px)); max-height:min(720px,calc(100vh - 36px)); overflow:auto; }
+.version-history-layout { display:grid; grid-template-columns:minmax(180px,.65fr) minmax(280px,1fr); gap:12px; min-height:250px; max-height:48vh; }
+.version-history-list { display:grid; align-content:start; gap:5px; overflow:auto; padding-right:3px; }
+.version-history-entry { padding:9px 10px; border:1px solid var(--card-border); border-radius:8px; background:var(--input-bg); color:var(--text-secondary); cursor:pointer; font:11px "Noto Sans SC",sans-serif; text-align:left; }
+.version-history-entry:hover,.version-history-entry.is-active { border-color:var(--accent); background:var(--accent-dim); color:var(--accent); }
+.version-history-entry span { display:block; margin-top:4px; color:var(--text-muted); font-size:10px; }
+.version-history-preview { min-width:0; overflow:auto; padding:14px; border:1px solid var(--card-border); border-radius:8px; background:var(--input-bg); }
+.version-history-preview>div { color:var(--text-muted); font-size:10px; }
+.version-history-preview h3 { margin:8px 0; color:var(--text); font-size:14px; }
+.version-history-preview pre { max-height:34vh; overflow:auto; margin:0; white-space:pre-wrap; overflow-wrap:anywhere; color:var(--text-secondary); font:11px/1.7 "Noto Sans SC",sans-serif; }
+@media (max-width:620px) { .version-history-layout { grid-template-columns:1fr; }.version-history-list { max-height:150px; }.backup-open-button { padding:6px 7px; font-size:10px; } }

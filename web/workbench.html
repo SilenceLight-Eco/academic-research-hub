@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>学术工作台</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='%230F766E' stroke='%230F766E' stroke-width='2'/><circle cx='16' cy='16' r='5' fill='%230F766E'/></svg>">
-  <link rel="stylesheet" href="style.css?v=20260920-44">
+  <link rel="stylesheet" href="style.css?v=20260921-45">
   <style>.sidebar-nav .retired-content{display:none!important}</style>
   <link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Serif+SC:wght@400;600;700&family=Noto+Sans+SC:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500&display=swap">
 </head>
@@ -170,6 +170,7 @@
       </div>
       <div class="topbar-right">
         <span class="global-save-state" id="globalSaveState" data-state="idle"><i></i><span>自动保存已开启</span></span>
+        <button class="backup-open-button" id="backupOpen" type="button">数据备份</button>
         <button class="topbar-search" id="cmdkOpen" title="打开命令面板">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           <span>搜索 · 跳转</span>
@@ -335,7 +336,7 @@
       </section>
 
       <section class="panel" id="panel-note-studio">
-        <div class="note-head"><div><div class="card-dot"></div><div class="card-label">公众号笔记</div><p>用 Markdown 写作，按公众号排版复制。</p></div><div class="note-actions"><button type="button" id="noteTrash">回收站</button><button type="button" id="noteNew">+ 新建笔记</button><select id="noteStyle" aria-label="排版风格"><option value="paper">雅纸</option><option value="ink">墨黑</option><option value="mint">薄荷</option></select><button type="button" id="noteSave">立即保存</button><button type="button" id="noteCopy">复制公众号格式</button></div></div>
+        <div class="note-head"><div><div class="card-dot"></div><div class="card-label">公众号笔记</div><p>用 Markdown 写作，按公众号排版复制。</p></div><div class="note-actions"><button type="button" id="noteTrash">回收站</button><button type="button" id="noteNew">+ 新建笔记</button><select id="noteStyle" aria-label="排版风格"><option value="paper">雅纸</option><option value="ink">墨黑</option><option value="mint">薄荷</option></select><button type="button" id="noteHistory">版本记录</button><button type="button" id="noteSave">立即保存</button><button type="button" id="noteCopy">复制公众号格式</button></div></div>
         <div class="note-studio-grid">
           <aside class="note-list" id="noteList"></aside>
           <section class="note-editor-card"><div class="note-pane-label"><input id="noteTitle" aria-label="笔记标题" placeholder="未命名笔记"><button type="button" id="noteDelete" title="移入回收站">×</button></div><textarea id="noteEditor" spellcheck="true" placeholder="# 一篇值得分享的笔记\n\n用 **加粗**、引用、列表和代码块组织内容。\n\n> 写下你的观点。"></textarea><div class="note-editor-tip">支持：标题、加粗、斜体、引用、列表、链接、代码块与行内公式。</div></section>
@@ -344,7 +345,7 @@
       </section>
 
       <section class="panel" id="panel-prompt-library">
-        <div class="prompt-head"><div><div class="card-dot"></div><div class="card-label">提示词库</div><p>保存模板，填写变量，然后复制到任意 AI 对话。</p></div><div class="prompt-actions"><button type="button" id="promptTrash">回收站</button><button type="button" id="promptNew">+ 新建提示词</button><button type="button" id="promptSave">立即保存</button><button type="button" id="promptCopy">复制结果</button></div></div>
+        <div class="prompt-head"><div><div class="card-dot"></div><div class="card-label">提示词库</div><p>保存模板，填写变量，然后复制到任意 AI 对话。</p></div><div class="prompt-actions"><button type="button" id="promptTrash">回收站</button><button type="button" id="promptNew">+ 新建提示词</button><button type="button" id="promptHistory">版本记录</button><button type="button" id="promptSave">立即保存</button><button type="button" id="promptCopy">复制结果</button></div></div>
         <div class="prompt-workspace">
           <aside class="prompt-list" id="promptList"></aside>
           <section class="prompt-editor"><div class="prompt-editor-top"><input id="promptTitle" placeholder="提示词标题" aria-label="提示词标题"><button id="promptDelete" type="button" title="移入回收站">×</button></div><div class="prompt-meta"><input id="promptCategory" placeholder="分类，例如：论文写作" aria-label="分类"><input id="promptTags" placeholder="标签，用逗号分隔" aria-label="标签"></div><textarea id="promptBody" placeholder="你是一位 {{ role }}。\n请围绕 {{ topic }} 给出清晰、可执行的建议。"></textarea><div class="prompt-editor-tip">使用 <code>{{ variable }}</code> 创建可填写变量。</div></section>
@@ -1268,10 +1269,34 @@
   </form>
 </div>
 
+<div class="auth-modal" id="backupModal" hidden>
+  <div class="auth-modal-backdrop" id="backupModalBackdrop"></div>
+  <section class="auth-card backup-card" role="dialog" aria-modal="true" aria-labelledby="backupTitle">
+    <button class="auth-close" id="backupModalClose" type="button" aria-label="关闭">×</button>
+    <h2 id="backupTitle">数据备份与恢复</h2>
+    <p class="auth-desc">备份包含此账号的工作台数据和论文管线资料。请将导出的 JSON 文件妥善保存。</p>
+    <button class="btn-primary" id="backupExport" type="button">导出全部数据</button>
+    <button class="backup-restore-button" id="backupImport" type="button">从备份文件恢复</button>
+    <input id="backupFileInput" type="file" accept=".json,application/json" hidden>
+    <p class="backup-warning">恢复会替换账号当前数据；开始前会先自动下载一份当前数据备份。</p>
+  </section>
+</div>
+
+<div class="auth-modal" id="versionHistoryModal" hidden>
+  <div class="auth-modal-backdrop" id="versionHistoryBackdrop"></div>
+  <section class="auth-card version-history-card" role="dialog" aria-modal="true" aria-labelledby="versionHistoryTitle">
+    <button class="auth-close" id="versionHistoryClose" type="button" aria-label="关闭">×</button>
+    <h2 id="versionHistoryTitle">版本记录</h2>
+    <p class="auth-desc">自动保存的旧版本保留在这里，每篇内容最多保留 10 个版本；恢复时当前内容也会先进入历史记录。</p>
+    <div class="version-history-layout"><div class="version-history-list" id="versionHistoryList"></div><article class="version-history-preview"><div id="versionHistoryTime"></div><h3 id="versionHistoryPreviewTitle">选择一个版本</h3><pre id="versionHistoryContent"></pre></article></div>
+    <button class="btn-primary" id="versionHistoryRestore" type="button" disabled>恢复所选版本</button>
+  </section>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-  <script src="static-api.js?v=20260920-44"></script>
-  <script src="app.js?v=20260920-44"></script>
+  <script src="static-api.js?v=20260921-45"></script>
+  <script src="app.js?v=20260921-45"></script>
 </body>
 </html>

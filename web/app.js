@@ -116,7 +116,7 @@
     return fetch(url, Object.assign({ headers: { 'Content-Type': 'application/json' } }, options))
       .then(function (r) { return r.json(); })
       .then(function (data) {
-        if (account && options && options.method === 'POST' && url.indexOf('/api/sync') !== 0 && url.indexOf('/api/auth/') !== 0) setTimeout(syncData, 0);
+        if (account && options && options.method === 'POST' && url.indexOf('/api/sync') !== 0 && url.indexOf('/api/backup') !== 0 && url.indexOf('/api/auth/') !== 0) setTimeout(syncData, 0);
         return data;
       });
   }
@@ -129,6 +129,7 @@
   var autoSaveSlots = {};
   var autoSaveChain = Promise.resolve();
   var autoSaveRunning = 0;
+  var activeVersionHistory = null;
 
   function setGlobalSaveState(text, status) {
     var target = $('#globalSaveState');
@@ -280,6 +281,62 @@
   }
 
   function logoutAccount() { closeAccountMenu(); api('/api/auth/logout', { method: 'POST' }).then(function () { setAccount(null); toast('已退出登录'); }); }
+
+  function openBackupModal() {
+    if (!account) { toast('请先登录后备份账号数据'); openAuth(); return; }
+    $('#backupModal').hidden = false;
+  }
+
+  function closeBackupModal() { $('#backupModal').hidden = true; $('#backupFileInput').value = ''; }
+
+  function backupFileName(suffix) {
+    var date = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+    return 'academic-research-hub-' + (suffix || 'backup') + '-' + date + '.json';
+  }
+
+  function downloadBackup(data, suffix) {
+    var backup = { format: 'academic-research-hub-backup', version: 1, exportedAt: new Date().toISOString(), data: data };
+    var blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement('a'); link.href = url; link.download = backupFileName(suffix); document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+
+  function exportWorkspaceBackup() {
+    if (!account) { toast('请先登录后备份账号数据'); return; }
+    flushAllAutoSaves();
+    return autoSaveChain.then(function () { return api('/api/backup'); }).then(function (result) {
+      if (!result.ok || !result.data) throw new Error(result.error || '无法读取账号数据');
+      downloadBackup(result.data, 'backup');
+      toast('全部工作台数据已导出');
+    }).catch(function (error) { toast(error.message || '导出失败，请检查网络'); });
+  }
+
+  function importWorkspaceBackup(event) {
+    var file = event.target.files && event.target.files[0];
+    event.target.value = '';
+    if (!file) return;
+    if (file.size > 20000000) { toast('备份文件不能超过 20 MB'); return; }
+    var reader = new FileReader();
+    reader.onerror = function () { toast('无法读取所选备份文件'); };
+    reader.onload = function () {
+      var backup;
+      try { backup = JSON.parse(String(reader.result || '')); } catch (error) { toast('文件不是有效的 JSON 备份'); return; }
+      if (!backup || backup.format !== 'academic-research-hub-backup' || backup.version !== 1 || !backup.data || typeof backup.data !== 'object' || Array.isArray(backup.data)) { toast('备份文件格式无效或版本不受支持'); return; }
+      if (!confirm('恢复将替换此账号当前的全部工作台数据。继续前会先自动下载当前数据备份。确定恢复吗？')) return;
+      flushAllAutoSaves();
+      autoSaveChain.then(function () { return api('/api/backup'); }).then(function (current) {
+        if (!current.ok || !current.data) throw new Error(current.error || '无法创建恢复前备份');
+        downloadBackup(current.data, 'before-restore');
+        return api('/api/backup', { method: 'POST', body: JSON.stringify({ backup: backup }) });
+      }).then(function (result) {
+        if (!result.ok) throw new Error(result.error || '恢复失败');
+        closeBackupModal(); toast('备份已恢复，正在重新载入工作台');
+        setTimeout(function () { window.location.reload(); }, 700);
+      }).catch(function (error) { toast(error.message || '恢复失败，请检查网络'); });
+    };
+    reader.readAsText(file);
+  }
 
   function submitAuth(event) {
     event.preventDefault();
@@ -5085,6 +5142,16 @@
       button.addEventListener('click', function () { selectThemePalette(button.dataset.themePalette); });
     });
     $('#accountButton').addEventListener('click', function () { if (account) openAccountMenu(); else openAuth(); });
+    $('#backupOpen').addEventListener('click', openBackupModal);
+    $('#backupModalClose').addEventListener('click', closeBackupModal);
+    $('#backupModalBackdrop').addEventListener('click', closeBackupModal);
+    $('#backupExport').addEventListener('click', exportWorkspaceBackup);
+    $('#backupImport').addEventListener('click', function () { $('#backupFileInput').click(); });
+    $('#backupFileInput').addEventListener('change', importWorkspaceBackup);
+    $('#versionHistoryClose').addEventListener('click', closeVersionHistory);
+    $('#versionHistoryBackdrop').addEventListener('click', closeVersionHistory);
+    $('#versionHistoryList').addEventListener('click', function (event) { var entry = event.target.closest('[data-version-index]'); if (entry) renderVersionHistory(Number(entry.dataset.versionIndex)); });
+    $('#versionHistoryRestore').addEventListener('click', restoreSelectedVersion);
     $('#authClose').addEventListener('click', closeAuth);
     $('#authModalBackdrop').addEventListener('click', closeAuth);
     $('#authSwitch').addEventListener('click', toggleAuthMode);
@@ -5178,6 +5245,7 @@
     $('#noteEditor').addEventListener('input', function () { renderNotePreview(); queueNoteAutoSave(); });
     $('#noteStyle').addEventListener('change', function () { renderNotePreview(); queueNoteAutoSave(); });
     $('#noteSave').addEventListener('click', saveNoteStudio);
+    $('#noteHistory').addEventListener('click', function () { openVersionHistory('note'); });
     $('#noteCopy').addEventListener('click', copyNoteForWechat);
     $('#noteNew').addEventListener('click', newNoteStudio);
     $('#noteTrash').addEventListener('click', function () { state.noteTrashOpen = !state.noteTrashOpen; renderNoteStudio(); });
@@ -5185,6 +5253,7 @@
     $('#noteList').addEventListener('click', function (e) { var restore = e.target.closest('[data-note-restore]'); if (restore) { restoreNoteStudio(restore.dataset.noteRestore); return; } var purge = e.target.closest('[data-note-purge]'); if (purge) { purgeNoteStudio(purge.dataset.notePurge); return; } var note = e.target.closest('[data-note-id]'); if (!note) return; state.noteId = Number(note.dataset.noteId); renderNoteStudio(); });
     $('#promptNew').addEventListener('click', newPrompt);
     $('#promptSave').addEventListener('click', savePrompt);
+    $('#promptHistory').addEventListener('click', function () { openVersionHistory('prompt'); });
     $('#promptCopy').addEventListener('click', copyPromptResult);
     $('#promptDelete').addEventListener('click', trashPrompt);
     $('#promptTrash').addEventListener('click', function () { state.promptTrashOpen = !state.promptTrashOpen; renderPromptLibrary(); });
@@ -5212,7 +5281,7 @@
     $('#kbDocs').addEventListener('dragend', function () { state.kbDraggingDocId = null; $$('.kb-doc.is-dragging').forEach(function (item) { item.classList.remove('is-dragging'); }); });
     $('#kbDocs').addEventListener('dragover', function (e) { if (state.kbDraggingDocId) e.preventDefault(); });
     $('#kbDocs').addEventListener('drop', function (e) { var target = e.target.closest('[data-kb-doc]'); if (!target || !state.kbDraggingDocId) return; e.preventDefault(); reorderKnowledgeDoc(state.kbDraggingDocId, Number(target.dataset.kbDoc)); });
-    $('#kbEditor').addEventListener('click', function (e) { var action = e.target.closest('[data-kb-command]'); if (action) { runKnowledgeRichCommand(action.dataset.kbCommand); return; } var toggle = e.target.closest('[data-kb-mode]'); if (!toggle) return; state.kbDraft = readKnowledgeDraft(); state.kbEditorMode = toggle.dataset.kbMode; renderKnowledgeBase(); });
+    $('#kbEditor').addEventListener('click', function (e) { var history = e.target.closest('[data-version-history]'); if (history) { openVersionHistory('knowledge'); return; } var action = e.target.closest('[data-kb-command]'); if (action) { runKnowledgeRichCommand(action.dataset.kbCommand); return; } var toggle = e.target.closest('[data-kb-mode]'); if (!toggle) return; state.kbDraft = readKnowledgeDraft(); state.kbEditorMode = toggle.dataset.kbMode; renderKnowledgeBase(); });
     $('#kbEditor').addEventListener('input', function (e) { if (e.target.closest('#kbDocTitle, #kbDocContent, #kbRichEditor')) queueKnowledgeAutoSave(); });
     $('#kbEditor').addEventListener('change', function (e) { if (e.target.closest('#kbDocFolder')) queueKnowledgeAutoSave(); });
     window.addEventListener('message', function (event) {
@@ -6082,6 +6151,68 @@
   function restoreResearchProject(id) { api('/api/research-projects', { method: 'POST', body: JSON.stringify({ action: 'restore', id: id }) }).then(function (res) { if (!res.ok) { toast(res.error || '恢复失败'); return; } state.researchProjects = res.researchProjects; renderResearchProjects(); toast('项目已恢复'); }); }
   function purgeResearchProject(id) { if (!confirm('确定彻底删除项目吗？此操作无法恢复。')) return; api('/api/research-projects', { method: 'POST', body: JSON.stringify({ action: 'purge', id: id }) }).then(function (res) { if (!res.ok) { toast(res.error || '彻底删除失败'); return; } state.researchProjects = res.researchProjects; renderResearchProjects(); toast('已彻底删除'); }); }
 
+  function versionHistoryItem(type, id) {
+    var source = type === 'note' ? state.noteStudio && state.noteStudio.notes : type === 'prompt' ? state.promptLibrary && state.promptLibrary.prompts : state.knowledgeBase && state.knowledgeBase.docs;
+    return (source || []).filter(function (item) { return String(item.id) === String(id); })[0] || null;
+  }
+
+  function openVersionHistory(type) {
+    var item = type === 'note' ? activeNoteStudio() : type === 'prompt' ? activePrompt() : ((state.knowledgeBase && state.knowledgeBase.docs) || []).filter(function (doc) { return String(doc.id) === String(state.kbDocId); })[0];
+    if (!item) { toast('请先选择要查看的内容'); return; }
+    if (!Array.isArray(item.versions) || !item.versions.length) { toast('此内容还没有旧版本；修改并自动保存后会开始记录'); return; }
+    activeVersionHistory = { type: type, id: item.id, index: 0 };
+    var title = type === 'note' ? '笔记版本记录' : type === 'prompt' ? '提示词版本记录' : '文档版本记录';
+    $('#versionHistoryTitle').textContent = title + ' · ' + (item.title || '未命名');
+    $('#versionHistoryList').innerHTML = item.versions.map(function (version, index) { return '<button type="button" class="version-history-entry' + (index === 0 ? ' is-active' : '') + '" data-version-index="' + index + '">版本 ' + (item.versions.length - index) + '<span>' + escapeHtml(formatVersionTimestamp(version.savedAt)) + '</span></button>'; }).join('');
+    $('#versionHistoryModal').hidden = false;
+    renderVersionHistory(0);
+  }
+
+  function formatVersionTimestamp(value) {
+    if (!value) return '时间未知';
+    var date = new Date(value);
+    return isNaN(date.getTime()) ? String(value) : date.toLocaleString('zh-CN', { dateStyle: 'medium', timeStyle: 'short' });
+  }
+
+  function renderVersionHistory(index) {
+    if (!activeVersionHistory) return;
+    var item = versionHistoryItem(activeVersionHistory.type, activeVersionHistory.id);
+    var versions = item && Array.isArray(item.versions) ? item.versions : [];
+    var version = versions[index];
+    if (!version) return;
+    activeVersionHistory.index = index;
+    $$('[data-version-index]', $('#versionHistoryList')).forEach(function (entry) { entry.classList.toggle('is-active', Number(entry.dataset.versionIndex) === index); });
+    $('#versionHistoryTime').textContent = formatVersionTimestamp(version.savedAt);
+    $('#versionHistoryPreviewTitle').textContent = version.title || '未命名';
+    $('#versionHistoryContent').textContent = activeVersionHistory.type === 'note' ? version.markdown || '' : activeVersionHistory.type === 'prompt' ? version.body || '' : version.content || '';
+    $('#versionHistoryRestore').disabled = false;
+  }
+
+  function closeVersionHistory() { $('#versionHistoryModal').hidden = true; activeVersionHistory = null; }
+
+  function restoreSelectedVersion() {
+    if (!activeVersionHistory) return;
+    var item = versionHistoryItem(activeVersionHistory.type, activeVersionHistory.id);
+    var version = item && item.versions && item.versions[activeVersionHistory.index];
+    if (!version) { toast('所选版本已不可用'); closeVersionHistory(); return; }
+    if (!confirm('恢复此版本？当前内容会先自动存入版本记录。')) return;
+    var type = activeVersionHistory.type;
+    var endpoint = type === 'note' ? '/api/note-studio' : type === 'prompt' ? '/api/prompt-library' : '/api/knowledge-base';
+    var body = type === 'note'
+      ? { action: 'save', id: item.id, title: version.title, markdown: version.markdown, style: version.style }
+      : type === 'prompt'
+        ? { action: 'save', id: item.id, title: version.title, category: version.category, tags: version.tags, body: version.body }
+        : { action: 'save-doc', id: item.id, title: version.title, content: version.content, folderId: version.folderId };
+    flushAllAutoSaves();
+    autoSaveChain.then(function () { return api(endpoint, { method: 'POST', body: JSON.stringify(body) }); }).then(function (result) {
+      if (!result.ok) { toast(result.error || '恢复版本失败'); return; }
+      if (type === 'note') { state.noteStudio = result.noteStudio; renderNoteStudio(); }
+      else if (type === 'prompt') { state.promptLibrary = result.promptLibrary; renderPromptLibrary(); }
+      else { state.knowledgeBase = result.knowledgeBase; state.kbDraft = null; renderKnowledgeBase(); }
+      closeVersionHistory(); toast('已恢复所选版本');
+    }).catch(function () { toast('恢复版本失败，请检查网络'); });
+  }
+
   // ===== 提示词库：模板变量、复制与回收站 =====
   function loadPromptLibrary() { return api('/api/prompt-library').then(function (res) { if (!res.ok) { toast(res.error || '请先登录后使用提示词库'); return; } state.promptLibrary = Object.assign({ prompts: [], trash: [] }, res.promptLibrary || {}); if (!state.promptId && state.promptLibrary.prompts[0]) state.promptId = state.promptLibrary.prompts[0].id; renderPromptLibrary(); }); }
   function activePrompt() { return (state.promptLibrary.prompts || []).filter(function (prompt) { return Number(prompt.id) === Number(state.promptId); })[0] || null; }
@@ -6243,6 +6374,8 @@
     $('#kbDocs').innerHTML = visibleDocs.length ? visibleDocs.map(renderKnowledgeDocItem).join('') : '<div class="kb-empty">此目录还没有文档</div>';
     var mode = state.kbEditorMode || 'edit';
     $('#kbEditor').innerHTML = active ? '<div class="kb-editor-tabs"><button type="button" class="' + (mode === 'edit' ? 'is-active' : '') + '" data-kb-mode="edit">编辑</button><button type="button" class="' + (mode === 'preview' ? 'is-active' : '') + '" data-kb-mode="preview">预览</button><span>Markdown</span></div><input id="kbDocTitle" class="kb-doc-title" value="' + escapeHtml(draft.title || '') + '" placeholder="文档标题"><select id="kbDocFolder"><option value="">未分类</option>' + folders.map(function (folder) { return '<option value="' + folder.id + '"' + (String(folder.id) === String(draft.folderId) ? ' selected' : '') + '>' + escapeHtml(folder.title) + '</option>'; }).join('') + '</select>' + (mode === 'preview' ? '<article class="kb-markdown-preview">' + renderKnowledgeMarkdown(draft.content || '') + '</article>' : '<textarea id="kbDocContent" class="kb-doc-content" placeholder="# 标题\n\n使用 Markdown 记录你的想法、文献笔记和研究材料…">' + escapeHtml(draft.content || '') + '</textarea>') + '<div class="kb-editor-foot"><span>Markdown · 最近更新：' + escapeHtml(active.updated || '尚未保存') + '</span><button id="kbSaveDoc" type="button">立即保存</button></div>' : '<div class="kb-editor-empty">选择左侧文档，或新建一篇文档开始记录。</div>';
+    var editorFoot = $('.kb-editor-foot', $('#kbEditor'));
+    if (editorFoot) { var historyButton = document.createElement('button'); historyButton.type = 'button'; historyButton.dataset.versionHistory = 'knowledge'; historyButton.textContent = '版本记录' + (active.versions && active.versions.length ? ' (' + active.versions.length + ')' : ''); editorFoot.insertBefore(historyButton, $('#kbSaveDoc')); }
     var save = $('#kbSaveDoc'); if (save) save.addEventListener('click', saveKnowledgeDoc);
   }
 
