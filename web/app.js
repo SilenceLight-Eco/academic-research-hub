@@ -6875,9 +6875,16 @@
   /* ---------- URL 深链：#panel / #hotspots/<文件> ---------- */
   function syncHash(panel) {
     var h = '#' + panel;
+    try { sessionStorage.setItem('academic-workbench-last-panel', panel); } catch (err) {}
     if (location.hash !== h) {
       try { history.replaceState(null, '', h); } catch (err) { location.hash = panel; }
     }
+  }
+
+  function getLastVisitedPanel() {
+    var savedPanel = '';
+    try { savedPanel = sessionStorage.getItem('academic-workbench-last-panel') || ''; } catch (err) {}
+    return $$('.nav-item').some(function (button) { return button.dataset.panel === savedPanel; }) ? savedPanel : 'dashboard';
   }
 
   function applyHash() {
@@ -7154,7 +7161,7 @@
       return checkAccount();
     }).then(function () {
       focusRenderAll();   // 待办加载完，「关联任务」下拉才有内容
-      if (!applyHash()) switchPanel('dashboard');
+      if (!applyHash()) switchPanel(getLastVisitedPanel());
     });
   }
 

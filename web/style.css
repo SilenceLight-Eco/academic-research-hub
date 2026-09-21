@@ -6596,3 +6596,48 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
   font-weight: 600;
   letter-spacing: .03em;
 }
+
+/* 让主模块标题的装饰点与文字同行，避免被面板级定位容器带偏 */
+.academic-portfolio-head > div:first-child,
+.kb-head > div:first-child,
+.note-head > div:first-child,
+.prompt-head > div:first-child,
+.project-head > div:first-child,
+.dc-head > div:first-child {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.academic-portfolio-head .card-dot,
+.kb-head .card-dot,
+.note-head .card-dot,
+.prompt-head .card-dot,
+.project-head .card-dot,
+.dc-head .card-dot {
+  position: static;
+  flex: 0 0 7px;
+  width: 7px;
+  height: 7px;
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+.academic-portfolio-head .card-label,
+.kb-head .card-label,
+.note-head .card-label,
+.prompt-head .card-label,
+.project-head .card-label,
+.dc-head .card-label {
+  margin: 0;
+  padding: 0;
+}
+
+/* 标准卡片标题增大后，将绝对定位的圆点同步下移至文字中线 */
+.card > .card-dot { top: 32px; }
+.pdf-upload-card > .card-dot { top: 25px; }
+
+/* 优先使用 Windows 已安装的中文 UI 字体，保持字形稳定清晰 */
+.nav-group-label,
+.card-label {
+  font-family: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif;
+  letter-spacing: normal;
+  font-weight: 600;
+}
