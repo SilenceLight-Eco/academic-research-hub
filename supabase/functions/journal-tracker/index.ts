@@ -605,6 +605,46 @@ async function translateTitleWithProvider(provider: string, text: string, creden
   throw new Error("不支持的标题翻译服务");
 }
 
+function rankValue(value: unknown): string | null {
+  if (value === undefined || value === null || value === "") return null;
+  if (Array.isArray(value)) return value.map(rankValue).filter(Boolean).join(" / ") || null;
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const preferred = record.rank ?? record.value ?? record.zone ?? record.quartile ?? record.name;
+    return preferred === undefined ? null : rankValue(preferred);
+  }
+  return plainText(value).slice(0, 100) || null;
+}
+
+async function queryEasyScholarRank(secretKey: string, publicationName: string): Promise<Record<string, string>> {
+  const key = secretKey.trim();
+  const name = publicationName.trim();
+  if (key.length < 8 || key.length > 500) throw new Error("EasyScholar Secret Key 格式无效");
+  if (!name || name.length > 300) throw new Error("请提供有效的期刊名称或 ISSN");
+  const endpoint = new URL("https://www.easyscholar.cc/open/getPublicationRank");
+  endpoint.searchParams.set("secretKey", key);
+  endpoint.searchParams.set("publicationName", name);
+  const response = await fetch(endpoint, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(15000) });
+  const result = await response.json().catch(() => ({})) as Record<string, unknown>;
+  if (!response.ok) throw new Error(`EasyScholar 请求失败（HTTP ${response.status}）`);
+  if (Number(result.code) !== 200) {
+    const message = plainText(result.message || result.msg || "");
+    throw new Error(message ? `EasyScholar：${message.slice(0, 180)}` : `EasyScholar 未成功返回数据（状态 ${String(result.code || "未知")}）`);
+  }
+  const data = result.data && typeof result.data === "object" ? result.data as Record<string, unknown> : {};
+  const officialRank = data.officialRank && typeof data.officialRank === "object" ? data.officialRank as Record<string, unknown> : {};
+  const all = officialRank.all && typeof officialRank.all === "object" ? officialRank.all as Record<string, unknown> : officialRank;
+  const selected = officialRank.select && typeof officialRank.select === "object" ? officialRank.select as Record<string, unknown> : {};
+  const keys = ["sci", "ssci", "sciUp", "sciBase", "sciUpSmall", "sciUpTop", "jci", "sciif", "sciif5", "esiwarn", "sciwarn", "jcr"];
+  const rank: Record<string, string> = {};
+  for (const keyName of keys) {
+    const value = rankValue(selected[keyName] ?? all[keyName] ?? data[keyName]);
+    if (value) rank[keyName] = value;
+  }
+  if (!Object.keys(rank).length) throw new Error("EasyScholar 已找到记录，但响应中没有可识别的分区字段");
+  return rank;
+}
+
 Deno.serve(async (request: Request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders(request) });
   if (request.method !== "POST") return json(request, { ok: false, error: "仅支持 POST 请求" }, 405);
@@ -625,6 +665,12 @@ Deno.serve(async (request: Request) => {
     }
 
     const userId = await authenticate(request);
+    if (action === "easyScholar-rank") {
+      const secretKey = String(body.secretKey || "");
+      const publicationName = String(body.publicationName || "");
+      const rank = await queryEasyScholarRank(secretKey, publicationName);
+      return json(request, { ok: true, rank, source: "EasyScholar Open API", publicationName: publicationName.slice(0, 300), queriedAt: new Date().toISOString() });
+    }
     if (action === "translate-title") {
       const provider = String(body.provider || "");
       const text = String(body.text || "");

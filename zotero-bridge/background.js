@@ -1,5 +1,21 @@
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (!message || message.type !== "academic-workbench-zotero-import") return false;
+  if (!message || !["academic-workbench-zotero-import", "academic-workbench-zotero-ping"].includes(message.type)) return false;
+  const isPing = message.type === "academic-workbench-zotero-ping";
+  if (isPing) {
+    (async () => {
+      let lastError = "Zotero Connector 没有响应";
+      for (const endpoint of ["http://localhost:23119/connector/ping", "http://127.0.0.1:23119/connector/ping"]) {
+        try {
+          const response = await fetch(endpoint, { method: "GET", cache: "no-store", credentials: "omit" });
+          if (!response.ok) { lastError = `Zotero Connector 返回 HTTP ${response.status}`; continue; }
+          sendResponse({ ok: true, result: { version: response.headers.get("X-Zotero-Version") || "" } });
+          return;
+        } catch (error) { lastError = error && error.message ? error.message : lastError; }
+      }
+      sendResponse({ ok: false, error: `无法连接 Zotero Connector。请确认桌面 Zotero 已启动。${lastError}` });
+    })();
+    return true;
+  }
   if (!message.payload || !Array.isArray(message.payload.items) || message.payload.items.length !== 1) {
     sendResponse({ ok: false, error: "导入内容无效" });
     return false;

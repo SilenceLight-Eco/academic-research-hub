@@ -5381,6 +5381,65 @@
     return result;
   }
 
+  var trackerEasyScholarSettingsKey = 'academic-workbench-easyscholar-settings-v1';
+  var trackerEasyScholarRanksKey = 'academic-workbench-easyscholar-ranks-v1';
+  var trackerEasyScholarRanks = Object.create(null);
+  try { trackerEasyScholarRanks = JSON.parse(localStorage.getItem(trackerEasyScholarRanksKey) || '{}') || Object.create(null); } catch (_) {}
+  function trackerEasyScholarSettings() {
+    try { return JSON.parse(localStorage.getItem(trackerEasyScholarSettingsKey) || '{}') || {}; } catch (_) { return {}; }
+  }
+  function trackerEasyScholarCacheKey(subscription) { return String(subscription.issn || subscription.id || '').replace(/[^\w-]/g, '').toUpperCase(); }
+  function trackerEasyScholarRank(subscription) { return trackerEasyScholarRanks[trackerEasyScholarCacheKey(subscription)] || null; }
+  function trackerEasyScholarLabels(rank) {
+    var labels = [['sci', 'SCI/JCR'], ['ssci', 'SSCI'], ['sciUp', '中科院升级版'], ['sciBase', '中科院基础版'], ['sciUpSmall', '中科院小类'], ['sciUpTop', '中科院Top'], ['jci', 'JCI'], ['sciif', '影响因子'], ['jcr', 'JCR分区']];
+    return labels.filter(function (entry) { return rank && rank[entry[0]] !== undefined && rank[entry[0]] !== null && String(rank[entry[0]]).trim(); })
+      .map(function (entry) { return { label: entry[1], value: String(rank[entry[0]]).slice(0, 80) }; });
+  }
+  function trackerEasyScholarRankMarkup(subscription) {
+    if (!subscription || !subscription.id) return '';
+    var saved = trackerEasyScholarRank(subscription);
+    var labels = saved ? trackerEasyScholarLabels(saved.rank) : [];
+    var tags = labels.slice(0, 3).map(function (item) { return '<span class="tracker-rank-chip">' + escapeHtml(item.label + ' ' + item.value) + '</span>'; }).join('');
+    var detail = saved && saved.updatedAt ? '<small title="EasyScholar · ' + escapeHtml(saved.updatedAt) + '">分区数据 · ' + escapeHtml(trackerDateLabel(saved.updatedAt, false)) + '</small>' : '';
+    return '<div class="tracker-rank-row">' + (tags || '<span class="tracker-rank-empty">' + (saved ? '暂无分区数据' : '尚未查询分区') + '</span>') + '<button type="button" class="tracker-rank-query" data-tracker-journal-rank="' + escapeHtml(subscription.id) + '">' + (saved ? '刷新分区' : '查分区') + '</button></div>' + detail;
+  }
+  function openTrackerEasyScholarSettings() {
+    $('#trackerEasyScholarKey').value = trackerEasyScholarSettings().secretKey || '';
+    $('#trackerEasyScholarOverlay').hidden = false;
+    $('#trackerEasyScholarKey').focus();
+  }
+  function closeTrackerEasyScholarSettings() { $('#trackerEasyScholarOverlay').hidden = true; }
+  function saveTrackerEasyScholarSettings(event) {
+    event.preventDefault();
+    var secretKey = $('#trackerEasyScholarKey').value.trim();
+    if (!secretKey) { toast('请填写 EasyScholar Open API Secret Key'); return; }
+    try { localStorage.setItem(trackerEasyScholarSettingsKey, JSON.stringify({ secretKey: secretKey, savedAt: new Date().toISOString() })); }
+    catch (_) { toast('浏览器无法保存密钥，请检查本机存储空间'); return; }
+    closeTrackerEasyScholarSettings();
+    toast('EasyScholar 密钥已保存在此浏览器；点击期刊旁的“查分区”查询');
+  }
+  function queryTrackerJournalRank(id, button) {
+    var subscription = (state.journalTracker.subscriptions || []).filter(function (item) { return String(item.id) === String(id); })[0];
+    if (!subscription) return;
+    var secretKey = trackerEasyScholarSettings().secretKey;
+    if (!secretKey) { openTrackerEasyScholarSettings(); return; }
+    button.disabled = true;
+    var originalText = button.textContent;
+    button.textContent = '查询中…';
+    journalTrackerRequest({ action: 'easyScholar-rank', secretKey: secretKey, publicationName: subscription.journal_title || subscription.issn })
+      .then(function (result) {
+        if (!result || !result.rank || !Object.keys(result.rank).length) throw new Error('EasyScholar 未返回可显示的期刊分区');
+        trackerEasyScholarRanks[trackerEasyScholarCacheKey(subscription)] = { rank: result.rank, updatedAt: new Date().toISOString(), source: 'EasyScholar' };
+        try { localStorage.setItem(trackerEasyScholarRanksKey, JSON.stringify(trackerEasyScholarRanks)); } catch (_) {}
+        renderJournalTracker();
+        toast('已获取 ' + (subscription.journal_title || subscription.issn) + ' 的期刊分区');
+      }).catch(function (error) {
+        button.disabled = false;
+        button.textContent = originalText;
+        toast((error && error.message) || 'EasyScholar 查询失败');
+      });
+  }
+
   var trackerArticleDetailId = '';
   function renderTrackerArticleDetail() {
     var detail = $('#trackerArticleDetail');
@@ -5389,21 +5448,19 @@
     if (!article) { trackerArticleDetailId = ''; detail.hidden = true; $('#trackerHero').hidden = false; $('#trackerStats').hidden = false; $('#trackerLayout').hidden = false; return; }
     var journal = trackerSubscriptionMap()[String(article.subscription_id)] || {};
     var title = article.title || '未命名文章';
-    var translated = getTrackerTitleTranslation(article);
     var authors = Array.isArray(article.authors) && article.authors.length ? article.authors.join('；') : '作者信息暂缺';
     var keywords = Array.isArray(article.keywords) ? article.keywords : [];
     var sourceUrl = article.url || (article.doi ? 'https://doi.org/' + article.doi : '');
     var isRead = article.is_read === true;
     var desktopImported = Boolean(trackerZoteroImported['desktop:' + (article.doi || article.id)]);
-    var webImported = Boolean(trackerZoteroImported[trackerZoteroItemKey(article, (trackerZoteroConfig() || {}).userId || '')]);
     detail.innerHTML = '<button type="button" class="tracker-detail-back" data-tracker-back-to-list>← 返回文献列表</button>' +
       '<div class="tracker-detail-scroll"><div class="tracker-article-meta"><span class="tracker-article-journal">' + escapeHtml(journal.journal_title || '期刊') + '</span><span class="tracker-read-badge ' + (isRead ? 'is-read' : 'is-unread') + '">' + (isRead ? '已读' : '未读') + '</span><span>' + escapeHtml(article.publication_date || '日期暂缺') + '</span>' + (article.doi ? '<span>DOI ' + escapeHtml(article.doi) + '</span>' : '') + '</div>' +
-      '<h2 class="tracker-detail-title">' + escapeHtml(title) + '</h2><p class="tracker-title-translation" data-tracker-title-translation="' + escapeHtml(article.id) + '"' + (translated ? '' : ' hidden') + '>' + escapeHtml(translated || '') + '</p>' +
+      '<h2 class="tracker-detail-title">' + escapeHtml(title) + '</h2>' +
       '<section class="tracker-detail-section"><h3>作者</h3><p>' + escapeHtml(authors) + '</p></section>' +
       '<section class="tracker-detail-section"><h3>摘要 <span>' + escapeHtml(article.abstract_source || '来源暂缺') + '</span></h3><p class="tracker-article-abstract">' + escapeHtml(article.abstract || '该数据源尚未提供摘要。') + '</p></section>' +
       '<section class="tracker-detail-section"><h3>关键词</h3>' + (keywords.length ? '<div class="tracker-keywords">' + keywords.map(function (keyword) { return '<span>' + escapeHtml(keyword) + '</span>'; }).join('') + '</div><div class="tracker-provenance">关键词来源：' + escapeHtml(article.keyword_source || '未标明') + '</div>' : '<p>该数据源尚未提供关键词。</p>') + '</section>' +
       '<section class="tracker-detail-section"><h3>来源与标识</h3><p>期刊：' + escapeHtml(journal.journal_title || '未标明') + '</p><p>元数据来源：' + escapeHtml((article.metadata_sources || []).join('、') || '未标明') + '</p>' + (article.doi ? '<p>DOI：' + escapeHtml(article.doi) + '</p>' : '') + '</section>' +
-      '<div class="tracker-article-actions">' + (sourceUrl ? '<a href="' + escapeHtml(sourceUrl) + '" target="_blank" rel="noopener">打开原文</a>' : '') + '<button type="button" data-tracker-read-toggle="' + escapeHtml(article.id) + '" data-tracker-is-read="' + isRead + '">' + (isRead ? '标为未读' : '标为已读') + '</button><button type="button" data-tracker-save-ref="' + escapeHtml(article.id) + '">加入文献库</button><button type="button" data-tracker-zotero-desktop="' + escapeHtml(article.id) + '"' + (desktopImported ? ' disabled' : '') + '>' + (desktopImported ? '已导入桌面 Zotero' : '导入桌面 Zotero') + '</button><button type="button" data-tracker-zotero-ris="' + escapeHtml(article.id) + '">下载 RIS</button><button type="button" data-tracker-zotero-web="' + escapeHtml(article.id) + '"' + (webImported ? ' disabled' : '') + '>' + (webImported ? '已导入 Zotero 文库' : '导入 Zotero 文库') + '</button></div></div>';
+      '<div class="tracker-article-actions">' + (sourceUrl ? '<a href="' + escapeHtml(sourceUrl) + '" target="_blank" rel="noopener">打开原文</a>' : '') + '<button type="button" data-tracker-read-toggle="' + escapeHtml(article.id) + '" data-tracker-is-read="' + isRead + '">' + (isRead ? '标为未读' : '标为已读') + '</button><button type="button" data-tracker-save-ref="' + escapeHtml(article.id) + '">加入文献库</button><button type="button" data-tracker-zotero-desktop="' + escapeHtml(article.id) + '"' + (desktopImported ? ' disabled' : '') + '>' + (desktopImported ? '已导入桌面 Zotero' : '导入桌面 Zotero') + '</button></div></div>';
     detail.hidden = false;
     $('#trackerHero').hidden = true; $('#trackerStats').hidden = true; $('#trackerLayout').hidden = true;
   }
@@ -5438,7 +5495,7 @@
       var isSelected = String(state.journalTrackerFilter) === String(item.id);
       return '<div class="tracker-subscription' + (item.last_error ? ' is-error' : '') + (isSelected ? ' is-selected' : '') + '">' +
         '<button type="button" class="tracker-subscription-main" data-tracker-select-journal="' + escapeHtml(item.id) + '" aria-pressed="' + isSelected + '" title="查看该期刊的文章">' +
-        '<b>' + escapeHtml(item.journal_title || item.issn) + '</b><span>' + escapeHtml(item.issn || '') + '</span></button>' +
+        '<b>' + escapeHtml(item.journal_title || item.issn) + '</b><span>' + escapeHtml(item.issn || '') + '</span></button>' + trackerEasyScholarRankMarkup(item) +
         '<em title="' + escapeHtml(status) + '">' + escapeHtml(status) + '</em>' +
         '<div class="tracker-feed-config"><input type="url" data-tracker-feed-input="' + escapeHtml(item.id) + '" value="' + escapeHtml(item.feed_url || '') + '" placeholder="官网 RSS / Atom 地址" aria-label="' + escapeHtml(item.journal_title || item.issn) + ' RSS 地址"><button type="button" data-tracker-feed-save="' + escapeHtml(item.id) + '">保存 RSS</button></div>' +
         '<button type="button" data-tracker-remove="' + escapeHtml(item.id) + '" title="停止追踪" aria-label="停止追踪 ' + escapeHtml(item.journal_title || item.issn) + '">×</button></div>';
@@ -5466,16 +5523,14 @@
       var abstractText = article.abstract || '';
       var sourceUrl = article.url || (article.doi ? 'https://doi.org/' + article.doi : '');
       var isRead = article.is_read === true;
-      var translation = getTrackerTitleTranslation(article);
       var desktopImported = Boolean(trackerZoteroImported['desktop:' + (article.doi || article.id)]);
-      var webImported = Boolean(trackerZoteroImported[trackerZoteroItemKey(article, (trackerZoteroConfig() || {}).userId || '')]);
       return '<article class="tracker-article' + (isRead ? '' : ' is-unread') + '">' +
-        '<div class="tracker-article-meta"><span class="tracker-article-journal">' + escapeHtml(journal.journal_title || '期刊') + '</span><span class="tracker-read-badge ' + (isRead ? 'is-read' : 'is-unread') + '">' + (isRead ? '已读' : '未读') + '</span><span>' + escapeHtml(article.publication_date || '日期暂缺') + '</span>' + (article.doi ? '<span>DOI ' + escapeHtml(article.doi) + '</span>' : '') + '</div>' +
-        '<h4><button type="button" class="tracker-article-title" data-tracker-open-detail="' + escapeHtml(article.id) + '">' + escapeHtml(article.title || '未命名文章') + '</button></h4><p class="tracker-title-translation" data-tracker-title-translation="' + escapeHtml(article.id) + '"' + (translation ? '' : ' hidden') + '>' + escapeHtml(translation || '') + '</p><p class="tracker-article-authors">' + escapeHtml(authors) + '</p>' +
+      '<div class="tracker-article-meta"><span class="tracker-article-journal">' + escapeHtml(journal.journal_title || '期刊') + '</span><span class="tracker-read-badge ' + (isRead ? 'is-read' : 'is-unread') + '">' + (isRead ? '已读' : '未读') + '</span><span>' + escapeHtml(article.publication_date || '日期暂缺') + '</span>' + (article.doi ? '<span>DOI ' + escapeHtml(article.doi) + '</span>' : '') + '</div>' +
+        '<h4><button type="button" class="tracker-article-title" data-tracker-open-detail="' + escapeHtml(article.id) + '">' + escapeHtml(article.title || '未命名文章') + '</button></h4><p class="tracker-article-authors">' + escapeHtml(authors) + '</p>' +
         (keywords.length ? '<div class="tracker-keywords">' + keywords.map(function (keyword) { return '<span>' + escapeHtml(keyword) + '</span>'; }).join('') + '</div><div class="tracker-provenance">关键词来源：' + escapeHtml(article.keyword_source || '未标明') + '</div>' : '<div class="tracker-provenance">该数据源尚未提供关键词</div>') +
         '<div class="tracker-provenance">文章 / 元数据来源：' + escapeHtml((article.metadata_sources || []).join('、') || '未标明') + '</div>' +
         '<details' + (abstractText ? '' : ' disabled') + '><summary>' + (abstractText ? '查看摘要 · ' + escapeHtml(article.abstract_source || '元数据') : '摘要暂未公开') + '</summary>' + (abstractText ? '<p class="tracker-article-abstract">' + escapeHtml(abstractText) + '</p>' : '') + '</details>' +
-        '<div class="tracker-article-actions">' + (sourceUrl ? '<a href="' + escapeHtml(sourceUrl) + '" target="_blank" rel="noopener">打开原文</a>' : '') + '<button type="button" data-tracker-read-toggle="' + escapeHtml(article.id) + '" data-tracker-is-read="' + isRead + '">' + (isRead ? '标为未读' : '标为已读') + '</button><button type="button" data-tracker-save-ref="' + escapeHtml(article.id) + '">加入文献库</button><button type="button" data-tracker-zotero-desktop="' + escapeHtml(article.id) + '"' + (desktopImported ? ' disabled' : '') + '>' + (desktopImported ? '已导入桌面 Zotero' : '导入桌面 Zotero') + '</button><button type="button" data-tracker-zotero-ris="' + escapeHtml(article.id) + '">下载 RIS</button><button type="button" data-tracker-zotero-web="' + escapeHtml(article.id) + '"' + (webImported ? ' disabled' : '') + '>' + (webImported ? '已导入 Zotero 文库' : '导入 Zotero 文库') + '</button></div></article>';
+        '<div class="tracker-article-actions">' + (sourceUrl ? '<a href="' + escapeHtml(sourceUrl) + '" target="_blank" rel="noopener">打开原文</a>' : '') + '<button type="button" data-tracker-read-toggle="' + escapeHtml(article.id) + '" data-tracker-is-read="' + isRead + '">' + (isRead ? '标为未读' : '标为已读') + '</button><button type="button" data-tracker-save-ref="' + escapeHtml(article.id) + '">加入文献库</button><button type="button" data-tracker-zotero-desktop="' + escapeHtml(article.id) + '"' + (desktopImported ? ' disabled' : '') + '>' + (desktopImported ? '已导入桌面 Zotero' : '导入桌面 Zotero') + '</button></div></article>';
     }
     function renderArticleGroup(key, label, items) {
       if (!items.length) return '';
@@ -5486,7 +5541,6 @@
       var unreadArticles = visible.filter(function (article) { return article.is_read !== true; });
       var readArticles = visible.filter(function (article) { return article.is_read === true; });
       $('#trackerArticles').innerHTML = renderArticleGroup('unread', '未读文章', unreadArticles) + renderArticleGroup('read', '已读文章', readArticles);
-      translateTrackerArticleTitles(unreadArticles.concat(state.trackerCollapsedGroups.read ? [] : readArticles));
     } else $('#trackerArticles').innerHTML = '<div class="tracker-empty">' + emptyIcon + '<b>' + (articles.length ? '没有匹配的文章' : '等待第一批最新文章') + '</b><span>' + (subscriptions.length ? '点击“立即检查更新”，系统会优先读取官网 RSS，并由 Semantic Scholar 与 Crossref 补充元数据。' : '先在左侧添加要追踪的期刊，首次添加后会立即抓取近期文章。') + '</span></div>';
 
     renderTrackerArticleDetail();
@@ -5746,8 +5800,6 @@
     }).catch(function (error) { toast((error && error.message) || '加入文献库失败'); });
   }
 
-  var trackerZoteroPendingArticle = '';
-  var trackerZoteroConfigKey = 'academic-workbench-zotero-api-v1';
   var trackerZoteroImportedKey = 'academic-workbench-zotero-imported-v1';
   var trackerZoteroImported = Object.create(null);
   var trackerZoteroBridgeChannel = 'academic-workbench-zotero-bridge-v1';
@@ -5763,35 +5815,8 @@
     if (event.data.ok) pending.resolve(event.data.result || {});
     else pending.reject(new Error(event.data.error || 'Zotero 桌面端未能确认导入'));
   });
-  function trackerZoteroConfig() { try { return JSON.parse(localStorage.getItem(trackerZoteroConfigKey) || 'null'); } catch (_) { return null; } }
-  function openTrackerZoteroSetup() {
-    var config = trackerZoteroConfig() || {};
-    $('#trackerZoteroUserId').value = config.userId || '';
-    $('#trackerZoteroApiKey').value = '';
-    $('#trackerZoteroApiKey').placeholder = config.apiKey ? '已连接；留空保持当前密钥，输入新密钥可替换' : '具有文库读取和写入权限的 API Key';
-    $('#trackerZoteroClear').hidden = !config.apiKey;
-    $('#trackerZoteroOverlay').hidden = false;
-    $('#trackerZoteroUserId').focus();
-  }
+  function openTrackerZoteroSetup() { $('#trackerZoteroTestResult').textContent = ''; $('#trackerZoteroOverlay').hidden = false; }
   function closeTrackerZoteroSetup() { $('#trackerZoteroOverlay').hidden = true; }
-  function saveTrackerZoteroSetup(event) {
-    event.preventDefault();
-    var userId = $('#trackerZoteroUserId').value.trim();
-    var apiKey = $('#trackerZoteroApiKey').value.trim();
-    var previous = trackerZoteroConfig() || {};
-    if (!/^\d+$/.test(userId)) { toast('Zotero 用户 ID 应为数字，请勿填写用户名'); return; }
-    if (!apiKey) apiKey = previous.apiKey || '';
-    if (apiKey.length < 10) { toast('请输入有效的 Zotero API 密钥'); return; }
-    try { localStorage.setItem(trackerZoteroConfigKey, JSON.stringify({ userId: userId, apiKey: apiKey })); }
-    catch (_) { toast('浏览器无法保存密钥，请检查本机存储设置'); return; }
-    closeTrackerZoteroSetup();
-    toast('Zotero 已连接；密钥仅保存在此浏览器');
-    if (trackerZoteroPendingArticle) {
-      var id = trackerZoteroPendingArticle;
-      trackerZoteroPendingArticle = '';
-      importTrackedArticleToZotero(id);
-    }
-  }
   function trackerZoteroItemKey(article, userId) { return userId + ':' + (article.doi || article.id); }
   function trackerZoteroCreators(article) {
     return (Array.isArray(article.authors) ? article.authors : []).map(function (author) {
@@ -5815,6 +5840,21 @@
   function persistTrackerZoteroImport(storageKey, value) {
     trackerZoteroImported[storageKey] = value;
     try { localStorage.setItem(trackerZoteroImportedKey, JSON.stringify(trackerZoteroImported)); } catch (_) {}
+  }
+  function requestTrackerZoteroBridge(type, payload, timeoutMs) {
+    var requestId = 'zotero-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+    return new Promise(function (resolve, reject) {
+      var timeout = setTimeout(function () { delete trackerZoteroBridgeRequests[requestId]; reject(new Error('未检测到桌面桥接扩展。请先在 Chrome 加载 zotero-bridge 扩展，再刷新工作台。')); }, timeoutMs || 4000);
+      trackerZoteroBridgeRequests[requestId] = { resolve: resolve, reject: reject, timeout: timeout };
+      window.postMessage({ channel: trackerZoteroBridgeChannel, type: type, requestId: requestId, payload: payload || {} }, location.origin);
+    });
+  }
+  function testTrackerZoteroConnection() {
+    var result = $('#trackerZoteroTestResult');
+    result.textContent = '正在检测…';
+    requestTrackerZoteroBridge('ping', {}, 5000).then(function (response) {
+      result.textContent = '已连接' + (response.version ? ' · Zotero ' + response.version : ' · Zotero Connector 正在运行');
+    }).catch(function (error) { result.textContent = (error && error.message) || '连接失败'; });
   }
   function downloadTrackedArticleRis(id) {
     var article = (state.journalTracker.articles || []).filter(function (item) { return String(item.id) === String(id); })[0];
@@ -5849,18 +5889,13 @@
       uri: articleItem.url || 'https://silencelight-eco.github.io/academic-research-hub/',
       sessionID: 'academic-workbench-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10)
     };
-    var requestId = 'zotero-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
-    new Promise(function (resolve, reject) {
-      var timeout = setTimeout(function () { delete trackerZoteroBridgeRequests[requestId]; reject(new Error('没有收到 Zotero 桌面桥接响应。请启动 Zotero 并安装 zotero-bridge 扩展，或点“下载 RIS”手动导入。')); }, 8000);
-      trackerZoteroBridgeRequests[requestId] = { resolve: resolve, reject: reject, timeout: timeout };
-      window.postMessage({ channel: trackerZoteroBridgeChannel, type: 'import', requestId: requestId, payload: connectorPayload }, location.origin);
-    }).then(function (result) {
+    requestTrackerZoteroBridge('import', connectorPayload, 8000).then(function (result) {
       persistTrackerZoteroImport(storageKey, { importedAt: new Date().toISOString(), status: 'confirmed', result: result });
       toast('Zotero 桌面端已确认接收条目');
       renderJournalTracker();
     }).catch(function (error) {
       if (target) { target.disabled = false; target.textContent = '导入桌面 Zotero'; }
-      toast((error && error.message) || '桌面导入失败；可下载 RIS 后在 Zotero 中手动导入');
+      toast((error && error.message) || '桌面导入失败，请先测试本机连接');
     });
   }
   function importTrackedArticleToZotero(id, button) {
@@ -5912,10 +5947,6 @@
     if (readButton) { setTrackedArticleRead(readButton.dataset.trackerReadToggle, readButton.dataset.trackerIsRead !== 'true', readButton); return; }
     var desktopButton = event.target.closest('[data-tracker-zotero-desktop]');
     if (desktopButton) { importTrackedArticleToZoteroDesktop(desktopButton.dataset.trackerZoteroDesktop, desktopButton); return; }
-    var risButton = event.target.closest('[data-tracker-zotero-ris]');
-    if (risButton) { downloadTrackedArticleRis(risButton.dataset.trackerZoteroRis); return; }
-    var webButton = event.target.closest('[data-tracker-zotero-web]');
-    if (webButton) { importTrackedArticleToZotero(webButton.dataset.trackerZoteroWeb, webButton); return; }
     var saveButton = event.target.closest('[data-tracker-save-ref]');
     if (saveButton) saveTrackedArticleToLibrary(saveButton.dataset.trackerSaveRef);
   }
@@ -5970,21 +6001,17 @@
     $('#trackerRefresh').addEventListener('click', refreshJournalTracker);
     $('#trackerMarkAllRead').addEventListener('click', function () { markAllTrackedArticlesRead(this); });
     $('#trackerSearchResults').addEventListener('click', function (event) { var button = event.target.closest('[data-tracker-add]'); if (button) addTrackerJournal(button.dataset.trackerAdd, button); });
-    $('#trackerSubscriptions').addEventListener('click', function (event) { var selectButton = event.target.closest('[data-tracker-select-journal]'); if (selectButton) { state.journalTrackerFilter = selectButton.dataset.trackerSelectJournal; renderJournalTracker(); $('#trackerArticles').scrollIntoView({ behavior: 'smooth', block: 'start' }); return; } var saveButton = event.target.closest('[data-tracker-feed-save]'); if (saveButton) { saveTrackerFeed(saveButton.dataset.trackerFeedSave, saveButton); return; } var button = event.target.closest('[data-tracker-remove]'); if (button) removeTrackerJournal(button.dataset.trackerRemove); });
+    $('#trackerSubscriptions').addEventListener('click', function (event) { var rankButton = event.target.closest('[data-tracker-journal-rank]'); if (rankButton) { queryTrackerJournalRank(rankButton.dataset.trackerJournalRank, rankButton); return; } var selectButton = event.target.closest('[data-tracker-select-journal]'); if (selectButton) { state.journalTrackerFilter = selectButton.dataset.trackerSelectJournal; renderJournalTracker(); $('#trackerArticles').scrollIntoView({ behavior: 'smooth', block: 'start' }); return; } var saveButton = event.target.closest('[data-tracker-feed-save]'); if (saveButton) { saveTrackerFeed(saveButton.dataset.trackerFeedSave, saveButton); return; } var button = event.target.closest('[data-tracker-remove]'); if (button) removeTrackerJournal(button.dataset.trackerRemove); });
     $('#trackerArticles').addEventListener('click', function (event) { var groupButton = event.target.closest('[data-tracker-group-toggle]'); if (groupButton) { var group = groupButton.dataset.trackerGroupToggle; state.trackerCollapsedGroups[group] = !state.trackerCollapsedGroups[group]; try { localStorage.setItem('academic-workbench-tracker-collapsed-v1', JSON.stringify(state.trackerCollapsedGroups)); } catch (_) {} renderJournalTracker(); return; } if (event.target.closest('[data-tracker-open-detail]')) { openTrackerArticleDetail(event.target.closest('[data-tracker-open-detail]').dataset.trackerOpenDetail); return; } handleTrackerArticleAction(event); });
-    $('#trackerArticleDetail').addEventListener('click', function (event) { if (event.target.closest('[data-tracker-back-to-list]')) { closeTrackerArticleDetail(); return; } handleTrackerArticleAction(event); });
-    $('#trackerTranslationSetup').addEventListener('click', openTrackerTranslationSettings);
-    $('#trackerTranslationProvider').addEventListener('change', updateTrackerTranslationProviderFields);
-    $('#trackerTranslationTest').addEventListener('click', testTrackerTranslation);
-    $('#trackerTranslationCancel').addEventListener('click', closeTrackerTranslationSettings);
-    $('#trackerTranslationOverlay').addEventListener('click', function (event) { if (event.target === this) closeTrackerTranslationSettings(); });
-    $('#trackerTranslationForm').addEventListener('submit', saveTrackerTranslationSettings);
-    $('#trackerTranslationClear').addEventListener('click', function () { localStorage.removeItem(trackerTranslationSettingsKey); closeTrackerTranslationSettings(); renderJournalTracker(); toast('已清除本机保存的翻译服务密钥，已切换为 MyMemory'); });
+    $('#trackerArticleDetail').addEventListener('click', function (event) { if (event.target.closest('[data-tracker-back-to-list]')) { closeTrackerArticleDetail(); return; } var rankButton = event.target.closest('[data-tracker-journal-rank]'); if (rankButton) { queryTrackerJournalRank(rankButton.dataset.trackerJournalRank, rankButton); return; } handleTrackerArticleAction(event); });
+    $('#trackerEasyScholarSetup').addEventListener('click', openTrackerEasyScholarSettings);
+    $('#trackerEasyScholarCancel').addEventListener('click', closeTrackerEasyScholarSettings);
+    $('#trackerEasyScholarOverlay').addEventListener('click', function (event) { if (event.target === this) closeTrackerEasyScholarSettings(); });
+    $('#trackerEasyScholarForm').addEventListener('submit', saveTrackerEasyScholarSettings);
     $('#trackerZoteroSetup').addEventListener('click', openTrackerZoteroSetup);
-    $('#trackerZoteroClear').addEventListener('click', function () { localStorage.removeItem(trackerZoteroConfigKey); closeTrackerZoteroSetup(); renderJournalTracker(); toast('已从此浏览器移除 Zotero 密钥'); });
+    $('#trackerZoteroTest').addEventListener('click', testTrackerZoteroConnection);
     $('#trackerZoteroCancel').addEventListener('click', closeTrackerZoteroSetup);
     $('#trackerZoteroOverlay').addEventListener('click', function (event) { if (event.target === this) closeTrackerZoteroSetup(); });
-    $('#trackerZoteroForm').addEventListener('submit', saveTrackerZoteroSetup);
     $('#trackerArticleSearch').addEventListener('input', function () { state.journalTrackerQuery = this.value; renderJournalTracker(); });
     $('#trackerJournalFilter').addEventListener('change', function () { state.journalTrackerFilter = this.value; renderJournalTracker(); });
     $('#trackerReadFilter').addEventListener('change', function () { state.journalTrackerReadFilter = this.value; if (this.value === 'read') state.trackerCollapsedGroups.read = false; if (this.value === 'unread') state.trackerCollapsedGroups.unread = false; renderJournalTracker(); });
