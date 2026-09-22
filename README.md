@@ -38,12 +38,6 @@
 - 点击顶部“数据备份”可导出或恢复账号数据。备份文件可能包含个人研究内容，请妥善保管。
 - 点击右上角账号可修改密码或退出登录；修改密码前需要验证当前密码，忘记密码可通过邮箱重置。
 
-## 飞书文档联动
-
-知识库文档和公众号笔记可以保存已有飞书文档链接并直接打开。也可以把内容导出为一份新的飞书文档，导出后的链接会保存回对应条目并参与工作台账号同步。
-
-飞书导出需要部署 Supabase Edge Function，并在服务端配置飞书自建应用凭据；**仓库中的浏览器代码不保存飞书应用密钥**。再次导出会新建文档，目前不是对已有飞书文档的双向实时同步。配置步骤见[飞书联动说明](docs/feishu-integration.md)。
-
 ## 文献追踪
 
 文献追踪优先从用户填写的期刊官网 RSS / Atom 发现新文章，再用 Semantic Scholar 补充作者与摘要；Crossref 用于 RSS 不可用时的文章发现，并作为 DOI、标题、作者和日期等元数据的后备。摘要与关键词会标注实际来源；Semantic Scholar 学科分类不会伪装成作者关键词。RSS 地址可在添加期刊时填写，也可之后编辑。
@@ -71,7 +65,7 @@ python server.py
 
 ```text
 web/                         浏览器工作台页面、样式和交互逻辑
-supabase/functions/          Supabase Edge Functions（飞书联动、文献追踪）
+supabase/functions/          Supabase Edge Functions（文献追踪）
 docs/                        集成配置与项目文档
 data/                         本地运行所需的示例配置及数据目录
 server.py                     本地 Python 服务入口

@@ -7,48 +7,6 @@
   var client = window.supabase.createClient(url, key, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
   // Exposed so the workbench waits until the saved session has been restored.
   window.__academicAuthReady = client.auth.getSession();
-  async function feishuRequest(functionName, payload) {
-    var sessionResult = await client.auth.getSession();
-    var session = sessionResult && sessionResult.data && sessionResult.data.session;
-    if (!session) throw new Error('请先登录工作台，再连接飞书');
-    var result;
-    var controller = new AbortController();
-    var timeout = setTimeout(function () { controller.abort(); }, 50000);
-    try {
-      result = await window.__nativeFetch(url + '/functions/v1/' + functionName, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token, 'apikey': key },
-        body: JSON.stringify(payload || {}),
-        signal: controller.signal
-      });
-    } catch (error) {
-      if (error && error.name === 'AbortError') throw new Error('飞书服务响应超时（50 秒）。超时不一定代表文档未创建，请先检查飞书最近文档，避免重复导出；再检查 Supabase 函数部署和飞书授权。');
-      if (error instanceof TypeError) throw new Error('无法连接 Supabase 飞书同步函数（网络或跨域请求失败）。请确认 feishu-sync 已部署，并从工作台 GitHub Pages 地址访问。');
-      throw error;
-    } finally {
-      clearTimeout(timeout);
-    }
-    var data = await result.json().catch(function () { return {}; });
-    if (!result.ok || !data.ok) throw new Error(data.error || '飞书操作失败，请检查服务端配置');
-    return data;
-  }
-  window.__academicFeishuExport = function (payload) {
-    return feishuRequest('feishu-sync', Object.assign({}, payload || {}, { action: 'export' }));
-  };
-  window.__academicFeishuImport = function (documentId) {
-    return feishuRequest('feishu-sync', { action: 'import', documentId: documentId });
-  };
-  window.__academicFeishuStatus = function () {
-    return feishuRequest('feishu-sync', { action: 'status' });
-  };
-  window.__academicFeishuConnect = async function () {
-    var result = await feishuRequest('feishu-oauth-start', {});
-    if (!result.authUrl) throw new Error('飞书授权地址生成失败');
-    // The production app is embedded in index.html's iframe. Navigate the top-level
-    // page so Feishu can complete OAuth without framing restrictions and the callback
-    // returns to the normal workbench shell.
-    window.top.location.assign(result.authUrl);
-  };
   window.__academicJournalTracker = async function (payload) {
     var sessionResult = await client.auth.getSession();
     var session = sessionResult && sessionResult.data && sessionResult.data.session;
@@ -62,28 +20,6 @@
     if (!result.ok || !data.ok) throw new Error(data.error || '文献追踪服务暂时不可用');
     return data;
   };
-  var callbackLocation = window.location;
-  var callbackIsTopLevel = false;
-  try {
-    if (window.top && window.top !== window && window.top.location.origin === window.location.origin) {
-      var topCallback = new URL(window.top.location.href);
-      if (topCallback.searchParams.has('feishu')) {
-        callbackLocation = topCallback;
-        callbackIsTopLevel = true;
-      }
-    }
-  } catch (_) {}
-  var callbackParams = new URLSearchParams(callbackLocation.search);
-  var feishuCallbackResult = callbackParams.get('feishu');
-  var feishuCallbackDetail = callbackParams.get('feishu_detail');
-  if (feishuCallbackResult === 'connected' || feishuCallbackResult === 'error') {
-    window.__academicFeishuCallbackResult = feishuCallbackResult;
-    if (feishuCallbackDetail) window.__academicFeishuCallbackDetail = feishuCallbackDetail;
-    var cleanUrl = new URL(callbackLocation.href);
-    cleanUrl.searchParams.delete('feishu');
-    cleanUrl.searchParams.delete('feishu_detail');
-    (callbackIsTopLevel ? window.top : window).history.replaceState({}, '', cleanUrl.pathname + cleanUrl.search + cleanUrl.hash);
-  }
   client.auth.onAuthStateChange(function (event) { if (event === 'PASSWORD_RECOVERY') { window.__academicPasswordRecovery = true; window.dispatchEvent(new CustomEvent('academic-password-recovery')); } });
   var workspace = null;
   var workspaceRevision = null;
