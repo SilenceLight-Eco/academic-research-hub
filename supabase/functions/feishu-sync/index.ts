@@ -110,8 +110,19 @@ async function feishuRequest(path: string, token: string, method = "GET", body?:
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok || (result.code !== undefined && Number(result.code) !== 0)) {
-    if (Number(result.code) === 99991663 || response.status === 401) throw new Error("飞书授权不足或已过期，请重新连接飞书并确认文档权限");
-    throw new Error("飞书文档 API 调用失败，请检查应用权限和文档访问范围");
+    const code = Number(result.code);
+    const rawMessage = String(result.msg || result.message || result.error_description || "");
+    const safeMessage = rawMessage
+      .replace(/Bearer\s+\S+/gi, "Bearer [已隐藏]")
+      .replace(/(access[_ -]?token|refresh[_ -]?token|app[_ -]?secret)\s*[:=]\s*[^,;\s]+/gi, "$1=[已隐藏]")
+      .replace(/[\r\n<>]/g, " ")
+      .slice(0, 240);
+    const codeLabel = Number.isFinite(code) ? `错误码 ${code}` : `HTTP ${response.status}`;
+    const detail = safeMessage ? `：${safeMessage}` : "";
+    const hint = Number.isFinite(code) && (code === 99991663 || code === 99991672)
+      ? "；请确认已开通并发布“创建及编辑新版文档（docx:document）”用户权限，然后重新授权"
+      : "；请确认当前用户有权访问该文档，且应用已获对应文档权限";
+    throw new Error(`飞书文档 API ${codeLabel}${detail}${hint}`);
   }
   return result.data || {};
 }

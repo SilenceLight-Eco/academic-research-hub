@@ -6592,11 +6592,14 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .tracker-layout { display:grid; grid-template-columns:300px minmax(0,1fr); min-height:620px; overflow:hidden; border:1px solid var(--hairline-soft); border-radius:var(--radius-lg); background:var(--glass-strong); }
 .tracker-sidebar { min-width:0; padding:16px; border-right:1px solid var(--hairline-soft); background:var(--glass); }
 .tracker-add-form>label { display:block; margin-bottom:9px; color:var(--text); font:600 14px "Noto Serif SC",serif; }
-.tracker-add-form>div { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:7px; }
+.tracker-add-form>div { display:grid; grid-template-columns:minmax(0,1fr) auto auto; gap:7px; }
+.tracker-add-form>.tracker-journal-input-row { grid-template-columns:minmax(0,1fr) auto; }
+.tracker-journal-input-row input { grid-column:1/-1; }
 .tracker-add-form input,.tracker-filters input,.tracker-filters select { min-width:0; box-sizing:border-box; padding:8px 10px; border:1px solid var(--hairline); border-radius:7px; outline:0; background:var(--glass-strong); color:var(--text); font:12px "Noto Sans SC",sans-serif; }
 .tracker-add-form input:focus,.tracker-filters input:focus,.tracker-filters select:focus { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-dim); }
 .tracker-add-form button,.tracker-search-result button,.tracker-subscription button,.tracker-article-actions button { border:1px solid var(--hairline); border-radius:7px; background:var(--glass-strong); color:var(--text-secondary); cursor:pointer; font:11px "Noto Sans SC",sans-serif; }
 .tracker-add-form button { padding:8px 11px; border-color:var(--accent); color:var(--accent); }
+.tracker-add-form #trackerDirectAdd { background:var(--accent); color:var(--btn-text); }
 .tracker-add-form p { margin:7px 0 0; color:var(--text-muted); font-size:10px; line-height:1.5; }
 .tracker-search-results { margin:12px 0 4px; padding:7px; border:1px solid var(--hairline); border-radius:8px; background:var(--glass-strong); }
 .tracker-search-result { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; align-items:center; padding:8px 6px; border-bottom:1px solid var(--hairline-soft); }

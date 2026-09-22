@@ -450,14 +450,22 @@ Deno.serve(async (request: Request) => {
       return json(request, { ok: true, journals: await searchJournals(query) });
     }
     if (action === "add") {
-      const issn = normalizeIssn(body.issn);
-      if (!issn) return json(request, { ok: false, error: "ISSN 格式不正确" }, 400);
+      const query = String(body.query || body.issn || "").trim();
+      if (query.length < 2) return json(request, { ok: false, error: "请输入期刊全名或 ISSN" }, 400);
+      const requestedIssn = normalizeIssn(body.issn || query);
       const feedUrl = String(body.feedUrl || "").trim();
       if (feedUrl) {
         try { publicHttpsUrl(feedUrl); } catch (error) { return json(request, { ok: false, error: error instanceof Error ? error.message : "RSS 地址无效" }, 400); }
       }
-      const journal = (await searchJournals(issn))[0];
-      if (!journal) return json(request, { ok: false, error: "Crossref 中没有找到该期刊" }, 404);
+      const candidates = await searchJournals(requestedIssn || query);
+      const normalizedQuery = query.toLocaleLowerCase().replace(/\s+/g, " ").trim();
+      const exact = candidates.filter((item) => item.title.toLocaleLowerCase().replace(/\s+/g, " ").trim() === normalizedQuery);
+      const journal = requestedIssn ? candidates[0] : (exact[0] || (candidates.length === 1 ? candidates[0] : null));
+      if (!journal && candidates.length > 1) {
+        return json(request, { ok: false, error: "找到多个期刊，请先从候选列表中选择准确的期刊" }, 409);
+      }
+      if (!journal) return json(request, { ok: false, error: "Crossref 中没有找到该期刊，请检查名称或使用 ISSN" }, 404);
+      const issn = journal.issn;
       const existingRows = await rest(`journal_subscriptions?user_id=eq.${encodeURIComponent(userId)}&issn=eq.${encodeURIComponent(issn)}&select=feed_url`);
       const savedFeedUrl = feedUrl || (Array.isArray(existingRows) ? String(existingRows[0]?.feed_url || "") : "");
       const inserted = await rest("journal_subscriptions?on_conflict=user_id,issn", {

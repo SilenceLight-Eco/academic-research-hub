@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>学术工作台</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='%230F766E' stroke='%230F766E' stroke-width='2'/><circle cx='16' cy='16' r='5' fill='%230F766E'/></svg>">
-  <link rel="stylesheet" href="style.css?v=20260922-61">
+  <link rel="stylesheet" href="style.css?v=20260922-62">
   <style>.sidebar-nav .retired-content{display:none!important}</style>
   <link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Serif+SC:wght@400;600;700&family=Noto+Sans+SC:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500&display=swap">
 </head>
@@ -396,16 +396,16 @@
           <div><span>追踪期刊</span><b id="trackerJournalCount">0</b></div>
           <div><span>已收录文章</span><b id="trackerArticleCount">0</b></div>
           <div><span>最近检查</span><b id="trackerLastCheck">尚未检查</b></div>
-          <div><span>自动更新</span><b>每日</b></div>
+          <div><span>自动更新</span><b>进入时检查</b></div>
         </div>
 
         <div class="tracker-layout">
           <aside class="tracker-sidebar">
             <form id="trackerSearchForm" class="tracker-add-form">
               <label for="trackerJournalQuery">添加追踪期刊</label>
-              <div><input id="trackerJournalQuery" type="search" placeholder="输入期刊名称或 ISSN" autocomplete="off"><button type="submit">查找</button></div>
+              <div class="tracker-journal-input-row"><input id="trackerJournalQuery" type="search" placeholder="输入期刊全名或 ISSN" autocomplete="off"><button id="trackerDirectAdd" type="button">直接添加</button><button type="submit">查找</button></div>
               <input id="trackerFeedUrl" type="url" placeholder="期刊官网 RSS / Atom 地址（可选）" aria-label="期刊官网 RSS 或 Atom 地址">
-              <p>优先用官网 RSS 发现新文章；未填写或读取失败时使用 Crossref 后备。使用 ISSN 可得到最准确的期刊匹配。</p>
+              <p>输入 ISSN 或唯一匹配的期刊名可直接订阅；名称有多个匹配时会显示候选项。进入文献追踪时会自动检查超过 24 小时未更新的期刊。官网 RSS 优先，Crossref 后备。</p>
             </form>
             <div id="trackerSearchResults" class="tracker-search-results" hidden></div>
             <div class="tracker-subscription-title"><span>我的期刊</span><b id="trackerSubscriptionCount">0</b></div>
@@ -1373,7 +1373,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-  <script src="static-api.js?v=20260922-61"></script>
-  <script src="app.js?v=20260922-61"></script>
+  <script src="static-api.js?v=20260922-62"></script>
+  <script src="app.js?v=20260922-62"></script>
 </body>
 </html>

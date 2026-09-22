@@ -65,6 +65,7 @@
     journalTracker: { subscriptions: [], articles: [] },
     journalTrackerLoaded: false,
     journalTrackerLoading: false,
+    journalTrackerAutoRefreshAt: 0,
     journalTrackerQuery: '',
     journalTrackerFilter: 'all',
   };
@@ -5324,14 +5325,35 @@
     renderJournalTracker();
   }
 
+  function autoRefreshStaleJournalTracker() {
+    var subscriptions = state.journalTracker.subscriptions || [];
+    var now = Date.now();
+    var day = 24 * 60 * 60 * 1000;
+    var stale = subscriptions.some(function (item) {
+      var checkedAt = Date.parse(item.last_checked_at || '');
+      return !checkedAt || now - checkedAt >= day;
+    });
+    if (!stale || now - state.journalTrackerAutoRefreshAt < 6 * 60 * 60 * 1000) return;
+    state.journalTrackerAutoRefreshAt = now;
+    setTrackerStatus('发现超过 24 小时未检查的期刊，正在自动更新…', false);
+    journalTrackerRequest({ action: 'refresh' }).then(function (result) {
+      applyJournalTrackerData(result);
+      var failed = (result.results || []).filter(function (item) { return !item.ok; }).length;
+      setTrackerStatus(failed ? failed + ' 个期刊暂时更新失败；其他订阅已更新。' : '期刊订阅已自动更新。', Boolean(failed));
+    }).catch(function (error) {
+      setTrackerStatus((error && error.message) || '期刊自动更新失败，请稍后手动重试。', true);
+    });
+  }
+
   function loadJournalTracker(force) {
     if (state.journalTrackerLoading) return Promise.resolve();
-    if (state.journalTrackerLoaded && !force) { renderJournalTracker(); return Promise.resolve(); }
+    if (state.journalTrackerLoaded && !force) { renderJournalTracker(); autoRefreshStaleJournalTracker(); return Promise.resolve(); }
     state.journalTrackerLoading = true;
     setTrackerStatus('正在载入期刊订阅与最新文章…', false);
     return journalTrackerRequest({ action: 'list' }).then(function (result) {
       applyJournalTrackerData(result);
       setTrackerStatus('', false);
+      autoRefreshStaleJournalTracker();
     }).catch(function (error) {
       setTrackerStatus((error && error.message) || '文献追踪载入失败', true);
       renderJournalTracker();
@@ -5418,10 +5440,39 @@
     setTrackerStatus('', false);
     journalTrackerRequest({ action: 'search', query: query }).then(function (result) {
       var journals = Array.isArray(result.journals) ? result.journals : [];
-      var container = $('#trackerSearchResults');
-      container.hidden = false;
-      container.innerHTML = journals.length ? journals.map(function (journal) { return '<div class="tracker-search-result"><div><b>' + escapeHtml(journal.title || journal.issn) + '</b><span>' + escapeHtml(journal.issn) + (journal.publisher ? ' · ' + escapeHtml(journal.publisher) : '') + '</span></div><button type="button" data-tracker-add="' + escapeHtml(journal.issn) + '">追踪</button></div>'; }).join('') : '<div class="tracker-empty"><b>没有找到期刊</b><span>请检查名称，或改用 ISSN 搜索。</span></div>';
+      renderTrackerJournalCandidates(journals);
     }).catch(function (error) { setTrackerStatus((error && error.message) || '期刊查找失败', true); }).then(function () { formButton.disabled = false; formButton.textContent = '查找'; });
+  }
+
+  function renderTrackerJournalCandidates(journals) {
+    var container = $('#trackerSearchResults');
+    container.hidden = false;
+    container.innerHTML = journals.length ? journals.map(function (journal) { return '<div class="tracker-search-result"><div><b>' + escapeHtml(journal.title || journal.issn) + '</b><span>' + escapeHtml(journal.issn) + (journal.publisher ? ' · ' + escapeHtml(journal.publisher) : '') + '</span></div><button type="button" data-tracker-add="' + escapeHtml(journal.issn) + '">追踪</button></div>'; }).join('') : '<div class="tracker-empty"><b>没有找到期刊</b><span>请检查名称，或改用 ISSN 搜索。</span></div>';
+  }
+
+  function addTrackerJournalDirect() {
+    var query = $('#trackerJournalQuery').value.trim();
+    if (query.length < 2) { toast('请输入期刊全名或 ISSN'); return; }
+    var button = $('#trackerDirectAdd');
+    button.disabled = true;
+    button.textContent = '添加中…';
+    setTrackerStatus('正在匹配期刊并开始获取近期文章…', false);
+    journalTrackerRequest({ action: 'add', query: query, feedUrl: $('#trackerFeedUrl').value.trim() }).then(function (result) {
+      applyJournalTrackerData(result);
+      $('#trackerSearchResults').hidden = true;
+      $('#trackerJournalQuery').value = '';
+      $('#trackerFeedUrl').value = '';
+      setTrackerStatus('', false);
+      toast('期刊已加入追踪，正在按设置自动更新');
+    }).catch(function (error) {
+      var message = (error && error.message) || '直接添加期刊失败';
+      if (message.indexOf('多个期刊') >= 0) {
+        journalTrackerRequest({ action: 'search', query: query }).then(function (result) {
+          renderTrackerJournalCandidates(Array.isArray(result.journals) ? result.journals : []);
+          setTrackerStatus('匹配到多个期刊，请按 ISSN 选择准确的那一本。', false);
+        }).catch(function (searchError) { setTrackerStatus((searchError && searchError.message) || message, true); });
+      } else setTrackerStatus(message, true);
+    }).then(function () { button.disabled = false; button.textContent = '直接添加'; });
   }
 
   function addTrackerJournal(issn, button) {
@@ -5498,6 +5549,7 @@
     });
 
     $('#trackerSearchForm').addEventListener('submit', searchTrackerJournals);
+    $('#trackerDirectAdd').addEventListener('click', addTrackerJournalDirect);
     $('#trackerRefresh').addEventListener('click', refreshJournalTracker);
     $('#trackerSearchResults').addEventListener('click', function (event) { var button = event.target.closest('[data-tracker-add]'); if (button) addTrackerJournal(button.dataset.trackerAdd, button); });
     $('#trackerSubscriptions').addEventListener('click', function (event) { var saveButton = event.target.closest('[data-tracker-feed-save]'); if (saveButton) { saveTrackerFeed(saveButton.dataset.trackerFeedSave, saveButton); return; } var button = event.target.closest('[data-tracker-remove]'); if (button) removeTrackerJournal(button.dataset.trackerRemove); });
