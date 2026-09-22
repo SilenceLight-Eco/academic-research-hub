@@ -82,7 +82,6 @@
     'note-studio': '公众号笔记',
     'prompt-library': '提示词库',
     'research-projects': '研究项目',
-    'data-code': '数据与代码',
     references: '文献与引用',
     'journal-tracker': '文献追踪',
     dashboard: '概览',
@@ -102,7 +101,7 @@
   };
 
   // 浏览器版仅保留研究管理核心功能；已下线的页面即使通过旧书签访问也返回概览。
-  const RETIRED_PANELS = ['literature', 'pdf', 'translations', 'readings', 'frontier', 'hotspots', 'weekly', 'summaries', 'sections', 'news'];
+  const RETIRED_PANELS = ['literature', 'pdf', 'translations', 'readings', 'frontier', 'hotspots', 'weekly', 'summaries', 'sections', 'news', 'data-code'];
 
   // 板块图标（线性 SVG）
   const SECTION_ICONS = {
@@ -178,7 +177,7 @@
   var registering = false;
   var syncTimer = null;
   var academicEditorKind = '';
-  var researchHubKeys = ['research-hub-crossref-email', 'research-hub-crossref-citations-v1', 'research-hub-stages-v1', 'research-hub-fields-v1', 'research-hub-cards-v1', 'research-hub-theme'];
+  var researchHubKeys = ['research-hub-crossref-email', 'research-hub-crossref-citations-v1', 'research-hub-stages-v1', 'research-hub-fields-v1', 'research-hub-cards-v1', 'research-hub-theme', 'research-hub-unassigned-data-code-v1'];
   var autoSaveSlots = {};
   var autoSaveChain = Promise.resolve();
   var autoSaveRunning = 0;
@@ -313,7 +312,6 @@
       note: { endpoint: '/api/note-studio', action: 'purge-all', state: 'noteStudio', response: 'noteStudio', render: renderNoteStudio, label: '笔记' },
       prompt: { endpoint: '/api/prompt-library', action: 'purge-all', state: 'promptLibrary', response: 'promptLibrary', render: renderPromptLibrary, label: '提示词' },
       project: { endpoint: '/api/research-projects', action: 'purge-all', state: 'researchProjects', response: 'researchProjects', render: renderResearchProjects, label: '研究项目' },
-      dataCode: { endpoint: '/api/data-code-library', action: 'purge-all', state: 'dataCodeLibrary', response: 'dataCodeLibrary', render: renderDataCodeLibrary, label: '数据与代码' }
     };
     var bin = bins[kind];
     if (!bin) return;
@@ -820,7 +818,6 @@
     if (panel === 'note-studio') loadNoteStudio();
     if (panel === 'prompt-library') loadPromptLibrary();
     if (panel === 'research-projects') loadResearchProjects();
-    if (panel === 'data-code') loadDataCodeLibrary();
     if (panel === 'references') loadReferenceLibrary();
     if (panel === 'journal-tracker') loadJournalTracker();
     if (panel === 'focus') focusRenderAll();   // 专注面板：进度/统计/记录实时刷新
@@ -6057,13 +6054,6 @@
     $('#projectList').addEventListener('click', function (e) { var restore = e.target.closest('[data-project-restore]'); if (restore) { restoreResearchProject(restore.dataset.projectRestore); return; } var purge = e.target.closest('[data-project-purge]'); if (purge) { purgeResearchProject(purge.dataset.projectPurge); return; } var category = e.target.closest('[data-project-category]'); if (category) { state.projectCategoryFilter = category.dataset.projectCategory; var first = (state.researchProjects.projects || []).filter(function (item) { return state.projectCategoryFilter === 'all' || ((item.category || '通用').trim() || '通用') === state.projectCategoryFilter; })[0]; state.projectId = first ? first.id : null; renderResearchProjects(); return; } var project = e.target.closest('[data-project-id]'); if (!project) return; state.projectId = Number(project.dataset.projectId); renderResearchProjects(); });
     ['projectTitle', 'projectCategory', 'projectStatus', 'projectProgress', 'projectStart', 'projectEnd', 'projectGoal', 'projectMembers', 'projectMilestones', 'projectResources'].forEach(function (id) { $('#' + id).addEventListener('input', function () { renderProjectSummary(); queueResearchProjectAutoSave(); }); });
     $('#projectStatus').addEventListener('change', function () { renderProjectSummary(); queueResearchProjectAutoSave(); });
-    $('#dcNew').addEventListener('click', newDataCodeItem);
-    $('#dcSave').addEventListener('click', saveDataCodeItem);
-    $('#dcDelete').addEventListener('click', trashDataCodeItem);
-    $('#dcTrash').addEventListener('click', function () { state.dataCodeTrashOpen = !state.dataCodeTrashOpen; renderDataCodeLibrary(); });
-    $('#dcList').addEventListener('click', function (e) { var restore = e.target.closest('[data-dc-restore]'); if (restore) { restoreDataCodeItem(restore.dataset.dcRestore); return; } var purge = e.target.closest('[data-dc-purge]'); if (purge) { purgeDataCodeItem(purge.dataset.dcPurge); return; } var category = e.target.closest('[data-dc-category]'); if (category) { state.dataCodeCategoryFilter = category.dataset.dcCategory; var first = (state.dataCodeLibrary.items || []).filter(function (item) { return state.dataCodeCategoryFilter === 'all' || ((item.category || '通用').trim() || '通用') === state.dataCodeCategoryFilter; })[0]; state.dataCodeId = first ? first.id : null; renderDataCodeLibrary(); return; } var item = e.target.closest('[data-dc-id]'); if (!item) return; state.dataCodeId = Number(item.dataset.dcId); renderDataCodeLibrary(); });
-    dataCodeFields().forEach(function (id) { $('#' + id).addEventListener('input', queueDataCodeAutoSave); $('#' + id).addEventListener('change', queueDataCodeAutoSave); });
-    $$('[data-dc-check]').forEach(function (checkbox) { checkbox.addEventListener('change', function () { renderDataCodeProgress(); queueDataCodeAutoSave(); }); });
     $('#refNew').addEventListener('click', newReference);
     $('#refSave').addEventListener('click', saveReference);
     $('#refDelete').addEventListener('click', trashReference);
@@ -6087,8 +6077,14 @@
     $('#kbEditor').addEventListener('input', function (e) { if (e.target.closest('#kbDocTitle, #kbDocContent, #kbRichEditor')) queueKnowledgeAutoSave(); });
     $('#kbEditor').addEventListener('change', function (e) { if (e.target.closest('#kbDocFolder')) queueKnowledgeAutoSave(); });
     window.addEventListener('message', function (event) {
-      if (event.origin !== location.origin || !event.data || event.data.type !== 'academic-research-hub-open-knowledge-base') return;
-      switchPanel('knowledge-base');
+      if (event.origin !== location.origin || !event.data) return;
+      if (event.data.type === 'academic-research-hub-open-knowledge-base') { switchPanel('knowledge-base'); return; }
+      if (event.data.type === 'academic-research-hub-request-data-code-migration' && event.source) {
+        api('/api/data-code-library').then(function (res) {
+          if (!res.ok) return;
+          event.source.postMessage({ type: 'academic-research-hub-data-code-migration', library: res.dataCodeLibrary || { items: [], trash: [] } }, event.origin);
+        }).catch(function () {});
+      }
     });
     window.addEventListener('pagehide', flushAutoSavesOnPageHide);
 

@@ -325,7 +325,7 @@ async function openAlexWorksByDoi(dois: string[]) {
   if (!unique.length) return result;
   const target = new URL("https://api.openalex.org/works");
   target.searchParams.set("filter", `doi:${unique.map((doi) => `https://doi.org/${doi}`).join("|")}`);
-  target.searchParams.set("select", "doi,abstract_inverted_index");
+  target.searchParams.set("select", "doi,title,abstract_inverted_index,authorships,publication_year,primary_location,biblio,cited_by_count");
   target.searchParams.set("per_page", "50");
   const response = await fetch(target, { headers: { Accept: "application/json" } });
   if (!response.ok) return result;
@@ -518,6 +518,75 @@ async function refreshSubscription(subscription: Subscription) {
   }
 }
 
+async function discoverPublishedFromJournal(feedUrl: string, journal: string) {
+  const journalQuery = journal.trim();
+  if (!journalQuery || journalQuery.length > 300) throw new Error("请填写期刊名称或 ISSN（不超过 300 个字符）");
+  let feedItems: Array<Record<string, unknown>> = [];
+  let feedWarning = "";
+  if (feedUrl.trim()) {
+    try { feedItems = await fetchFeed(feedUrl.trim()); }
+    catch (error) { feedWarning = error instanceof Error ? error.message : "RSS/Atom 读取失败"; }
+  }
+
+  let discoverySource = "期刊官网 RSS / Atom";
+  if (!feedItems.length) {
+    discoverySource = "Crossref 后备";
+    const issn = normalizeIssn(journalQuery);
+    const message = issn
+      ? await crossref(`journals/${encodeURIComponent(issn)}/works`, { sort: "published", order: "desc", rows: "40" })
+      : await crossref("works", { "query.container-title": journalQuery, filter: "type:journal-article", sort: "published", order: "desc", rows: "40" });
+    const works = (Array.isArray(message.items) ? message.items : []) as CrossrefWork[];
+    feedItems = works.filter(work => !work.type || work.type === "journal-article").slice(0, 40).map(work => ({
+      title: plainText(Array.isArray(work.title) ? work.title[0] : work.title),
+      link: plainText(work.URL), authors: authorNames(work.author),
+      abstract: plainText(work.abstract), keywords: Array.isArray(work.subject) ? work.subject.map(plainText).filter(Boolean) : [],
+      publication_date: publicationDate(work), doi: normalizeDoi(work.DOI),
+    })).filter(item => item.title);
+  }
+  if (!feedItems.length) throw new Error(feedWarning ? `官网 RSS/Atom 读取失败（${feedWarning}），Crossref 也没有找到文章。` : "该期刊的 RSS/Atom 与 Crossref 均未返回文章。");
+
+  const dois = feedItems.map(item => normalizeDoi(item.doi)).filter(Boolean);
+  const [semanticPapers, openAlexWorks, crossrefFallbacks] = await Promise.all([
+    semanticScholarByDois(dois).catch(() => new Map<string, Record<string, unknown>>()),
+    openAlexWorksByDoi(dois).catch(() => new Map<string, Record<string, unknown>>()),
+    crossrefWorksByDoi(dois).catch(() => new Map<string, CrossrefWork>()),
+  ]);
+  const articles = feedItems.map(item => {
+    const doi = normalizeDoi(item.doi);
+    const semantic = doi ? semanticPapers.get(doi) : undefined;
+    const openAlex = doi ? openAlexWorks.get(doi) : undefined;
+    const fallback = doi ? crossrefFallbacks.get(doi) : undefined;
+    const semanticAuthors = semantic && Array.isArray(semantic.authors) ? semantic.authors.map((author: Record<string, unknown>) => plainText(author.name)).filter(Boolean) : [];
+    const openAlexAuthors = openAlex && Array.isArray(openAlex.authorships) ? openAlex.authorships.map((authorship: Record<string, unknown>) => {
+      const author = authorship.author && typeof authorship.author === "object" ? authorship.author as Record<string, unknown> : {};
+      return plainText(author.display_name);
+    }).filter(Boolean) : [];
+    const rssAuthors = Array.isArray(item.authors) ? item.authors.map(plainText).filter(Boolean) : [];
+    const rssAbstract = plainText(item.abstract);
+    const semanticAbstract = plainText(semantic && semantic.abstract);
+    const openAlexAbstract = reconstructOpenAlexAbstract(openAlex && openAlex.abstract_inverted_index);
+    const crossrefAbstract = plainText(fallback && fallback.abstract);
+    const sources = [discoverySource];
+    if (semantic) sources.push("Semantic Scholar");
+    if (openAlex) sources.push("OpenAlex");
+    if (fallback) sources.push("Crossref");
+    return {
+      title: plainText(item.title || (semantic && semantic.title) || (fallback && (Array.isArray(fallback.title) ? fallback.title[0] : fallback.title))) || "未命名文章",
+      authors: rssAuthors.length ? rssAuthors : (semanticAuthors.length ? semanticAuthors : (openAlexAuthors.length ? openAlexAuthors : authorNames(fallback && fallback.author))),
+      abstract: rssAbstract || semanticAbstract || openAlexAbstract || crossrefAbstract,
+      journal: plainText((Array.isArray(fallback && fallback["container-title"]) ? fallback["container-title"][0] : "") || journalQuery),
+      year: String(item.publication_date || publicationDate(fallback || {}) || "").slice(0, 4),
+      volume: plainText(fallback && fallback.volume), issue: plainText(fallback && fallback.issue), pages: plainText(fallback && fallback.page),
+      doi: doi || null, url: plainText(item.link || (fallback && fallback.URL)) || (doi ? `https://doi.org/${doi}` : ""),
+      keywords: Array.isArray(item.keywords) && item.keywords.length ? item.keywords.map(plainText).filter(Boolean).slice(0, 12) : (Array.isArray(fallback && fallback.subject) ? fallback.subject.map(plainText).filter(Boolean).slice(0, 12) : []),
+      citations: Number(fallback && fallback["is-referenced-by-count"]) || 0,
+      metadata_sources: Array.from(new Set(sources)),
+      discovery_source: discoverySource,
+    };
+  });
+  return { articles, discoverySource, warning: feedWarning || undefined };
+}
+
 async function authenticate(request: Request): Promise<string> {
   const authorization = request.headers.get("authorization") || "";
   if (!authorization || !anonKey) throw new Error("请先登录工作台");
@@ -593,6 +662,11 @@ Deno.serve(async (request: Request) => {
       const publicationName = String(body.publicationName || "");
       const rank = await queryEasyScholarRank(secretKey, publicationName);
       return json(request, { ok: true, rank, source: "EasyScholar Open API", easyScholarVersion: 1, publicationName: publicationName.slice(0, 300), queriedAt: new Date().toISOString() });
+    }
+    if (action === "discover-published") {
+      const feedUrl = String(body.feedUrl || "");
+      const journal = String(body.journal || "");
+      return json(request, { ok: true, ...(await discoverPublishedFromJournal(feedUrl, journal)) });
     }
     if (action === "set-read") {
       const id = String(body.id || "");

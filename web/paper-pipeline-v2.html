@@ -255,6 +255,24 @@ h1 { margin: 8px 0 8px; font-size: 31px; letter-spacing: -.8px; }
 .dev-link:hover { color: #fff; text-decoration: underline; }
 
 .published-toolbar { align-items: center; }
+.research-resources { margin-top: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.research-resources > summary { cursor: pointer; font-weight: 750; color: var(--text); }
+.research-resource-list { display: grid; gap: 12px; margin-top: 12px; }
+.research-resource { padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--field-bg); }
+.research-resource-head { display: flex; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.research-resource-head strong { min-width: 0; overflow-wrap: anywhere; }
+.research-resource-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.research-resource-grid label, .research-resource-wide { display: grid; gap: 4px; color: var(--muted); font-size: 11px; }
+.research-resource input, .research-resource select, .research-resource textarea, .unassigned-resource select { width: 100%; box-sizing: border-box; padding: 7px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--text); font: inherit; font-size: 12px; }
+.research-resource textarea { min-height: 54px; resize: vertical; }
+.research-resource-wide { margin-top: 8px; }
+.research-resource-checks { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; color: var(--muted); font-size: 11px; }
+.research-resource-checks label { display: inline-flex; gap: 4px; align-items: center; }
+.research-resource-actions { display: flex; justify-content: flex-end; margin-top: 10px; }
+.unassigned-resources { margin: 0 0 14px; padding: 14px; border: 1px solid #edc56b; border-radius: 12px; background: #fff9e9; color: #674d12; }
+.unassigned-resources h3 { margin: 0 0 6px; font-size: 14px; }
+.unassigned-resource { display: grid; grid-template-columns: minmax(0, 1fr) minmax(180px, 280px) auto; gap: 8px; align-items: center; padding: 8px 0; border-top: 1px solid rgba(128, 98, 26, .2); }
+@media (max-width: 720px) { .research-resource-grid { grid-template-columns: 1fr; } .unassigned-resource { grid-template-columns: 1fr; } }
 .view-switch { display: inline-flex; padding: 3px; border: 1px solid var(--line); background: #f6f7fa; border-radius: 10px; }
 .view-btn { border: 0; background: transparent; color: var(--muted); padding: 8px 12px; border-radius: 7px; font-size: 12px; font-weight: 700; cursor: pointer; }
 .view-btn.active { background: white; color: var(--text); box-shadow: 0 1px 4px rgba(0,0,0,.06); }
@@ -437,18 +455,35 @@ async function fetchOpenAlexMetadata(normalized) {
   return { title: work.title || "", authors, abstract: abstractFromInvertedIndex(work.abstract_inverted_index), journal: source.display_name || "", year: work.publication_year || "", volume: work.biblio?.volume || "", issue: work.biblio?.issue || "", pages: work.biblio?.first_page && work.biblio?.last_page ? `${work.biblio.first_page}-${work.biblio.last_page}` : (work.biblio?.first_page || ""), doi: normalized, citations: work.cited_by_count || 0, citationSource: "OpenAlex", keywords: [] };
 }
 
-async function fetchSemanticScholarAbstract(normalized) {
-  const endpoint = `https://api.semanticscholar.org/graph/v1/paper/DOI:${encodeURIComponent(normalized)}?fields=abstract`;
+async function fetchSemanticScholarMetadata(normalized) {
+  const endpoint = `https://api.semanticscholar.org/graph/v1/paper/DOI:${encodeURIComponent(normalized)}?fields=title,authors,abstract,year,venue,externalIds`;
   const response = await fetch(endpoint, { headers: { "Accept": "application/json" } });
-  if (!response.ok) return "";
+  if (!response.ok) throw new Error(`Semantic Scholar 查询失败（HTTP ${response.status}）`);
   const paper = await response.json();
-  return typeof paper.abstract === "string" ? paper.abstract.trim() : "";
+  return { title: String(paper.title || "").trim(), authors: Array.isArray(paper.authors) ? paper.authors.map(author => String(author.name || "").trim()).filter(Boolean) : [], abstract: typeof paper.abstract === "string" ? paper.abstract.trim() : "", journal: String(paper.venue || "").trim(), year: paper.year || "", doi: normalizeDoi(paper.externalIds && paper.externalIds.DOI || normalized), keywords: [] };
 }
 
-// 新增已发表论文时，用 DOI 直接补全 Crossref 中公开的书目信息。
+// 已发表论文：Semantic Scholar / OpenAlex 优先补充摘要和作者，Crossref 作为 DOI 元数据后备。
 async function fetchCrossrefMetadata(doi) {
   const normalized = normalizeDoi(doi);
   if (!normalized || normalized.includes("xxxx")) return null;
+  let metadata = { doi: normalized, authors: [], keywords: [] };
+  let semanticAvailable = false, openAlexAvailable = false;
+  try {
+    Object.assign(metadata, await fetchSemanticScholarMetadata(normalized));
+    semanticAvailable = true;
+  } catch (error) { console.info("Semantic Scholar metadata unavailable; trying OpenAlex", error); }
+  try {
+    const openAlex = await fetchOpenAlexMetadata(normalized);
+    Object.keys(openAlex).forEach(field => {
+      if (field === "keywords") return;
+      const current = metadata[field];
+      const isEmpty = current === undefined || current === "" || current === null || (Array.isArray(current) && !current.length);
+      if (isEmpty && openAlex[field] !== undefined) metadata[field] = openAlex[field];
+    });
+    openAlexAvailable = true;
+  } catch (error) { console.info("OpenAlex metadata unavailable", error); }
+
   const email = getCrossrefEmail();
   const endpoint = `https://api.crossref.org/v1/works/${encodeURIComponent(normalized)}${email ? "?mailto=" + encodeURIComponent(email) : ""}`;
   try {
@@ -456,28 +491,26 @@ async function fetchCrossrefMetadata(doi) {
     if (!response.ok) throw new Error(`Crossref 查询失败（HTTP ${response.status}）`);
     const work = (await response.json())?.message;
     if (!work) throw new Error("Crossref 未返回论文信息");
-    const authors = (work.author || []).map(a => [a.given, a.family].filter(Boolean).join(" ")).filter(Boolean);
-    const issued = work.published?.['date-parts']?.[0]?.[0] || work.issued?.['date-parts']?.[0]?.[0] || "";
-    // 仅使用 Crossref 随 DOI 返回的出版商主题词；绝不使用 OpenAlex 的算法 concepts/keywords。
-    const publisherKeywords = Array.isArray(work.subject) ? work.subject.filter(Boolean) : [];
-    const metadata = { title: (work.title || [])[0] || "", authors, abstract: String(work.abstract || "").replace(/<[^>]+>/g, ""), journal: (work['container-title'] || [])[0] || "", year: issued, volume: work.volume || "", issue: work.issue || "", pages: work.page || "", doi: normalized, citations: work['is-referenced-by-count'] || 0, citationSource: "Crossref", keywords: publisherKeywords };
-    // Crossref 经常不收录摘要，额外用 OpenAlex 补全摘要；若出版商未提供主题词，则留空由用户填写。
-    if (!metadata.abstract) {
-      try {
-        const openAlex = await fetchOpenAlexMetadata(normalized);
-        if (!metadata.abstract) metadata.abstract = openAlex.abstract;
-      } catch (openAlexError) { console.warn("OpenAlex enrichment failed:", openAlexError); }
-    }
-    if (!metadata.abstract) {
-      try { metadata.abstract = await fetchSemanticScholarAbstract(normalized); }
-      catch (semanticScholarError) { console.warn("Semantic Scholar enrichment failed:", semanticScholarError); }
-    }
-    return metadata;
+    const fallback = {
+      title: (work.title || [])[0] || "",
+      authors: (work.author || []).map(a => [a.given, a.family].filter(Boolean).join(" ")).filter(Boolean),
+      abstract: String(work.abstract || "").replace(/<[^>]+>/g, ""),
+      journal: (work['container-title'] || [])[0] || "",
+      year: work.published?.['date-parts']?.[0]?.[0] || work.issued?.['date-parts']?.[0]?.[0] || "",
+      volume: work.volume || "", issue: work.issue || "", pages: work.page || "",
+      doi: normalized, citations: work['is-referenced-by-count'] || 0,
+      citationSource: "Crossref", keywords: Array.isArray(work.subject) ? work.subject.filter(Boolean) : []
+    };
+    Object.keys(fallback).forEach(field => {
+      const current = metadata[field];
+      const isEmpty = current === undefined || current === "" || current === null || (Array.isArray(current) && !current.length);
+      if (isEmpty) metadata[field] = fallback[field];
+    });
   } catch (crossrefError) {
-    // Crossref 在部分网络环境可能无法访问；OpenAlex 按 DOI 查询作为浏览器端备用来源。
-    try { return await fetchOpenAlexMetadata(normalized); }
-    catch (openAlexError) { throw crossrefError; }
+    if (!semanticAvailable && !openAlexAvailable) throw crossrefError;
   }
+  if (!metadata.title && !metadata.abstract && !metadata.authors.length) throw new Error("Semantic Scholar、OpenAlex 与 Crossref 均未返回该 DOI 的可用信息");
+  return metadata;
 }
 
 async function updatePublishedCitations(force = false) {
@@ -516,6 +549,11 @@ document.addEventListener("DOMContentLoaded", () => {
     btn.addEventListener("click", () => navigate(btn.dataset.page));
   });
   render();
+  window.addEventListener("message", event => {
+    if (event.origin !== location.origin || !event.data || event.data.type !== "academic-research-hub-data-code-migration") return;
+    importLegacyDataCodeLibrary(event.data.library || {});
+  });
+  if (window.parent && window.parent !== window) window.parent.postMessage({ type: "academic-research-hub-request-data-code-migration" }, location.origin);
 });
 
 function navigate(page) {
@@ -582,6 +620,7 @@ function renderResearch() {
       <select class="select" id="priorityFilter"><option value="">全部优先级</option><option>High</option><option>Medium</option><option>Average</option></select>
       <button class="btn primary" onclick="addPaperCard('research')">＋ 新增论文</button>
     </div>
+    ${renderUnassignedDataCodeResources()}
     <div class="cards-grid" id="results">${DATA.research.map(renderResearchCard).join("")}</div>
   `;
 }
@@ -595,8 +634,112 @@ function renderResearchCard(p) {
     ${renderStageBlock(p)}
     <div class="next-action"><b>NEXT ACTION</b>${editableText(p, "nextAction")}</div>
     <div class="file-path-row"><span class="muted">文件夹</span>${editableText(p, "filePath", "path-text")}<button class="btn" onclick="copyPath('${encodeURIComponent(getPaperField(p, "filePath") || "")}')">复制路径</button></div>
+    ${renderResearchResources(p)}
     <button class="btn flow-btn" title="在研完成后流转到在投论文（仅继承标题、作者与文件夹路径）" onclick="moveToSubmitted('${p._key}')">转移到在投 ➜</button>
   </article>`;
+}
+
+const UNASSIGNED_DATA_CODE_KEY = "research-hub-unassigned-data-code-v1";
+function getUnassignedDataCodeResources() {
+  try { const value = JSON.parse(localStorage.getItem(UNASSIGNED_DATA_CODE_KEY) || "[]"); return Array.isArray(value) ? value : []; }
+  catch (e) { return []; }
+}
+function saveUnassignedDataCodeResources(items) {
+  try { localStorage.setItem(UNASSIGNED_DATA_CODE_KEY, JSON.stringify(items)); } catch (e) {}
+}
+function normalizeResourceTitle(value) { return String(value || "").trim().toLowerCase().replace(/\s+/g, " "); }
+function addMigratedResourceToPaper(paper, item) {
+  const resources = (getPaperField(paper, "dataCodeResources") || []).slice();
+  if (resources.some(resource => String(resource.legacyId || "") === String(item.id))) return false;
+  resources.push({
+    id: "legacy-" + String(item.id), legacyId: item.id,
+    title: item.title || "未命名数据资源", category: item.category || "通用",
+    kind: item.kind || "数据集", projectId: item.projectId || "", paperTitle: item.paperTitle || getPaperField(paper, "title") || "",
+    source: item.source || "", coverage: item.coverage || "",
+    version: item.version || "v1.0", environment: item.environment || "", location: item.location || "",
+    description: item.description || "", variables: item.variables || "", runOrder: item.runOrder || "",
+    checks: item.checks && typeof item.checks === "object" ? item.checks : {}
+  });
+  setPaperField(paper, "dataCodeResources", resources);
+  return true;
+}
+function importLegacyDataCodeLibrary(library) {
+  const items = Array.isArray(library && library.items) ? library.items : [];
+  const pending = getUnassignedDataCodeResources();
+  const pendingIds = new Set(pending.map(item => String(item.legacyId)));
+  const resolvedIds = new Set();
+  let changed = false;
+  items.forEach(item => {
+    if (!item || item.id == null) return;
+    const title = normalizeResourceTitle(item.paperTitle);
+    const match = title && (DATA.research || []).find(p => normalizeResourceTitle(getPaperField(p, "title")) === title);
+    if (match) { changed = addMigratedResourceToPaper(match, item) || changed; resolvedIds.add(String(item.id)); }
+    else if (!pendingIds.has(String(item.id))) {
+      pending.push({ ...item, legacyId: item.id });
+      pendingIds.add(String(item.id));
+      changed = true;
+    }
+  });
+  const remainingPending = pending.filter(item => !resolvedIds.has(String(item.legacyId)));
+  if (remainingPending.length !== pending.length) changed = true;
+  if (changed) saveUnassignedDataCodeResources(remainingPending);
+  if (changed && currentPage === "research") render();
+}
+function renderUnassignedDataCodeResources() {
+  const items = getUnassignedDataCodeResources();
+  if (!items.length) return "";
+  const options = (DATA.research || []).map(p => `<option value="${escapeHtml(p._key)}">${escapeHtml(getPaperField(p, "title") || "未命名论文")}</option>`).join("");
+  return `<section class="unassigned-resources"><h3>待关联的旧数据与代码（${items.length}）</h3><div class="muted">这些旧记录没有匹配到论文标题，已保留在这里；请选择对应的在研论文进行归档。</div>${items.map(item => `<div class="unassigned-resource"><strong>${escapeHtml(item.title || "未命名资源")} · ${escapeHtml(item.kind || "数据集")}</strong><select id="legacy-resource-paper-${escapeHtml(item.legacyId)}"><option value="">选择在研论文</option>${options}</select><button class="btn" type="button" onclick="assignLegacyDataCodeResource('${escapeHtml(item.legacyId)}')" ${options ? "" : "disabled"}>关联</button></div>`).join("")}</section>`;
+}
+function assignLegacyDataCodeResource(legacyId) {
+  const item = getUnassignedDataCodeResources().find(resource => String(resource.legacyId) === String(legacyId));
+  const select = document.getElementById("legacy-resource-paper-" + legacyId);
+  const paper = select && findPaperByKey(select.value);
+  if (!item || !paper || !(DATA.research || []).some(candidate => pkey(candidate) === pkey(paper))) { alert("请选择一篇在研论文后再关联。"); return; }
+  addMigratedResourceToPaper(paper, item);
+  saveUnassignedDataCodeResources(getUnassignedDataCodeResources().filter(resource => String(resource.legacyId) !== String(legacyId)));
+  render();
+}
+function renderResearchResources(paper) {
+  const resources = getPaperField(paper, "dataCodeResources") || [];
+  const key = String(pkey(paper));
+  const rows = resources.map(resource => {
+    const id = String(resource.id || "");
+  const field = (name, label, value, type = "input") => `<label>${label}${type === "textarea" ? `<textarea onchange="updateResearchResource('${key}','${id}','${name}',this.value)">${escapeHtml(value || "")}</textarea>` : `<input value="${escapeHtml(value || "")}" onchange="updateResearchResource('${key}','${id}','${name}',this.value)">`}</label>`;
+    const checks = resource.checks || {};
+    return `<section class="research-resource"><div class="research-resource-head"><strong>${escapeHtml(resource.title || "未命名资源")}</strong><button class="stage-tool" title="删除资源" onclick="deleteResearchResource('${key}','${id}')">×</button></div><div class="research-resource-grid">${field("title", "资源名称", resource.title)}${field("category", "分类", resource.category)}<label>类型<select onchange="updateResearchResource('${key}','${id}','kind',this.value)">${["数据集", "分析代码", "复现包"].map(kind => `<option ${resource.kind === kind ? "selected" : ""}>${kind}</option>`).join("")}</select></label>${field("version", "版本", resource.version)}${field("source", "数据来源或代码仓库", resource.source)}${field("coverage", "时间与样本范围", resource.coverage)}${field("environment", "运行环境", resource.environment)}${field("location", "文件位置", resource.location)}</div>${field("description", "说明", resource.description, "textarea")}${field("variables", "关键变量", resource.variables, "textarea")}${field("runOrder", "运行顺序", resource.runOrder, "textarea")}<div class="research-resource-checks">${[["raw", "原始数据已保留"], ["clean", "清洗脚本可运行"], ["env", "环境与依赖已记录"], ["output", "结果可重新生成"], ["readme", "README 已完成"]].map(([check, label]) => `<label><input type="checkbox" ${checks[check] ? "checked" : ""} onchange="updateResearchResourceCheck('${key}','${id}','${check}',this.checked)">${label}</label>`).join("")}</div></section>`;
+  }).join("");
+  return `<details class="research-resources"><summary>数据与代码 · ${resources.length} 项</summary><div class="research-resource-list">${rows || `<div class="muted">此论文还没有关联数据或代码。</div>`}<button class="btn" type="button" onclick="addResearchResource('${key}')">＋ 添加数据 / 代码资源</button></div></details>`;
+}
+function updateResearchResources(paper, resources) { setPaperField(paper, "dataCodeResources", resources); render(); }
+function addResearchResource(key) {
+  const paper = findPaperByKey(key);
+  if (!paper || !(DATA.research || []).some(candidate => pkey(candidate) === pkey(paper))) return;
+  const resources = (getPaperField(paper, "dataCodeResources") || []).slice();
+  resources.push({ id: "dc-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), title: "新数据资源", category: "未分类", kind: "数据集", version: "v1.0", source: "", coverage: "", environment: "", location: "", description: "", variables: "", runOrder: "", checks: {} });
+  updateResearchResources(paper, resources);
+}
+function updateResearchResource(key, id, field, value) {
+  const paper = findPaperByKey(key);
+  if (!paper) return;
+  const resources = (getPaperField(paper, "dataCodeResources") || []).map(resource => String(resource.id) === String(id) ? { ...resource, [field]: value } : resource);
+  setPaperField(paper, "dataCodeResources", resources);
+  if (field === "title") {
+    const input = document.activeElement;
+    const heading = input && input.closest(".research-resource")?.querySelector(".research-resource-head strong");
+    if (heading) heading.textContent = value || "未命名资源";
+  }
+}
+function updateResearchResourceCheck(key, id, check, value) {
+  const paper = findPaperByKey(key);
+  if (!paper) return;
+  const resources = (getPaperField(paper, "dataCodeResources") || []).map(resource => String(resource.id) === String(id) ? { ...resource, checks: { ...(resource.checks || {}), [check]: value } } : resource);
+  setPaperField(paper, "dataCodeResources", resources);
+}
+function deleteResearchResource(key, id) {
+  const paper = findPaperByKey(key);
+  if (!paper || !confirm("确定删除这条数据 / 代码资源吗？")) return;
+  updateResearchResources(paper, (getPaperField(paper, "dataCodeResources") || []).filter(resource => String(resource.id) !== String(id)));
 }
 
 const renderResearchCardBase = renderResearchCard;
@@ -641,10 +784,11 @@ function renderPublished() {
         <button class="view-btn ${publishedViewMode === "references" ? "active" : ""}" onclick="setPublishedViewMode('references')">引用列表</button>
       </div>
       <button class="btn primary" id="refreshCitations" onclick="updatePublishedCitations(false)">更新 Crossref 引用</button>
+      <button class="btn" onclick="addPublishedFromJournalFeed()">从期刊 RSS / Atom 添加</button>
       <button class="btn" onclick="exportPublications()" title="将已发表论文导出为静态网页（数据写死，可直接分享）">⬇ 一键导出</button>
       <button class="btn primary" onclick="addPaperCard('published')">＋ 新增论文</button>
     </div>
-    <div class="helper-note">卡片预览保留论文详情；引用列表按 GB/T 7714-2025 生成顺序编码参考文献，并将中文发表与英文发表分栏展示。英文论文根据 DOI 查询 Crossref，中文论文仅保留手工维护的引用次数。</div>
+    <div class="helper-note">从期刊官网 RSS / Atom 优先发现文章；Semantic Scholar 与 OpenAlex 补充作者和摘要；Crossref 用于 RSS 不可用时发现文章，并补充 DOI 等书目信息。引用列表按 GB/T 7714-2025 生成。</div>
     <div class="email-row"><span class="muted">Crossref 联系邮箱</span><input class="email-input" id="crossrefEmailInput" placeholder="your-email@example.com（公开分享前请填写，用于向 Crossref 礼貌获取引用数据）" value="${escapeHtml(getCrossrefEmail())}" onchange="setCrossrefEmail(this.value)" /><span class="muted email-status" id="emailStatus">${getCrossrefEmail() ? "✓ 已保存" : "未设置"}</span></div><div class="reference-copy-row"><span class="copy-status" id="copyReferenceStatus"></span><button class="btn primary" onclick="copyAllPublishedReferences()">一键复制当前引用列表</button></div>
     ${publishedViewMode === "cards" ? `<div class="cards-grid" id="results">${DATA.published.map(renderPublishedCard).join("")}</div>` : renderPublishedReferences()}
   `;
@@ -1287,6 +1431,49 @@ function addPaperCard(kind) {
   }
 }
 
+let journalDiscoveryClient = null;
+async function addPublishedFromJournalFeed() {
+  const journal = prompt("输入期刊名称或 ISSN（例如：Nature 或 0028-0836）：");
+  if (!journal || !journal.trim()) return;
+  const feedUrl = prompt("输入期刊官网 RSS / Atom 地址。若没有可用地址，请留空，系统会改用 Crossref 搜索：", "");
+  if (feedUrl === null) return;
+  const button = document.querySelector("button[onclick=\"addPublishedFromJournalFeed()\"]");
+  if (button) { button.disabled = true; button.textContent = "正在查找…"; }
+  try {
+    if (!window.supabase) throw new Error("云端检索客户端尚未加载，请刷新页面后重试。");
+    if (!journalDiscoveryClient) journalDiscoveryClient = window.supabase.createClient("https://gqopwqpysoixcgdacurx.supabase.co", "sb_publishable_83K9_IrwPtRpagaYZqEvxw_nOsYpEZs");
+    const { data: sessionData, error: sessionError } = await journalDiscoveryClient.auth.getSession();
+    if (sessionError) throw sessionError;
+    if (!sessionData.session) throw new Error("请先登录论文管线的邮箱同步账号，再使用期刊官网导入。");
+    const { data, error } = await journalDiscoveryClient.functions.invoke("journal-tracker", { body: { action: "discover-published", journal: journal.trim(), feedUrl: feedUrl.trim() } });
+    if (error) throw new Error(error.message || "期刊检索服务调用失败");
+    if (!data || !data.ok || !Array.isArray(data.articles) || !data.articles.length) throw new Error(data && data.error || "没有找到可导入的文章。");
+    const articles = data.articles.slice(0, 30);
+    const choices = articles.map((item, index) => `${index + 1}. ${item.title} (${item.year || "年份未知"})\n   ${(item.authors || []).slice(0, 4).join(", ")}`).join("\n");
+    const selection = prompt(`来源：${data.discoverySource || "期刊 RSS / Crossref"}。输入编号添加一篇文章（取消可退出）：\n\n${choices}`, "1");
+    if (selection === null) return;
+    const selected = articles[Number(selection) - 1];
+    if (!selected) throw new Error("编号无效，请重新操作。");
+    const normalizedDoi = normalizeDoi(selected.doi || "");
+    const duplicate = (DATA.published || []).some(p => (normalizedDoi && normalizeDoi(p.doi) === normalizedDoi) || normalizeResourceTitle(p.title) === normalizeResourceTitle(selected.title));
+    if (duplicate) throw new Error("这篇论文已经在已发表列表中。");
+    const st = getCardStore();
+    st.published = st.published || {};
+    const key = "A" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const paper = Object.assign(NEW_CARD_TEMPLATES.published(), selected, { _key: key, doi: normalizedDoi, citationSource: selected.citations ? "Crossref" : "手工录入" });
+    st.published.added = st.published.added || {};
+    st.published.added[key] = paper;
+    st.published.order = getEffectiveList("published").map(item => item._key).concat(key);
+    saveCardStore(st);
+    syncLists(); render(); updateStatusBar();
+    if (data.warning) alert(`文章已添加。提示：${data.warning}`);
+  } catch (error) {
+    alert((error && error.message) || "期刊文章导入失败。");
+  } finally {
+    if (button && button.isConnected) { button.disabled = false; button.textContent = "从期刊 RSS / Atom 添加"; }
+  }
+}
+
 async function importPublishedMetadata(key) {
   const p = findPaperByKey(key);
   if (!p) return;
@@ -1823,7 +2010,7 @@ function showNotes(id) {
   const STORE_KEYS = [
     "research-hub-crossref-email", "research-hub-crossref-citations-v1",
     "research-hub-stages-v1", "research-hub-fields-v1", "research-hub-cards-v1",
-    "research-hub-theme"
+    "research-hub-theme", "research-hub-unassigned-data-code-v1"
   ];
   const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
   let session = null;
