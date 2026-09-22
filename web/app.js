@@ -5392,6 +5392,8 @@
     var unreadCount = articles.filter(function (article) { return article.is_read !== true; }).length;
     var unreadLabel = $('#trackerUnreadCount');
     if (unreadLabel) { unreadLabel.textContent = unreadCount + ' 篇未读'; unreadLabel.hidden = unreadCount === 0; }
+    var markAllReadButton = $('#trackerMarkAllRead');
+    if (markAllReadButton) markAllReadButton.disabled = unreadCount === 0;
 
     $('#trackerSubscriptions').innerHTML = subscriptions.length ? subscriptions.map(function (item) {
       var status = item.last_error ? item.last_error : (item.last_success_at ? '更新于 ' + trackerDateLabel(item.last_success_at, true) : '等待首次检查');
@@ -5564,6 +5566,21 @@
     });
   }
 
+  function markAllTrackedArticlesRead(button) {
+    if (!(state.journalTracker.articles || []).some(function (article) { return article.is_read !== true; })) return;
+    button.disabled = true;
+    button.textContent = '正在标记…';
+    journalTrackerRequest({ action: 'mark-all-read' }).then(function (result) {
+      applyJournalTrackerData(result);
+      toast('已将所有追踪文章标记为已读');
+    }).catch(function (error) {
+      toast((error && error.message) || '批量标记失败');
+    }).then(function () {
+      var current = $('#trackerMarkAllRead');
+      if (current) { current.disabled = !(state.journalTracker.articles || []).some(function (article) { return article.is_read !== true; }); current.textContent = '一键全部已读'; }
+    });
+  }
+
   // ===== 事件绑定 =====
   function bindEvents() {
     // 导航
@@ -5574,6 +5591,7 @@
     $('#trackerSearchForm').addEventListener('submit', searchTrackerJournals);
     $('#trackerDirectAdd').addEventListener('click', addTrackerJournalDirect);
     $('#trackerRefresh').addEventListener('click', refreshJournalTracker);
+    $('#trackerMarkAllRead').addEventListener('click', function () { markAllTrackedArticlesRead(this); });
     $('#trackerSearchResults').addEventListener('click', function (event) { var button = event.target.closest('[data-tracker-add]'); if (button) addTrackerJournal(button.dataset.trackerAdd, button); });
     $('#trackerSubscriptions').addEventListener('click', function (event) { var selectButton = event.target.closest('[data-tracker-select-journal]'); if (selectButton) { state.journalTrackerFilter = selectButton.dataset.trackerSelectJournal; renderJournalTracker(); $('#trackerArticles').scrollIntoView({ behavior: 'smooth', block: 'start' }); return; } var saveButton = event.target.closest('[data-tracker-feed-save]'); if (saveButton) { saveTrackerFeed(saveButton.dataset.trackerFeedSave, saveButton); return; } var button = event.target.closest('[data-tracker-remove]'); if (button) removeTrackerJournal(button.dataset.trackerRemove); });
     $('#trackerArticles').addEventListener('click', function (event) { var readButton = event.target.closest('[data-tracker-read-toggle]'); if (readButton) { setTrackedArticleRead(readButton.dataset.trackerReadToggle, readButton.dataset.trackerIsRead !== 'true', readButton); return; } var button = event.target.closest('[data-tracker-save-ref]'); if (button) saveTrackedArticleToLibrary(button.dataset.trackerSaveRef); });

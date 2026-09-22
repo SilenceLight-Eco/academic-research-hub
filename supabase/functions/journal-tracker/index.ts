@@ -8,7 +8,7 @@ function corsHeaders(request: Request): Record<string, string> {
   const origin = request.headers.get("origin") || "";
   return {
     "Access-Control-Allow-Origin": allowedOrigins.has(origin) ? origin : "https://silencelight-eco.github.io",
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cron-secret",
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cron-secret, x-retry-count, traceparent, tracestate, baggage",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     Vary: "Origin",
   };
@@ -186,6 +186,57 @@ function publicHttpsUrl(value: unknown): URL {
     throw new Error("RSS 地址必须是公开的 HTTPS 期刊网站链接");
   }
   return url;
+}
+
+async function fetchArticlePageAbstract(value: unknown): Promise<string> {
+  let target = publicHttpsUrl(value);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const response = await fetch(target, {
+        headers: { Accept: "text/html,application/xhtml+xml;q=0.9", "User-Agent": "AcademicResearchHub/1.0 (metadata reader)" },
+        redirect: "manual",
+        signal: controller.signal,
+      });
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get("location");
+        if (!location) return "";
+        target = publicHttpsUrl(new URL(location, target).toString());
+        continue;
+      }
+      if (!response.ok || !/^text\/html|application\/xhtml\+xml/i.test(response.headers.get("content-type") || "")) return "";
+      const html = await readFeedBody(response);
+      const document = new DOMParser().parseFromString(html, "text/html");
+      const metaAbstract = (names: string[]) => {
+        for (const name of names) {
+          const meta = document.querySelector(`meta[name="${name}" i], meta[property="${name}" i]`);
+          const content = plainText(meta?.getAttribute("content"));
+          if (content.length >= 40) return content.slice(0, 20_000);
+        }
+        return "";
+      };
+      const jsonLd = Array.from(document.querySelectorAll('script[type="application/ld+json"]')).map((script) => {
+        try {
+          const value = JSON.parse(script.textContent || "{}");
+          const records = Array.isArray(value) ? value : [value];
+          const record = records.find((item) => item && typeof item.abstract === "string");
+          return plainText(record?.abstract);
+        } catch { return ""; }
+      }).find((value) => value.length >= 40) || "";
+      const abstractNode = document.querySelector('[id="abstract" i], [id="abstracts" i], [class*="abstract" i], [role="doc-abstract"]');
+      const sectionAbstract = plainText(abstractNode?.textContent).replace(/^abstract\s*/i, "");
+      return metaAbstract(["citation_abstract", "dc.description", "dc.abstract", "abstract"])
+        || jsonLd
+        || (sectionAbstract.length >= 40 ? sectionAbstract.slice(0, 20_000) : "")
+        || metaAbstract(["description", "og:description"]);
+    }
+  } catch {
+    return "";
+  } finally {
+    clearTimeout(timeout);
+  }
+  return "";
 }
 
 async function fetchFeed(feedUrl: string): Promise<Array<Record<string, unknown>>> {
@@ -378,6 +429,21 @@ async function refreshSubscription(subscription: Subscription) {
       openAlexWorksByDoi(dois).catch(() => new Map<string, Record<string, unknown>>()),
       crossrefWorksByDoi(dois),
     ]);
+    const pageAbstracts = new Map<string, string>();
+    const pageCandidates = feedItems.filter((item) => {
+      const doi = normalizeDoi(item.doi);
+      const semantic = doi ? semanticPapers.get(doi) : undefined;
+      const openAlex = doi ? openAlexWorks.get(doi) : undefined;
+      const fallback = doi ? crossrefFallbacks.get(doi) : undefined;
+      return !plainText(item.abstract) && !plainText(semantic?.abstract)
+        && !reconstructOpenAlexAbstract(openAlex?.abstract_inverted_index)
+        && !plainText(fallback?.abstract) && /^https:\/\//i.test(String(item.link || ""));
+    }).slice(0, 12);
+    for (let offset = 0; offset < pageCandidates.length; offset += 4) {
+      const batch = pageCandidates.slice(offset, offset + 4);
+      const abstracts = await Promise.all(batch.map((item) => fetchArticlePageAbstract(item.link).catch(() => "")));
+      batch.forEach((item, index) => { if (abstracts[index]) pageAbstracts.set(String(item.link), abstracts[index]); });
+    }
     const rows = feedItems.map((item) => {
       const doi = normalizeDoi(item.doi);
       const semantic = doi ? semanticPapers.get(doi) : undefined;
@@ -393,7 +459,8 @@ async function refreshSubscription(subscription: Subscription) {
       const semanticAbstract = plainText(semantic && semantic.abstract);
       const openAlexAbstract = reconstructOpenAlexAbstract(openAlex && openAlex.abstract_inverted_index);
       const crossrefAbstract = plainText(fallback && fallback.abstract);
-      const abstract = rssAbstract || semanticAbstract || openAlexAbstract || crossrefAbstract;
+      const pageAbstract = pageAbstracts.get(String(item.link || "")) || "";
+      const abstract = rssAbstract || semanticAbstract || openAlexAbstract || crossrefAbstract || pageAbstract;
       const rssKeywords = Array.isArray(item.keywords) ? item.keywords.map(plainText).filter(Boolean).slice(0, 12) : [];
       const crossrefSubjects = fallback && Array.isArray(fallback.subject) ? fallback.subject.map(plainText).filter(Boolean).slice(0, 12) : [];
       const semanticFields = semantic && Array.isArray(semantic.s2FieldsOfStudy)
@@ -418,7 +485,7 @@ async function refreshSubscription(subscription: Subscription) {
         title,
         authors,
         abstract,
-        abstract_source: rssAbstract ? "期刊官网 RSS" : (semanticAbstract ? "Semantic Scholar" : (openAlexAbstract ? "OpenAlex" : (crossrefAbstract ? "Crossref" : ""))),
+        abstract_source: rssAbstract ? "期刊官网 RSS" : (semanticAbstract ? "Semantic Scholar" : (openAlexAbstract ? "OpenAlex" : (crossrefAbstract ? "Crossref" : (pageAbstract ? "文章原文页面" : "")))),
         keywords,
         keyword_source: keywordSource,
         publication_date: date,
@@ -492,6 +559,15 @@ Deno.serve(async (request: Request) => {
         body: JSON.stringify({ is_read: isRead, read_at: isRead ? updatedAt : null, updated_at: updatedAt }),
       });
       if (!Array.isArray(updated) || updated.length === 0) return json(request, { ok: false, error: "找不到这篇追踪文章" }, 404);
+      return json(request, { ok: true, ...(await listForUser(userId)) });
+    }
+    if (action === "mark-all-read") {
+      const updatedAt = new Date().toISOString();
+      await rest(`journal_articles?user_id=eq.${encodeURIComponent(userId)}&is_read=eq.false`, {
+        method: "PATCH",
+        headers: { Prefer: "return=minimal" },
+        body: JSON.stringify({ is_read: true, read_at: updatedAt, updated_at: updatedAt }),
+      });
       return json(request, { ok: true, ...(await listForUser(userId)) });
     }
     if (action === "search") {
