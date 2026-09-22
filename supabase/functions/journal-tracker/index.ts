@@ -379,7 +379,18 @@ async function listSubscriptions(userId?: string): Promise<Subscription[]> {
   return Array.isArray(rows) ? rows as Subscription[] : [];
 }
 
+async function purgeExpiredReadArticles(userId?: string) {
+  const cutoff = new Date(Date.now() - 3 * 86400_000).toISOString();
+  const userFilter = userId ? `user_id=eq.${encodeURIComponent(userId)}&` : "";
+  const removed = await rest(`journal_articles?${userFilter}is_read=eq.true&read_at=lt.${encodeURIComponent(cutoff)}&select=id`, {
+    method: "DELETE",
+    headers: { Prefer: "return=representation" },
+  });
+  return Array.isArray(removed) ? removed.length : 0;
+}
+
 async function listForUser(userId: string) {
+  await purgeExpiredReadArticles(userId);
   const subscriptions = await listSubscriptions(userId);
   const articles = await rest(`journal_articles?user_id=eq.${encodeURIComponent(userId)}&select=*&order=publication_date.desc.nullslast,discovered_at.desc&limit=300`);
   return { subscriptions, articles: Array.isArray(articles) ? articles : [] };
@@ -650,10 +661,11 @@ Deno.serve(async (request: Request) => {
     if (action === "cron") {
       const configured = Deno.env.get("JOURNAL_TRACKER_CRON_SECRET") || "";
       if (!configured || request.headers.get("x-cron-secret") !== configured) return json(request, { ok: false, error: "定时任务凭证无效" }, 401);
+      const cleaned = await purgeExpiredReadArticles();
       const subscriptions = (await listSubscriptions()).filter((item) => item.enabled).slice(0, 100);
       const results = [];
       for (const subscription of subscriptions) results.push(await refreshSubscription(subscription));
-      return json(request, { ok: true, checked: results.length, results });
+      return json(request, { ok: true, checked: results.length, cleanedReadArticles: cleaned, results });
     }
 
     const userId = await authenticate(request);
