@@ -10,7 +10,7 @@
 4. 选择本项目中的 `zotero-bridge` 文件夹。
 5. 刷新学术工作台，在文献追踪的文章详情或文章卡片中点击“导入桌面 Zotero”。
 
-成功时网页会收到 Connector 的实际 HTTP 响应并显示确认；未安装扩展或 Zotero 未运行时不会误报成功。若无法连接，点击“下载 RIS”，再在 Zotero 里选择“文件 → 导入”。
+成功时网页会收到 Connector 的实际 HTTP 响应并显示确认；未安装扩展或 Zotero 未运行时不会误报成功。若无法连接，请确认 Zotero Connector 正在运行，并在 `chrome://extensions` 重新加载扩展后刷新工作台。
 
 ## 安全范围
 

@@ -5560,146 +5560,6 @@
     badge.hidden = !unreadCount || state.panel === 'journal-tracker';
   }
 
-  var trackerTitleTranslations = Object.create(null);
-  var trackerTranslationPending = Object.create(null);
-  var trackerTranslationQueue = [];
-  var trackerTranslationActive = 0;
-  var trackerTranslationCacheKey = 'academic-workbench-tracker-title-zh-v2';
-  var trackerTranslationSettingsKey = 'academic-workbench-title-translation-settings-v1';
-  try {
-    trackerTitleTranslations = JSON.parse(localStorage.getItem(trackerTranslationCacheKey) || '{}') || Object.create(null);
-    var legacyTitleTranslations = JSON.parse(localStorage.getItem('academic-workbench-tracker-title-zh-v1') || '{}') || {};
-    Object.keys(legacyTitleTranslations).forEach(function (key) { if (!trackerTitleTranslations[key]) trackerTitleTranslations[key] = Object.assign({ provider: 'mymemory' }, legacyTitleTranslations[key]); });
-  } catch (_) { trackerTitleTranslations = Object.create(null); }
-  function trackerTranslationSettings() {
-    try { var saved = JSON.parse(localStorage.getItem(trackerTranslationSettingsKey) || '{}') || {}; return { provider: saved.provider || 'mymemory', niutrans: Object.assign({}, saved.niutrans || {}), deepl: Object.assign({}, saved.deepl || {}) }; }
-    catch (_) { return { provider: 'mymemory', niutrans: {}, deepl: {} }; }
-  }
-  function trackerTranslationReady(settings) {
-    if (settings.provider === 'niutrans') return Boolean(settings.niutrans && settings.niutrans.appId && settings.niutrans.apiKey && settings.niutrans.apiSecret);
-    if (settings.provider === 'deepl') return Boolean(settings.deepl && settings.deepl.apiKey);
-    return true;
-  }
-  function looksLikeEnglishTitle(title) { return /[A-Za-z]/.test(title || '') && !/[\u3400-\u9fff]/.test(title || ''); }
-  function getTrackerTitleTranslation(article) {
-    var cached = trackerTitleTranslations[String(article.id)];
-    var provider = trackerTranslationSettings().provider;
-    return cached && cached.source === article.title && (cached.provider || 'mymemory') === provider ? cached.text : '';
-  }
-  function translateTrackerArticleTitles(articles) {
-    var settings = trackerTranslationSettings();
-    if (!trackerTranslationReady(settings)) {
-      articles.forEach(function (article) {
-        if (!article.title || !looksLikeEnglishTitle(article.title)) return;
-        var targets = document.querySelectorAll('[data-tracker-title-translation="' + CSS.escape(String(article.id)) + '"]');
-        targets.forEach(function (target) {
-          target.textContent = settings.provider === 'niutrans' ? '请先在“翻译设置”填写完整的小牛 API 信息' : '请先在“翻译设置”填写 DeepL API Key';
-          target.classList.add('is-translation-error');
-          target.hidden = false;
-        });
-      });
-      return;
-    }
-    articles.forEach(function (article) {
-      var id = String(article.id || '');
-      var key = id + ':' + settings.provider;
-      if (!id || !article.title || !looksLikeEnglishTitle(article.title) || getTrackerTitleTranslation(article) || trackerTranslationPending[key]) return;
-      trackerTranslationPending[key] = true;
-      trackerTranslationQueue.push({ id: id, key: key, title: article.title, settings: JSON.parse(JSON.stringify(settings)) });
-      var targets = document.querySelectorAll('[data-tracker-title-translation="' + CSS.escape(id) + '"]');
-      targets.forEach(function (target) {
-        target.textContent = '正在翻译…';
-        target.classList.remove('is-translation-error');
-        target.hidden = false;
-      });
-    });
-    pumpTrackerTitleTranslations();
-  }
-  function translateTrackerText(title, settings) {
-    var credentials = settings.provider === 'niutrans' ? settings.niutrans : (settings.provider === 'deepl' ? settings.deepl : {});
-    return journalTrackerRequest({ action: 'translate-title', provider: settings.provider, text: title, credentials: credentials || {} }).then(function (result) {
-      if (!result.translation) throw new Error('翻译服务没有返回译文');
-      return result.translation;
-    });
-  }
-  function pumpTrackerTitleTranslations() {
-    while (trackerTranslationActive < 2 && trackerTranslationQueue.length) {
-      (function (job) {
-        trackerTranslationActive += 1;
-        translateTrackerText(job.title, job.settings)
-          .then(function (translated) {
-            var targets = document.querySelectorAll('[data-tracker-title-translation="' + CSS.escape(job.id) + '"]');
-            if (!translated || translated.toLowerCase() === job.title.toLowerCase()) {
-              if (trackerTranslationSettings().provider === job.settings.provider) targets.forEach(function (target) { target.textContent = '翻译服务未返回中文译文'; target.classList.add('is-translation-error'); target.hidden = false; });
-              return;
-            }
-            trackerTitleTranslations[job.id] = { source: job.title, text: translated, provider: job.settings.provider };
-            try { localStorage.setItem(trackerTranslationCacheKey, JSON.stringify(trackerTitleTranslations)); } catch (_) {}
-            if (trackerTranslationSettings().provider === job.settings.provider) targets.forEach(function (target) { target.textContent = translated; target.classList.remove('is-translation-error'); target.hidden = false; });
-          }).catch(function (error) {
-            var targets = document.querySelectorAll('[data-tracker-title-translation="' + CSS.escape(job.id) + '"]');
-            if (trackerTranslationSettings().provider === job.settings.provider) targets.forEach(function (target) { target.textContent = '翻译失败：' + ((error && error.message) || '请检查服务设置'); target.classList.add('is-translation-error'); target.hidden = false; });
-          }).then(function () {
-            trackerTranslationActive -= 1;
-            delete trackerTranslationPending[job.key];
-            pumpTrackerTitleTranslations();
-          });
-      })(trackerTranslationQueue.shift());
-    }
-  }
-  function updateTrackerTranslationProviderFields() {
-    var provider = $('#trackerTranslationProvider').value;
-    $$('.tracker-translation-provider-fields').forEach(function (fields) { fields.hidden = fields.dataset.translationProviderFields !== provider; });
-    var help = $('#trackerTranslationHelp');
-    help.textContent = provider === 'niutrans' ? '小牛官方接口需 App ID、API Key 和 API Secret；由 Supabase 后端签名转发。' : (provider === 'deepl' ? 'DeepL API Key 将通过 Supabase 后端转发；Free/Pro 地址按上方 API 类型选择。' : 'MyMemory 无需密钥；经 Supabase 后端请求，避免浏览器跨域限制；免费额度和服务稳定性由服务商决定。');
-  }
-  function openTrackerTranslationSettings() {
-    var settings = trackerTranslationSettings();
-    $('#trackerTranslationProvider').value = settings.provider;
-    $('#trackerNiuAppId').value = (settings.niutrans && settings.niutrans.appId) || '';
-    $('#trackerNiuApiKey').value = (settings.niutrans && settings.niutrans.apiKey) || '';
-    $('#trackerNiuApiSecret').value = (settings.niutrans && settings.niutrans.apiSecret) || '';
-    $('#trackerDeepLApiKey').value = (settings.deepl && settings.deepl.apiKey) || '';
-    $('#trackerDeepLPlan').value = (settings.deepl && settings.deepl.plan) || 'free';
-    $('#trackerTranslationClear').hidden = !(settings.niutrans && settings.niutrans.apiKey) && !(settings.deepl && settings.deepl.apiKey);
-    $('#trackerTranslationTestResult').textContent = '';
-    updateTrackerTranslationProviderFields();
-    $('#trackerTranslationOverlay').hidden = false;
-    $('#trackerTranslationProvider').focus();
-  }
-  function closeTrackerTranslationSettings() { $('#trackerTranslationOverlay').hidden = true; }
-  function saveTrackerTranslationSettings(event) {
-    event.preventDefault();
-    var previous = trackerTranslationSettings();
-    var settings = {
-      provider: $('#trackerTranslationProvider').value,
-      niutrans: { appId: $('#trackerNiuAppId').value.trim(), apiKey: $('#trackerNiuApiKey').value.trim(), apiSecret: $('#trackerNiuApiSecret').value.trim() },
-      deepl: { apiKey: $('#trackerDeepLApiKey').value.trim(), plan: $('#trackerDeepLPlan').value }
-    };
-    if (!settings.niutrans.appId) settings.niutrans.appId = previous.niutrans.appId || '';
-    if (!settings.niutrans.apiKey) settings.niutrans.apiKey = previous.niutrans.apiKey || '';
-    if (!settings.niutrans.apiSecret) settings.niutrans.apiSecret = previous.niutrans.apiSecret || '';
-    if (!settings.deepl.apiKey) settings.deepl.apiKey = previous.deepl.apiKey || '';
-    if (!trackerTranslationReady(settings)) { toast(settings.provider === 'niutrans' ? '请填写完整的小牛 App ID、API Key 和 API Secret' : '请填写 DeepL API Key'); return; }
-    try { localStorage.setItem(trackerTranslationSettingsKey, JSON.stringify(settings)); }
-    catch (_) { toast('浏览器无法保存翻译设置，请检查本机存储空间'); return; }
-    closeTrackerTranslationSettings();
-    renderJournalTracker();
-    toast('翻译服务设置已保存');
-  }
-  function testTrackerTranslation() {
-    var provider = $('#trackerTranslationProvider').value;
-    var settings = {
-      provider: provider,
-      niutrans: { appId: $('#trackerNiuAppId').value.trim(), apiKey: $('#trackerNiuApiKey').value.trim(), apiSecret: $('#trackerNiuApiSecret').value.trim() },
-      deepl: { apiKey: $('#trackerDeepLApiKey').value.trim(), plan: $('#trackerDeepLPlan').value }
-    };
-    var result = $('#trackerTranslationTestResult');
-    if (!trackerTranslationReady(settings)) { result.textContent = '请先填写所需密钥'; return; }
-    result.textContent = '正在测试…';
-    translateTrackerText('Academic literature tracking', settings).then(function (text) { result.textContent = text || '服务未返回译文'; }).catch(function (error) { result.textContent = (error && error.message) || '测试失败'; });
-  }
-
   function searchTrackerJournals(event) {
     event.preventDefault();
     var query = $('#trackerJournalQuery').value.trim();
@@ -5827,7 +5687,6 @@
   });
   function openTrackerZoteroSetup() { $('#trackerZoteroTestResult').textContent = ''; $('#trackerZoteroOverlay').hidden = false; }
   function closeTrackerZoteroSetup() { $('#trackerZoteroOverlay').hidden = true; }
-  function trackerZoteroItemKey(article, userId) { return userId + ':' + (article.doi || article.id); }
   function trackerZoteroCreators(article) {
     return (Array.isArray(article.authors) ? article.authors : []).map(function (author) {
       var name = String(author || '').trim();
@@ -5866,25 +5725,6 @@
       result.textContent = '已连接' + (response.version ? ' · Zotero ' + response.version : ' · Zotero Connector 正在运行');
     }).catch(function (error) { result.textContent = (error && error.message) || '连接失败'; });
   }
-  function downloadTrackedArticleRis(id) {
-    var article = (state.journalTracker.articles || []).filter(function (item) { return String(item.id) === String(id); })[0];
-    if (!article) return;
-    function risEscape(value) { return String(value || '').replace(/[\r\n]+/g, ' ').replace(/\\/g, '\\\\'); }
-    var journal = trackerSubscriptionMap()[String(article.subscription_id)] || {};
-    var lines = ['TY  - JOUR', 'TI  - ' + risEscape(article.title || '未命名文章')];
-    (Array.isArray(article.authors) ? article.authors : []).forEach(function (author) { lines.push('AU  - ' + risEscape(author)); });
-    if (journal.journal_title) lines.push('JO  - ' + risEscape(journal.journal_title));
-    if (article.publication_date) lines.push('PY  - ' + risEscape(article.publication_date));
-    if (article.doi) lines.push('DO  - ' + risEscape(article.doi));
-    if (article.url) lines.push('UR  - ' + risEscape(article.url));
-    if (article.abstract) lines.push('AB  - ' + risEscape(article.abstract));
-    (Array.isArray(article.keywords) ? article.keywords : []).forEach(function (keyword) { lines.push('KW  - ' + risEscape(keyword)); });
-    lines.push('ER  - ', '');
-    var blob = new Blob([lines.join('\r\n')], { type: 'application/x-research-info-systems;charset=utf-8' });
-    var link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = (article.doi || article.title || 'article').replace(/[^\w.-]+/g, '_') + '.ris';
-    document.body.appendChild(link); link.click(); link.remove(); setTimeout(function () { URL.revokeObjectURL(link.href); }, 1000);
-    toast('RIS 文件已下载；在 Zotero 中选择“文件 → 导入”即可加入桌面文库');
-  }
   function importTrackedArticleToZoteroDesktop(id, button) {
     var article = (state.journalTracker.articles || []).filter(function (item) { return String(item.id) === String(id); })[0];
     if (!article) return;
@@ -5908,50 +5748,6 @@
       toast((error && error.message) || '桌面导入失败，请先测试本机连接');
     });
   }
-  function importTrackedArticleToZotero(id, button) {
-    var article = (state.journalTracker.articles || []).filter(function (item) { return String(item.id) === String(id); })[0];
-    if (!article) return;
-    var config = trackerZoteroConfig();
-    if (!config || !config.userId || !config.apiKey) {
-      trackerZoteroPendingArticle = String(id);
-      openTrackerZoteroSetup();
-      return;
-    }
-    var storageKey = trackerZoteroItemKey(article, config.userId);
-    if (trackerZoteroImported[storageKey]) { toast('这篇文章已由此浏览器导入 Zotero'); return; }
-    var target = button || document.querySelector('[data-tracker-zotero-web="' + CSS.escape(String(id)) + '"]');
-    if (target) { target.disabled = true; target.textContent = '导入中…'; }
-    var base = 'https://api.zotero.org/users/' + encodeURIComponent(config.userId);
-    var headers = { 'Zotero-API-Key': config.apiKey, 'Zotero-API-Version': '3' };
-    window.__nativeFetch(base + '/items?limit=1&format=json', { headers: headers }).then(function (response) {
-      if (!response.ok) throw new Error(response.status === 403 ? 'Zotero 密钥没有文库读取权限，请在 API Keys 设置中启用读取权限。' : '无法读取 Zotero 文库版本（HTTP ' + response.status + '），请检查用户 ID 和 API 密钥。');
-      var libraryVersion = response.headers.get('Last-Modified-Version');
-      if (!libraryVersion) throw new Error('Zotero 未返回文库版本；请确认浏览器允许访问 Zotero API，并为 API 密钥启用文库读取权限。');
-      return window.__nativeFetch(base + '/items', {
-        method: 'POST',
-        headers: Object.assign({}, headers, { 'Content-Type': 'application/json', 'If-Unmodified-Since-Version': libraryVersion }),
-        body: JSON.stringify([createTrackedZoteroItem(article)])
-      });
-    }).then(function (response) {
-      if (!response) return null;
-      return response.json().then(function (data) {
-        if (!response.ok) throw new Error(response.status === 412 ? 'Zotero 文库刚刚发生变化，请再点击一次导入。' : 'Zotero 导入失败（HTTP ' + response.status + '）');
-        var results = data && (data.success || data.successful);
-        if (!results || !results[0]) {
-          var failure = data && data.failed && (data.failed[0] || Object.values(data.failed)[0]);
-          throw new Error((failure && (failure.message || failure.code)) || 'Zotero 没有确认保存该条目');
-        }
-        persistTrackerZoteroImport(storageKey, results[0]);
-        if (target) { target.disabled = true; target.textContent = '已导入网页版'; }
-        toast('已导入 Zotero 文库');
-        renderJournalTracker();
-      });
-    }).catch(function (error) {
-      if (target) { target.disabled = false; target.textContent = '导入网页版'; }
-      toast((error && error.message) || '导入 Zotero 失败');
-    });
-  }
-
   function handleTrackerArticleAction(event) {
     var readButton = event.target.closest('[data-tracker-read-toggle]');
     if (readButton) { setTrackedArticleRead(readButton.dataset.trackerReadToggle, readButton.dataset.trackerIsRead !== 'true', readButton); return; }

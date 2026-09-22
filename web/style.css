@@ -6598,7 +6598,7 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .tracker-add-form input,.tracker-filters input,.tracker-filters select { min-width:0; box-sizing:border-box; padding:8px 10px; border:1px solid var(--hairline); border-radius:7px; outline:0; background:var(--glass-strong); color:var(--text); font:12px "Noto Sans SC",sans-serif; }
 .tracker-filters button { min-height:34px; padding:7px 10px; border:1px solid var(--accent); border-radius:7px; background:var(--accent); color:var(--btn-text); cursor:pointer; font:11px "Noto Sans SC",sans-serif; white-space:nowrap; }
 .tracker-filters button:disabled { border-color:var(--hairline); background:var(--glass-strong); color:var(--text-muted); cursor:not-allowed; }
-.tracker-filters #trackerZoteroSetup,.tracker-filters #trackerTranslationSetup { border-color:var(--hairline); background:var(--glass-strong); color:var(--text-secondary); }
+.tracker-filters #trackerZoteroSetup,.tracker-filters #trackerEasyScholarSetup { border-color:var(--hairline); background:var(--glass-strong); color:var(--text-secondary); }
 .tracker-add-form input:focus,.tracker-filters input:focus,.tracker-filters select:focus { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-dim); }
 .tracker-add-form button,.tracker-search-result button,.tracker-subscription button,.tracker-article-actions button { border:1px solid var(--hairline); border-radius:7px; background:var(--glass-strong); color:var(--text-secondary); cursor:pointer; font:11px "Noto Sans SC",sans-serif; }
 .tracker-add-form button { padding:8px 11px; border-color:var(--accent); color:var(--accent); }
@@ -6669,8 +6669,6 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .tracker-article-title { padding:0; border:0; background:transparent; color:inherit; cursor:pointer; text-align:left; font:inherit; line-height:inherit; }
 .tracker-article-title:hover { color:var(--accent); text-decoration:underline; text-decoration-thickness:1px; text-underline-offset:4px; }
 .tracker-article-title:focus-visible,.tracker-detail-back:focus-visible { outline:2px solid var(--accent); outline-offset:3px; border-radius:3px; }
-.tracker-title-translation { margin:3px 0 0; color:var(--accent); font:500 12px/1.6 "Noto Sans SC",sans-serif; }
-.tracker-title-translation.is-translation-error { color:var(--text-muted); font-size:10px; }
 .tracker-article-authors { margin:7px 0 0; color:var(--text-secondary); font-size:11px; line-height:1.6; }
 .tracker-keywords { display:flex; flex-wrap:wrap; gap:5px; margin:10px 0 0; }
 .tracker-keywords span { padding:3px 7px; border-radius:999px; background:var(--accent-dim); color:var(--accent); font-size:9px; }
@@ -6706,10 +6704,8 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .tracker-zotero-dialog label { display:block; margin-top:11px; color:var(--text-secondary); font-size:11px; }
 .tracker-zotero-dialog input,.tracker-zotero-dialog select { display:block; width:100%; box-sizing:border-box; margin-top:6px; padding:10px 11px; border:1px solid var(--hairline); border-radius:7px; outline:0; background:var(--glass); color:var(--text); font:12px var(--font-sans); }
 .tracker-zotero-dialog input:focus,.tracker-zotero-dialog select:focus { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-dim); }
-.tracker-translation-provider-fields { display:grid; gap:1px; }
-.tracker-translation-help { margin:10px 0 0!important; }
-.tracker-translation-test-row { display:flex; align-items:center; gap:10px; margin-top:12px; color:var(--text-secondary); font-size:11px; }
-.tracker-translation-test-row button { padding:7px 10px; border:1px solid var(--hairline); border-radius:7px; background:var(--glass); color:var(--accent); cursor:pointer; font:11px "Noto Sans SC",sans-serif; }
+.tracker-connector-test-row { display:flex; align-items:center; gap:10px; margin-top:12px; color:var(--text-secondary); font-size:11px; }
+.tracker-connector-test-row button { padding:7px 10px; border:1px solid var(--hairline); border-radius:7px; background:var(--glass); color:var(--accent); cursor:pointer; font:11px "Noto Sans SC",sans-serif; }
 .tracker-zotero-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:18px; }
 .tracker-zotero-actions button { padding:8px 12px; border:1px solid var(--hairline); border-radius:7px; background:var(--glass); color:var(--text-secondary); cursor:pointer; font:11px "Noto Sans SC",sans-serif; }
 .tracker-zotero-actions button[type="submit"] { border-color:var(--accent); background:var(--accent); color:var(--btn-text); }
