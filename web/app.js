@@ -72,6 +72,8 @@
     trackerCollapsedGroups: { unread: false, read: true },
   };
   try { state.trackerCollapsedGroups = Object.assign(state.trackerCollapsedGroups, JSON.parse(localStorage.getItem('academic-workbench-tracker-collapsed-v1') || '{}')); } catch (_) {}
+  var journalTrackerAutoRefreshStorageKey = 'academic-workbench-journal-tracker-last-auto-refresh-v1';
+  try { state.journalTrackerAutoRefreshAt = Number(localStorage.getItem(journalTrackerAutoRefreshStorageKey)) || 0; } catch (_) {}
 
   const PANEL_TITLES = {
     'research-hub': '论文管线',
@@ -795,6 +797,7 @@
   function switchPanel(panel) {
     if (RETIRED_PANELS.indexOf(panel) >= 0) panel = 'dashboard';
     var prev = state.panel;
+    if (prev === 'journal-tracker' && panel !== prev && trackerArticleDetailId) closeTrackerArticleDetail();
     if (prev && prev !== panel) scrollMemory[prev] = window.scrollY || 0;
     state.panel = panel;
     $$('.nav-item').forEach(function (btn) {
@@ -5330,16 +5333,16 @@
 
   function autoRefreshStaleJournalTracker() {
     var subscriptions = state.journalTracker.subscriptions || [];
-    var missingAbstract = (state.journalTracker.articles || []).some(function (article) { return Boolean(article.doi) && !String(article.abstract || '').trim(); });
     var now = Date.now();
     var day = 24 * 60 * 60 * 1000;
-    var stale = missingAbstract || subscriptions.some(function (item) {
+    var stale = subscriptions.some(function (item) {
       var checkedAt = Date.parse(item.last_checked_at || '');
       return !checkedAt || now - checkedAt >= day;
     });
-    if (!stale || now - state.journalTrackerAutoRefreshAt < 6 * 60 * 60 * 1000) return;
+    if (!stale || now - state.journalTrackerAutoRefreshAt < day) return;
     state.journalTrackerAutoRefreshAt = now;
-    setTrackerStatus(missingAbstract ? '正在为缺少摘要的文章补充元数据…' : '发现超过 24 小时未检查的期刊，正在自动更新…', false);
+    try { localStorage.setItem(journalTrackerAutoRefreshStorageKey, String(now)); } catch (_) {}
+    setTrackerStatus('发现超过 24 小时未检查的期刊，正在自动更新…', false);
     journalTrackerRequest({ action: 'refresh' }).then(function (result) {
       applyJournalTrackerData(result);
       var failed = (result.results || []).filter(function (item) { return !item.ok; }).length;
@@ -5470,8 +5473,15 @@
     if (!$('#trackerArticleDetail').hidden) $('#trackerArticleDetail').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
   function closeTrackerArticleDetail() {
+    var closingId = trackerArticleDetailId;
+    var article = (state.journalTracker.articles || []).filter(function (item) { return String(item.id) === String(closingId); })[0];
     trackerArticleDetailId = '';
     $('#trackerArticleDetail').hidden = true; $('#trackerHero').hidden = false; $('#trackerStats').hidden = false; $('#trackerLayout').hidden = false;
+    if (article && article.is_read !== true) {
+      saveTrackedArticleRead(closingId, true).then(function () { toast('已读完并标记为已读'); }).catch(function (error) {
+        toast('已返回列表，但已读状态保存失败：' + ((error && error.message) || '请稍后重试'));
+      });
+    }
   }
 
   function renderJournalTracker() {
@@ -5951,16 +5961,22 @@
     if (saveButton) saveTrackedArticleToLibrary(saveButton.dataset.trackerSaveRef);
   }
 
-  function setTrackedArticleRead(id, isRead, button) {
-    var previousText = button.textContent;
-    button.disabled = true;
-    button.textContent = '保存中…';
-    journalTrackerRequest({ action: 'set-read', id: id, isRead: isRead }).then(function (result) {
+  function saveTrackedArticleRead(id, isRead) {
+    return journalTrackerRequest({ action: 'set-read', id: id, isRead: isRead }).then(function (result) {
       if (result.readStateVersion !== 1 || !(result.articles || []).some(function (article) { return String(article.id) === String(id) && article.is_read === isRead; })) {
         throw new Error('云端文献追踪函数尚未更新，阅读状态未保存。请在 Supabase 重新部署 journal-tracker 后重试。');
       }
       if (isRead) { state.trackerCollapsedGroups.read = true; try { localStorage.setItem('academic-workbench-tracker-collapsed-v1', JSON.stringify(state.trackerCollapsedGroups)); } catch (_) {} }
       applyJournalTrackerData(result);
+      return result;
+    });
+  }
+
+  function setTrackedArticleRead(id, isRead, button) {
+    var previousText = button.textContent;
+    button.disabled = true;
+    button.textContent = '保存中…';
+    saveTrackedArticleRead(id, isRead).then(function () {
       toast(isRead ? '已标记为已读' : '已标记为未读');
     }).catch(function (error) {
       button.disabled = false;
