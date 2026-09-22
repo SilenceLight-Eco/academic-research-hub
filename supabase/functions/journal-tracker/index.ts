@@ -255,13 +255,45 @@ async function semanticScholarByDois(dois: string[]) {
   return result;
 }
 
+function reconstructOpenAlexAbstract(value: unknown): string {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+  const words: string[] = [];
+  Object.entries(value as Record<string, unknown>).forEach(([word, positions]) => {
+    if (!Array.isArray(positions)) return;
+    positions.forEach((position) => {
+      const index = Number(position);
+      if (Number.isInteger(index) && index >= 0 && index < 20_000) words[index] = word;
+    });
+  });
+  return words.map((word) => word || "").join(" ").replace(/\s+/g, " ").trim();
+}
+
+async function openAlexWorksByDoi(dois: string[]) {
+  const unique = Array.from(new Set(dois.filter(Boolean))).slice(0, 50);
+  const result = new Map<string, Record<string, unknown>>();
+  if (!unique.length) return result;
+  const target = new URL("https://api.openalex.org/works");
+  target.searchParams.set("filter", `doi:${unique.map((doi) => `https://doi.org/${doi}`).join("|")}`);
+  target.searchParams.set("select", "doi,abstract_inverted_index");
+  target.searchParams.set("per_page", "50");
+  const response = await fetch(target, { headers: { Accept: "application/json" } });
+  if (!response.ok) return result;
+  const payload = await response.json().catch(() => null);
+  const works = payload && Array.isArray(payload.results) ? payload.results : [];
+  works.forEach((work: Record<string, unknown>) => {
+    const doi = normalizeDoi(work.doi);
+    if (doi) result.set(doi, work);
+  });
+  return result;
+}
+
 async function crossrefWorksByDoi(dois: string[]) {
   const unique = Array.from(new Set(dois.filter(Boolean))).slice(0, 40);
   const result = new Map<string, CrossrefWork>();
   if (!unique.length) return result;
   const params: Record<string, string> = {
     rows: String(unique.length),
-    select: "DOI,title,author,published,published-online,published-print,issued,URL,subject,type",
+    select: "DOI,title,author,abstract,published,published-online,published-print,issued,URL,subject,type",
     filter: unique.map((doi) => `doi:${doi}`).join(","),
   };
   const message = await crossref("works", params).catch(() => null);
@@ -333,7 +365,7 @@ async function refreshSubscription(subscription: Subscription) {
         title: plainText(Array.isArray(work.title) ? work.title[0] : work.title),
         link: plainText(work.URL),
         authors: authorNames(work.author),
-        abstract: "",
+        abstract: plainText(work.abstract),
         keywords: Array.isArray(work.subject) ? work.subject.map(plainText).filter(Boolean) : [],
         publication_date: publicationDate(work),
         doi: normalizeDoi(work.DOI),
@@ -341,13 +373,15 @@ async function refreshSubscription(subscription: Subscription) {
     }
 
     const dois = feedItems.map((item) => normalizeDoi(item.doi)).filter(Boolean);
-    const [semanticPapers, crossrefFallbacks] = await Promise.all([
+    const [semanticPapers, openAlexWorks, crossrefFallbacks] = await Promise.all([
       semanticScholarByDois(dois).catch(() => new Map<string, Record<string, unknown>>()),
+      openAlexWorksByDoi(dois).catch(() => new Map<string, Record<string, unknown>>()),
       crossrefWorksByDoi(dois),
     ]);
     const rows = feedItems.map((item) => {
       const doi = normalizeDoi(item.doi);
       const semantic = doi ? semanticPapers.get(doi) : undefined;
+      const openAlex = doi ? openAlexWorks.get(doi) : undefined;
       const fallback = doi ? crossrefFallbacks.get(doi) : undefined;
       const semanticAuthors = semantic && Array.isArray(semantic.authors)
         ? semantic.authors.map((author: Record<string, unknown>) => plainText(author.name)).filter(Boolean)
@@ -357,7 +391,9 @@ async function refreshSubscription(subscription: Subscription) {
       const authors = rssAuthors.length ? rssAuthors : (semanticAuthors.length ? semanticAuthors : fallbackAuthors);
       const rssAbstract = plainText(item.abstract);
       const semanticAbstract = plainText(semantic && semantic.abstract);
-      const abstract = rssAbstract || semanticAbstract;
+      const openAlexAbstract = reconstructOpenAlexAbstract(openAlex && openAlex.abstract_inverted_index);
+      const crossrefAbstract = plainText(fallback && fallback.abstract);
+      const abstract = rssAbstract || semanticAbstract || openAlexAbstract || crossrefAbstract;
       const rssKeywords = Array.isArray(item.keywords) ? item.keywords.map(plainText).filter(Boolean).slice(0, 12) : [];
       const crossrefSubjects = fallback && Array.isArray(fallback.subject) ? fallback.subject.map(plainText).filter(Boolean).slice(0, 12) : [];
       const semanticFields = semantic && Array.isArray(semantic.s2FieldsOfStudy)
@@ -371,6 +407,7 @@ async function refreshSubscription(subscription: Subscription) {
       if (subscription.feed_url && !fallbackNotice && feedItems.length && !crossrefDiscovery.length) sources.push("期刊官网 RSS");
       if (crossrefDiscovery.length || fallbackNotice || !subscription.feed_url) sources.push("Crossref");
       if (semantic) sources.push("Semantic Scholar");
+      if (openAlex) sources.push("OpenAlex");
       if (fallback) sources.push("Crossref");
       const keywordSource = rssKeywords.length ? "期刊 RSS" : (crossrefSubjects.length ? "Crossref 主题词" : (semanticFields.length ? "Semantic Scholar 学科分类" : ""));
       return {
@@ -381,7 +418,7 @@ async function refreshSubscription(subscription: Subscription) {
         title,
         authors,
         abstract,
-        abstract_source: rssAbstract ? "期刊官网 RSS" : (semanticAbstract ? "Semantic Scholar" : ""),
+        abstract_source: rssAbstract ? "期刊官网 RSS" : (semanticAbstract ? "Semantic Scholar" : (openAlexAbstract ? "OpenAlex" : (crossrefAbstract ? "Crossref" : ""))),
         keywords,
         keyword_source: keywordSource,
         publication_date: date,

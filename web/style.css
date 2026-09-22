@@ -6612,6 +6612,10 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .tracker-subscription-title b { min-width:19px; padding:2px 6px; border-radius:999px; background:var(--accent-dim); color:var(--accent); text-align:center; }
 .tracker-subscription { position:relative; margin:3px 0; padding:10px 34px 10px 10px; border:1px solid transparent; border-radius:8px; }
 .tracker-subscription:hover { border-color:var(--hairline); background:var(--glass-strong); }
+.tracker-subscription.is-selected { border-color:var(--accent); background:var(--accent-dim); }
+.tracker-subscription .tracker-subscription-main { position:relative; top:auto; right:auto; display:block; width:100%; height:auto; padding:0 8px 0 0; border:0; border-radius:5px; background:transparent; color:inherit; text-align:left; }
+.tracker-subscription .tracker-subscription-main:hover b { color:var(--accent); }
+.tracker-subscription .tracker-subscription-main:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
 .tracker-subscription b,.tracker-subscription span,.tracker-subscription em { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .tracker-subscription b { color:var(--text-secondary); font-size:12px; font-weight:600; }
 .tracker-subscription span { margin-top:4px; color:var(--text-muted); font:10px var(--font-mono); }

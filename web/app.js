@@ -5390,9 +5390,11 @@
 
     $('#trackerSubscriptions').innerHTML = subscriptions.length ? subscriptions.map(function (item) {
       var status = item.last_error ? item.last_error : (item.last_success_at ? '更新于 ' + trackerDateLabel(item.last_success_at, true) : '等待首次检查');
-      return '<div class="tracker-subscription' + (item.last_error ? ' is-error' : '') + '">' +
-        '<b title="' + escapeHtml(item.journal_title || item.issn) + '">' + escapeHtml(item.journal_title || item.issn) + '</b>' +
-        '<span>' + escapeHtml(item.issn || '') + '</span><em title="' + escapeHtml(status) + '">' + escapeHtml(status) + '</em>' +
+      var isSelected = String(state.journalTrackerFilter) === String(item.id);
+      return '<div class="tracker-subscription' + (item.last_error ? ' is-error' : '') + (isSelected ? ' is-selected' : '') + '">' +
+        '<button type="button" class="tracker-subscription-main" data-tracker-select-journal="' + escapeHtml(item.id) + '" aria-pressed="' + isSelected + '" title="查看该期刊的文章">' +
+        '<b>' + escapeHtml(item.journal_title || item.issn) + '</b><span>' + escapeHtml(item.issn || '') + '</span></button>' +
+        '<em title="' + escapeHtml(status) + '">' + escapeHtml(status) + '</em>' +
         '<div class="tracker-feed-config"><input type="url" data-tracker-feed-input="' + escapeHtml(item.id) + '" value="' + escapeHtml(item.feed_url || '') + '" placeholder="官网 RSS / Atom 地址" aria-label="' + escapeHtml(item.journal_title || item.issn) + ' RSS 地址"><button type="button" data-tracker-feed-save="' + escapeHtml(item.id) + '">保存 RSS</button></div>' +
         '<button type="button" data-tracker-remove="' + escapeHtml(item.id) + '" title="停止追踪" aria-label="停止追踪 ' + escapeHtml(item.journal_title || item.issn) + '">×</button></div>';
     }).join('') : '<div class="tracker-empty"><b>还没有追踪期刊</b><span>在上方输入期刊名称或 ISSN，选择准确的期刊后即可开始。</span></div>';
@@ -5552,7 +5554,7 @@
     $('#trackerDirectAdd').addEventListener('click', addTrackerJournalDirect);
     $('#trackerRefresh').addEventListener('click', refreshJournalTracker);
     $('#trackerSearchResults').addEventListener('click', function (event) { var button = event.target.closest('[data-tracker-add]'); if (button) addTrackerJournal(button.dataset.trackerAdd, button); });
-    $('#trackerSubscriptions').addEventListener('click', function (event) { var saveButton = event.target.closest('[data-tracker-feed-save]'); if (saveButton) { saveTrackerFeed(saveButton.dataset.trackerFeedSave, saveButton); return; } var button = event.target.closest('[data-tracker-remove]'); if (button) removeTrackerJournal(button.dataset.trackerRemove); });
+    $('#trackerSubscriptions').addEventListener('click', function (event) { var selectButton = event.target.closest('[data-tracker-select-journal]'); if (selectButton) { state.journalTrackerFilter = selectButton.dataset.trackerSelectJournal; renderJournalTracker(); $('#trackerArticles').scrollIntoView({ behavior: 'smooth', block: 'start' }); return; } var saveButton = event.target.closest('[data-tracker-feed-save]'); if (saveButton) { saveTrackerFeed(saveButton.dataset.trackerFeedSave, saveButton); return; } var button = event.target.closest('[data-tracker-remove]'); if (button) removeTrackerJournal(button.dataset.trackerRemove); });
     $('#trackerArticles').addEventListener('click', function (event) { var button = event.target.closest('[data-tracker-save-ref]'); if (button) saveTrackedArticleToLibrary(button.dataset.trackerSaveRef); });
     $('#trackerArticleSearch').addEventListener('input', function () { state.journalTrackerQuery = this.value; renderJournalTracker(); });
     $('#trackerJournalFilter').addEventListener('change', function () { state.journalTrackerFilter = this.value; renderJournalTracker(); });
