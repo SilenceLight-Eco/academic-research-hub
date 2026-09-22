@@ -592,7 +592,7 @@ Deno.serve(async (request: Request) => {
       const secretKey = String(body.secretKey || "");
       const publicationName = String(body.publicationName || "");
       const rank = await queryEasyScholarRank(secretKey, publicationName);
-      return json(request, { ok: true, rank, source: "EasyScholar Open API", publicationName: publicationName.slice(0, 300), queriedAt: new Date().toISOString() });
+      return json(request, { ok: true, rank, source: "EasyScholar Open API", easyScholarVersion: 1, publicationName: publicationName.slice(0, 300), queriedAt: new Date().toISOString() });
     }
     if (action === "set-read") {
       const id = String(body.id || "");

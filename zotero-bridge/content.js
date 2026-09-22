@@ -5,11 +5,12 @@
   window.addEventListener("message", (event) => {
     if (event.source !== window || event.origin !== allowedOrigin) return;
     const message = event.data;
-    if (!message || message.channel !== channel || !["ping", "import"].includes(message.type)) return;
+    if (!message || message.channel !== channel || !["ping", "collections", "import"].includes(message.type)) return;
     if (typeof message.requestId !== "string") return;
     if (message.type === "import" && (!message.payload || !Array.isArray(message.payload.items) || message.payload.items.length !== 1)) return;
 
-    chrome.runtime.sendMessage({ type: message.type === "ping" ? "academic-workbench-zotero-ping" : "academic-workbench-zotero-import", requestId: message.requestId, payload: message.payload }, (response) => {
+    const type = message.type === "ping" ? "academic-workbench-zotero-ping" : message.type === "collections" ? "academic-workbench-zotero-collections" : "academic-workbench-zotero-import";
+    chrome.runtime.sendMessage({ type, requestId: message.requestId, payload: message.payload }, (response) => {
       const runtimeError = chrome.runtime.lastError;
       window.postMessage({
         channel,
