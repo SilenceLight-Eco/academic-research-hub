@@ -6623,15 +6623,16 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .tracker-subscription b { color:var(--text-secondary); font-size:12px; font-weight:600; }
 .tracker-subscription span { margin-top:4px; color:var(--text-muted); font:10px var(--font-mono); }
 .tracker-rank-row { display:flex; align-items:center; flex-wrap:wrap; gap:4px; margin-top:6px; }
-.tracker-rank-chip { display:inline-flex!important; width:max-content; max-width:100%; margin:0!important; padding:2px 5px; border:1px solid var(--hairline); border-radius:999px; background:var(--glass-strong); color:var(--accent)!important; font:600 9px/1.3 "Noto Sans SC",sans-serif!important; white-space:normal!important; }
-.tracker-rank-empty { display:inline-block!important; margin:0!important; color:var(--text-muted)!important; font:9px "Noto Sans SC",sans-serif!important; }
+.tracker-rank-chip { display:inline-flex!important; width:max-content; max-width:100%; margin:0!important; padding:4px 9px; border:1px solid #d49b20; border-radius:999px; background:#fff0c2; color:#614000!important; box-shadow:0 1px 5px rgba(139,91,0,.16); font:700 11px/1.35 "Noto Sans SC",sans-serif!important; white-space:normal!important; }
+.tracker-rank-empty { display:inline-block!important; margin:0!important; color:var(--text-muted)!important; font:10px "Noto Sans SC",sans-serif!important; }
 .tracker-rank-query { position:static!important; flex:0 0 auto; width:auto!important; height:auto!important; margin-left:auto; padding:3px 6px!important; border:1px solid var(--hairline)!important; border-radius:6px!important; background:var(--glass-strong)!important; color:var(--accent)!important; font:10px "Noto Sans SC",sans-serif!important; }
 .tracker-rank-query:hover { background:var(--accent-dim)!important; }
 .tracker-subscription .tracker-rank-row span { overflow:visible; }
 .tracker-rank-row+small { display:block; margin-top:3px; color:var(--text-muted); font-size:9px; }
 .tracker-rank-under-title { justify-content:flex-start; margin:4px 0 2px; }
 .tracker-rank-under-title .tracker-rank-query { margin-left:0; }
-.tracker-article .tracker-rank-row { min-height:24px; }
+.tracker-article .tracker-rank-row { min-height:30px; }
+.tracker-detail-scroll .tracker-rank-chip { padding:5px 11px; font-size:12px!important; }
 .tracker-detail-scroll>.tracker-rank-row { margin:2px 0 8px; }
 .tracker-subscription em { margin-top:5px; color:var(--text-muted); font-size:9px; font-style:normal; }
 .tracker-subscription.is-error em { color:#bc4444; }

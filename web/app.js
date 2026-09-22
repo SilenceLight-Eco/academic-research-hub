@@ -5387,6 +5387,9 @@
   var trackerEasyScholarSettingsKey = 'academic-workbench-easyscholar-settings-v1';
   var trackerEasyScholarRanksKey = 'academic-workbench-easyscholar-ranks-v1';
   var trackerEasyScholarRanks = Object.create(null);
+  var trackerEasyScholarPending = Object.create(null);
+  var trackerEasyScholarAutoAttempted = Object.create(null);
+  var trackerEasyScholarErrors = Object.create(null);
   try { trackerEasyScholarRanks = JSON.parse(localStorage.getItem(trackerEasyScholarRanksKey) || '{}') || Object.create(null); } catch (_) {}
   function trackerEasyScholarSettings() {
     try { return JSON.parse(localStorage.getItem(trackerEasyScholarSettingsKey) || '{}') || {}; } catch (_) { return {}; }
@@ -5404,7 +5407,9 @@
     var labels = saved ? trackerEasyScholarLabels(saved.rank) : [];
     var tags = labels.slice(0, 3).map(function (item) { return '<span class="tracker-rank-chip">' + escapeHtml(item.label + ' ' + item.value) + '</span>'; }).join('');
     var detail = saved && saved.updatedAt ? '<small title="EasyScholar · ' + escapeHtml(saved.updatedAt) + '">分区数据 · ' + escapeHtml(trackerDateLabel(saved.updatedAt, false)) + '</small>' : '';
-    return '<div class="tracker-rank-row tracker-rank-under-title">' + (tags || '<span class="tracker-rank-empty">' + (saved ? 'EasyScholar 暂无分区数据' : '期刊分区未查询') + '</span>') + '<button type="button" class="tracker-rank-query" data-tracker-journal-rank="' + escapeHtml(subscription.id) + '">' + (saved ? '刷新分区' : '查询 EasyScholar 分区') + '</button></div>' + detail;
+    var settings = trackerEasyScholarSettings();
+    var emptyLabel = saved ? 'EasyScholar 暂无分区数据' : (trackerEasyScholarPending[String(subscription.id)] ? '正在获取分区…' : (trackerEasyScholarErrors[String(subscription.id)] ? '自动获取失败，可重试' : (settings.secretKey ? '分区数据尚未返回' : '配置 EasyScholar 后自动显示分区')));
+    return '<div class="tracker-rank-row tracker-rank-under-title" aria-label="期刊分区">' + (tags || '<span class="tracker-rank-empty">' + emptyLabel + '</span>') + '<button type="button" class="tracker-rank-query" data-tracker-journal-rank="' + escapeHtml(subscription.id) + '">' + (saved ? '刷新分区' : '查询分区') + '</button></div>' + detail;
   }
   function openTrackerEasyScholarSettings() {
     $('#trackerEasyScholarKey').value = trackerEasyScholarSettings().secretKey || '';
@@ -5419,16 +5424,22 @@
     try { localStorage.setItem(trackerEasyScholarSettingsKey, JSON.stringify({ secretKey: secretKey, savedAt: new Date().toISOString() })); }
     catch (_) { toast('浏览器无法保存密钥，请检查本机存储空间'); return; }
     closeTrackerEasyScholarSettings();
-    toast('EasyScholar 密钥已保存在此浏览器；请在论文标题下方点击“查询 EasyScholar 分区”');
+    trackerEasyScholarAutoAttempted = Object.create(null);
+    trackerEasyScholarErrors = Object.create(null);
+    renderJournalTracker();
+    toast('EasyScholar 密钥已保存，正在自动获取已追踪期刊的分区');
   }
-  function queryTrackerJournalRank(id, button) {
+  function queryTrackerJournalRank(id, button, options) {
+    options = options || {};
     var subscription = (state.journalTracker.subscriptions || []).filter(function (item) { return String(item.id) === String(id); })[0];
     if (!subscription) return;
+    var pendingKey = String(id);
+    if (trackerEasyScholarPending[pendingKey]) return;
     var secretKey = trackerEasyScholarSettings().secretKey;
     if (!secretKey) { openTrackerEasyScholarSettings(); return; }
-    button.disabled = true;
-    var originalText = button.textContent;
-    button.textContent = '查询中…';
+    trackerEasyScholarPending[pendingKey] = true;
+    var originalText = button ? button.textContent : '';
+    if (button) { button.disabled = true; button.textContent = '查询中…'; }
     journalTrackerRequest({ action: 'easyScholar-rank', secretKey: secretKey, publicationName: subscription.journal_title || subscription.issn })
       .then(function (result) {
         if (!result || !result.rank || !Object.keys(result.rank).length) {
@@ -5436,16 +5447,29 @@
           throw new Error('EasyScholar 已连接，但该期刊没有可显示的分区字段；请核对期刊名称或 EasyScholar 权限/额度');
         }
         trackerEasyScholarRanks[trackerEasyScholarCacheKey(subscription)] = { rank: result.rank, updatedAt: new Date().toISOString(), source: 'EasyScholar' };
+        delete trackerEasyScholarErrors[pendingKey];
         try { localStorage.setItem(trackerEasyScholarRanksKey, JSON.stringify(trackerEasyScholarRanks)); } catch (_) {}
         renderJournalTracker();
-        toast('已获取 ' + (subscription.journal_title || subscription.issn) + ' 的期刊分区');
+        if (!options.quiet) toast('已获取 ' + (subscription.journal_title || subscription.issn) + ' 的期刊分区');
       }).catch(function (error) {
-        button.disabled = false;
-        button.textContent = originalText;
+        delete trackerEasyScholarPending[pendingKey];
+        if (button) { button.disabled = false; button.textContent = originalText || '查询分区'; }
         var message = (error && error.message) || 'EasyScholar 查询失败';
         if (/EasyScholar.*(404|未部署|not found)|函数.*(未更新|未部署)/i.test(message)) message += '；请重新部署 Supabase 的 journal-tracker 函数（需包含 EasyScholar-rank 支持）。';
-        toast(message);
-      });
+        trackerEasyScholarErrors[pendingKey] = message;
+        if (!options.quiet) toast(message);
+        else renderJournalTracker();
+      }).then(function () { delete trackerEasyScholarPending[pendingKey]; });
+  }
+
+  function autoQueryTrackerJournalRanks(subscriptions) {
+    if (!trackerEasyScholarSettings().secretKey) return;
+    (subscriptions || []).forEach(function (subscription) {
+      var id = String(subscription.id);
+      if (!id || trackerEasyScholarRank(subscription) || trackerEasyScholarAutoAttempted[id]) return;
+      trackerEasyScholarAutoAttempted[id] = true;
+      queryTrackerJournalRank(id, null, { quiet: true });
+    });
   }
 
   var trackerArticleDetailId = '';
@@ -5468,7 +5492,7 @@
       '<section class="tracker-detail-section"><h3>摘要 <span>' + escapeHtml(article.abstract_source || '来源暂缺') + '</span></h3><p class="tracker-article-abstract">' + escapeHtml(article.abstract || '该数据源尚未提供摘要。') + '</p></section>' +
       '<section class="tracker-detail-section"><h3>关键词</h3>' + (keywords.length ? '<div class="tracker-keywords">' + keywords.map(function (keyword) { return '<span>' + escapeHtml(keyword) + '</span>'; }).join('') + '</div><div class="tracker-provenance">关键词来源：' + escapeHtml(article.keyword_source || '未标明') + '</div>' : '<p>该数据源尚未提供关键词。</p>') + '</section>' +
       '<section class="tracker-detail-section"><h3>来源与标识</h3><p>期刊：' + escapeHtml(journal.journal_title || '未标明') + '</p><p>元数据来源：' + escapeHtml((article.metadata_sources || []).join('、') || '未标明') + '</p>' + (article.doi ? '<p>DOI：' + escapeHtml(article.doi) + '</p>' : '') + '</section>' +
-      '<div class="tracker-article-actions">' + (sourceUrl ? '<a href="' + escapeHtml(sourceUrl) + '" target="_blank" rel="noopener">打开原文</a>' : '') + '<button type="button" data-tracker-read-toggle="' + escapeHtml(article.id) + '" data-tracker-is-read="' + isRead + '">' + (isRead ? '标为未读' : '标为已读') + '</button><button type="button" data-tracker-save-ref="' + escapeHtml(article.id) + '">加入文献库</button><button type="button" data-tracker-zotero-desktop="' + escapeHtml(article.id) + '">' + (desktopImported ? '再次导入桌面 Zotero' : '导入桌面 Zotero') + '</button></div></div>';
+      '<div class="tracker-article-actions">' + (sourceUrl ? '<a href="' + escapeHtml(sourceUrl) + '" target="_blank" rel="noopener">打开原文</a>' : '') + '<button type="button" data-tracker-read-toggle="' + escapeHtml(article.id) + '" data-tracker-is-read="' + isRead + '">' + (isRead ? '标为未读' : '标为已读') + '</button><button type="button" data-tracker-save-ref="' + escapeHtml(article.id) + '">加入文献库</button><button type="button" data-tracker-zotero-desktop="' + escapeHtml(article.id) + '">' + (desktopImported ? '重新导入' : '导入Zotero') + '</button></div></div>';
     detail.hidden = false;
     $('#trackerHero').hidden = true; $('#trackerStats').hidden = true; $('#trackerLayout').hidden = true;
   }
@@ -5492,6 +5516,7 @@
   function renderJournalTracker() {
     if (!$('#trackerArticles')) return;
     var subscriptions = state.journalTracker.subscriptions || [];
+    autoQueryTrackerJournalRanks(subscriptions);
     var articles = state.journalTracker.articles || [];
     var subscriptionById = trackerSubscriptionMap();
     $('#trackerJournalCount').textContent = subscriptions.length;
@@ -5545,7 +5570,7 @@
         (keywords.length ? '<div class="tracker-keywords">' + keywords.map(function (keyword) { return '<span>' + escapeHtml(keyword) + '</span>'; }).join('') + '</div><div class="tracker-provenance">关键词来源：' + escapeHtml(article.keyword_source || '未标明') + '</div>' : '<div class="tracker-provenance">该数据源尚未提供关键词</div>') +
         '<div class="tracker-provenance">文章 / 元数据来源：' + escapeHtml((article.metadata_sources || []).join('、') || '未标明') + '</div>' +
         '<details' + (abstractText ? '' : ' disabled') + '><summary>' + (abstractText ? '查看摘要 · ' + escapeHtml(article.abstract_source || '元数据') : '摘要暂未公开') + '</summary>' + (abstractText ? '<p class="tracker-article-abstract">' + escapeHtml(abstractText) + '</p>' : '') + '</details>' +
-        '<div class="tracker-article-actions">' + (sourceUrl ? '<a href="' + escapeHtml(sourceUrl) + '" target="_blank" rel="noopener">打开原文</a>' : '') + '<button type="button" data-tracker-read-toggle="' + escapeHtml(article.id) + '" data-tracker-is-read="' + isRead + '">' + (isRead ? '标为未读' : '标为已读') + '</button><button type="button" data-tracker-save-ref="' + escapeHtml(article.id) + '">加入文献库</button><button type="button" data-tracker-zotero-desktop="' + escapeHtml(article.id) + '">' + (desktopImported ? '再次导入桌面 Zotero' : '导入桌面 Zotero') + '</button></div></article>';
+        '<div class="tracker-article-actions">' + (sourceUrl ? '<a href="' + escapeHtml(sourceUrl) + '" target="_blank" rel="noopener">打开原文</a>' : '') + '<button type="button" data-tracker-read-toggle="' + escapeHtml(article.id) + '" data-tracker-is-read="' + isRead + '">' + (isRead ? '标为未读' : '标为已读') + '</button><button type="button" data-tracker-save-ref="' + escapeHtml(article.id) + '">加入文献库</button><button type="button" data-tracker-zotero-desktop="' + escapeHtml(article.id) + '">' + (desktopImported ? '重新导入' : '导入Zotero') + '</button></div></article>';
     }
     function renderArticleGroup(key, label, items) {
       if (!items.length) return '';
@@ -5751,9 +5776,9 @@
       var currentTarget = response.id !== undefined && response.id !== null ? 'C' + response.id : 'L' + response.libraryID;
       if (targets.some(function (target) { return String(target.id) === currentTarget; })) select.value = currentTarget;
       $('#trackerZoteroTargetOverlay').hidden = false;
-      if (trackerZoteroPendingButton) { trackerZoteroPendingButton.disabled = false; trackerZoteroPendingButton.textContent = trackerZoteroImported['desktop:' + (article.doi || article.id)] ? '再次导入桌面 Zotero' : '导入桌面 Zotero'; }
+      if (trackerZoteroPendingButton) { trackerZoteroPendingButton.disabled = false; trackerZoteroPendingButton.textContent = trackerZoteroImported['desktop:' + (article.doi || article.id)] ? '重新导入' : '导入Zotero'; }
     }).catch(function (error) {
-      if (trackerZoteroPendingButton) { trackerZoteroPendingButton.disabled = false; trackerZoteroPendingButton.textContent = trackerZoteroImported['desktop:' + (article.doi || article.id)] ? '再次导入桌面 Zotero' : '导入桌面 Zotero'; }
+      if (trackerZoteroPendingButton) { trackerZoteroPendingButton.disabled = false; trackerZoteroPendingButton.textContent = trackerZoteroImported['desktop:' + (article.doi || article.id)] ? '重新导入' : '导入Zotero'; }
       trackerZoteroPendingArticleId = ''; trackerZoteroPendingButton = null;
       toast((error && error.message) || '读取 Zotero 分类失败');
     });
@@ -5793,7 +5818,7 @@
       toast(result.collectionApplied === false ? '条目已导入 Zotero，但分类移动失败；请检查 Connector 版本后手动归类' : 'Zotero 桌面端已确认接收条目并归入所选分类');
       renderJournalTracker();
     }).catch(function (error) {
-      if (target) { target.disabled = false; target.textContent = trackerZoteroImported[storageKey] ? '再次导入桌面 Zotero' : '导入桌面 Zotero'; }
+      if (target) { target.disabled = false; target.textContent = trackerZoteroImported[storageKey] ? '重新导入' : '导入Zotero'; }
       toast((error && error.message) || '桌面导入失败，请先测试本机连接');
     }).then(function () { delete trackerZoteroPendingImports[String(id)]; });
   }
