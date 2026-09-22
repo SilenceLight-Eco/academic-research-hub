@@ -481,6 +481,19 @@ Deno.serve(async (request: Request) => {
     }
 
     const userId = await authenticate(request);
+    if (action === "set-read") {
+      const id = String(body.id || "");
+      if (!id) return json(request, { ok: false, error: "缺少文章编号" }, 400);
+      const isRead = body.isRead === true;
+      const updatedAt = new Date().toISOString();
+      const updated = await rest(`journal_articles?id=eq.${encodeURIComponent(id)}&user_id=eq.${encodeURIComponent(userId)}&select=id`, {
+        method: "PATCH",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify({ is_read: isRead, read_at: isRead ? updatedAt : null, updated_at: updatedAt }),
+      });
+      if (!Array.isArray(updated) || updated.length === 0) return json(request, { ok: false, error: "找不到这篇追踪文章" }, 404);
+      return json(request, { ok: true, ...(await listForUser(userId)) });
+    }
     if (action === "search") {
       const query = String(body.query || "").trim();
       if (query.length < 2) return json(request, { ok: false, error: "请输入期刊名称或 ISSN" }, 400);

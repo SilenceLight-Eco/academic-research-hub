@@ -6633,6 +6633,7 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .tracker-feed-toolbar { display:flex; align-items:flex-end; justify-content:space-between; gap:18px; margin-bottom:12px; }
 .tracker-eyebrow { color:var(--accent); font:9px var(--font-mono); letter-spacing:.16em; }
 .tracker-feed-toolbar h3 { margin:4px 0 0; color:var(--text); font:600 20px "Noto Serif SC",serif; }
+.tracker-unread-count { display:inline-flex; vertical-align:middle; align-items:center; padding:4px 8px; border-radius:999px; background:var(--accent-dim); color:var(--accent); font:600 10px/1.2 "Noto Sans SC",sans-serif; }
 .tracker-filters { display:flex; gap:8px; }
 .tracker-filters input { width:min(270px,30vw); }
 .tracker-filters select { max-width:190px; }
@@ -6642,9 +6643,13 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .tracker-status.is-error { border-color:rgba(190,68,68,.35); color:#bc4444; }
 .tracker-articles { display:grid; gap:10px; }
 .tracker-article { padding:16px 17px; border:1px solid var(--hairline-soft); border-radius:10px; background:var(--glass); transition:border-color .18s ease,transform .18s ease; }
+.tracker-article.is-unread { border-left:3px solid var(--accent); }
 .tracker-article:hover { transform:translateY(-1px); border-color:var(--hairline); }
 .tracker-article-meta { display:flex; flex-wrap:wrap; gap:7px 12px; margin-bottom:8px; color:var(--text-muted); font-size:9px; }
 .tracker-article-journal { color:var(--accent); font-weight:600; }
+.tracker-read-badge { padding:2px 7px; border-radius:999px; font-size:9px; }
+.tracker-read-badge.is-unread { background:var(--accent-dim); color:var(--accent); font-weight:700; }
+.tracker-read-badge.is-read { background:var(--glass-strong); color:var(--text-muted); }
 .tracker-article h4 { margin:0; color:var(--text); font:600 16px/1.55 "Noto Serif SC",serif; }
 .tracker-article-authors { margin:7px 0 0; color:var(--text-secondary); font-size:11px; line-height:1.6; }
 .tracker-keywords { display:flex; flex-wrap:wrap; gap:5px; margin:10px 0 0; }
