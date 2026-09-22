@@ -528,6 +528,67 @@ async function authenticate(request: Request): Promise<string> {
   return user.id;
 }
 
+function base64Bytes(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+async function translateTitleWithProvider(provider: string, text: string, credentials: Record<string, unknown>): Promise<string> {
+  const sourceText = text.trim();
+  if (!sourceText || sourceText.length > 5000) throw new Error("待翻译标题为空或超过 5000 个字符");
+  if (provider === "niutrans") {
+    const appId = String(credentials.appId || "").trim();
+    const apiKey = String(credentials.apiKey || "").trim();
+    const apiSecret = String(credentials.apiSecret || "").trim();
+    if (!appId || !apiKey || !apiSecret) throw new Error("请填写小牛翻译 App ID、API Key 和 API Secret");
+    const host = "ntrans.xfyun.cn";
+    const requestPath = "/v2/ots";
+    const requestBody = JSON.stringify({
+      common: { app_id: appId },
+      business: { from: "auto", to: "zh" },
+      data: { text: base64Bytes(new TextEncoder().encode(sourceText)) },
+    });
+    const bodyBytes = new TextEncoder().encode(requestBody);
+    const digestBytes = new Uint8Array(await crypto.subtle.digest("SHA-256", bodyBytes));
+    const digest = `SHA-256=${base64Bytes(digestBytes)}`;
+    const date = new Date().toUTCString();
+    const signatureSource = `host: ${host}\ndate: ${date}\nPOST ${requestPath} HTTP/1.1\ndigest: ${digest}`;
+    const signingKey = await crypto.subtle.importKey("raw", new TextEncoder().encode(apiSecret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const signatureBytes = new Uint8Array(await crypto.subtle.sign("HMAC", signingKey, new TextEncoder().encode(signatureSource)));
+    const signature = base64Bytes(signatureBytes);
+    const authorization = `api_key="${apiKey}", algorithm="hmac-sha256", headers="host date request-line digest", signature="${signature}"`;
+    const response = await fetch(`https://${host}${requestPath}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json,version=1.0", Date: date, Digest: digest, Authorization: authorization },
+      body: requestBody,
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || result.code !== 0) throw new Error(String(result.message || `小牛翻译请求失败（HTTP ${response.status}）`));
+    const translated = result.data?.result?.trans_result?.dst;
+    if (typeof translated !== "string" || !translated.trim()) throw new Error("小牛翻译没有返回译文");
+    return translated.trim();
+  }
+  if (provider === "deepl") {
+    const apiKey = String(credentials.apiKey || "").trim();
+    if (!apiKey) throw new Error("请填写 DeepL API Key");
+    const plan = String(credentials.plan || "free");
+    if (plan !== "free" && plan !== "pro") throw new Error("DeepL API 类型无效");
+    const endpoint = plan === "free" ? "https://api-free.deepl.com/v2/translate" : "https://api.deepl.com/v2/translate";
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { Authorization: `DeepL-Auth-Key ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ text: [sourceText], target_lang: "ZH" }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(String(result.message || result.detail || `DeepL 请求失败（HTTP ${response.status}）`));
+    const translated = result.translations?.[0]?.text;
+    if (typeof translated !== "string" || !translated.trim()) throw new Error("DeepL 没有返回译文");
+    return translated.trim();
+  }
+  throw new Error("不支持的标题翻译服务");
+}
+
 Deno.serve(async (request: Request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders(request) });
   if (request.method !== "POST") return json(request, { ok: false, error: "仅支持 POST 请求" }, 405);
@@ -548,6 +609,13 @@ Deno.serve(async (request: Request) => {
     }
 
     const userId = await authenticate(request);
+    if (action === "translate-title") {
+      const provider = String(body.provider || "");
+      const text = String(body.text || "");
+      const credentials = body.credentials && typeof body.credentials === "object" ? body.credentials as Record<string, unknown> : {};
+      const translation = await translateTitleWithProvider(provider, text, credentials);
+      return json(request, { ok: true, translation });
+    }
     if (action === "set-read") {
       const id = String(body.id || "");
       if (!id) return json(request, { ok: false, error: "缺少文章编号" }, 400);

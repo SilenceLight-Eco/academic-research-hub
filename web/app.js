@@ -5460,45 +5460,129 @@
   var trackerTranslationPending = Object.create(null);
   var trackerTranslationQueue = [];
   var trackerTranslationActive = 0;
-  var trackerTranslationCacheKey = 'academic-workbench-tracker-title-zh-v1';
-  try { trackerTitleTranslations = JSON.parse(localStorage.getItem(trackerTranslationCacheKey) || '{}') || Object.create(null); } catch (_) { trackerTitleTranslations = Object.create(null); }
+  var trackerTranslationCacheKey = 'academic-workbench-tracker-title-zh-v2';
+  var trackerTranslationSettingsKey = 'academic-workbench-title-translation-settings-v1';
+  try {
+    trackerTitleTranslations = JSON.parse(localStorage.getItem(trackerTranslationCacheKey) || '{}') || Object.create(null);
+    var legacyTitleTranslations = JSON.parse(localStorage.getItem('academic-workbench-tracker-title-zh-v1') || '{}') || {};
+    Object.keys(legacyTitleTranslations).forEach(function (key) { if (!trackerTitleTranslations[key]) trackerTitleTranslations[key] = Object.assign({ provider: 'mymemory' }, legacyTitleTranslations[key]); });
+  } catch (_) { trackerTitleTranslations = Object.create(null); }
+  function trackerTranslationSettings() {
+    try { var saved = JSON.parse(localStorage.getItem(trackerTranslationSettingsKey) || '{}') || {}; return { provider: saved.provider || 'mymemory', niutrans: Object.assign({}, saved.niutrans || {}), deepl: Object.assign({}, saved.deepl || {}) }; }
+    catch (_) { return { provider: 'mymemory', niutrans: {}, deepl: {} }; }
+  }
+  function trackerTranslationReady(settings) {
+    if (settings.provider === 'niutrans') return Boolean(settings.niutrans && settings.niutrans.appId && settings.niutrans.apiKey && settings.niutrans.apiSecret);
+    if (settings.provider === 'deepl') return Boolean(settings.deepl && settings.deepl.apiKey);
+    return true;
+  }
   function looksLikeEnglishTitle(title) { return /[A-Za-z]/.test(title || '') && !/[\u3400-\u9fff]/.test(title || ''); }
   function getTrackerTitleTranslation(article) {
     var cached = trackerTitleTranslations[String(article.id)];
-    return cached && cached.source === article.title ? cached.text : '';
+    var provider = trackerTranslationSettings().provider;
+    return cached && cached.source === article.title && (cached.provider || 'mymemory') === provider ? cached.text : '';
   }
   function translateTrackerArticleTitles(articles) {
+    var settings = trackerTranslationSettings();
+    if (!trackerTranslationReady(settings)) return;
     articles.forEach(function (article) {
       var id = String(article.id || '');
-      if (!id || !article.title || !looksLikeEnglishTitle(article.title) || getTrackerTitleTranslation(article) || trackerTranslationPending[id]) return;
-      trackerTranslationPending[id] = true;
-      trackerTranslationQueue.push({ id: id, title: article.title });
+      var key = id + ':' + settings.provider;
+      if (!id || !article.title || !looksLikeEnglishTitle(article.title) || getTrackerTitleTranslation(article) || trackerTranslationPending[key]) return;
+      trackerTranslationPending[key] = true;
+      trackerTranslationQueue.push({ id: id, key: key, title: article.title, settings: JSON.parse(JSON.stringify(settings)) });
     });
     pumpTrackerTitleTranslations();
+  }
+  function translateTrackerText(title, settings) {
+    if (settings.provider === 'mymemory') {
+      return window.__nativeFetch('https://api.mymemory.translated.net/get?q=' + encodeURIComponent(title) + '&langpair=en|zh-CN')
+        .then(function (response) { if (!response.ok) throw new Error('MyMemory 请求失败（HTTP ' + response.status + '）'); return response.json(); })
+        .then(function (data) {
+          if (!data || data.responseStatus !== 200 || !data.responseData || !data.responseData.translatedText) throw new Error((data && data.responseDetails) || 'MyMemory 没有返回译文');
+          var decoder = document.createElement('textarea'); decoder.innerHTML = data.responseData.translatedText;
+          return decoder.value.trim();
+        });
+    }
+    var credentials = settings.provider === 'niutrans' ? settings.niutrans : settings.deepl;
+    return journalTrackerRequest({ action: 'translate-title', provider: settings.provider, text: title, credentials: credentials || {} }).then(function (result) {
+      if (!result.translation) throw new Error('翻译服务没有返回译文');
+      return result.translation;
+    });
   }
   function pumpTrackerTitleTranslations() {
     while (trackerTranslationActive < 2 && trackerTranslationQueue.length) {
       (function (job) {
         trackerTranslationActive += 1;
-        window.__nativeFetch('https://api.mymemory.translated.net/get?q=' + encodeURIComponent(job.title) + '&langpair=en|zh-CN')
-          .then(function (response) { if (!response.ok) throw new Error('translation request failed'); return response.json(); })
-          .then(function (data) {
-            var translated = data && data.responseData && data.responseData.translatedText;
-            if (!translated || data.responseStatus !== 200) return;
-            var decoder = document.createElement('textarea'); decoder.innerHTML = translated;
-            translated = decoder.value.trim();
+        translateTrackerText(job.title, job.settings)
+          .then(function (translated) {
             if (!translated || translated.toLowerCase() === job.title.toLowerCase()) return;
-            trackerTitleTranslations[job.id] = { source: job.title, text: translated };
+            trackerTitleTranslations[job.id] = { source: job.title, text: translated, provider: job.settings.provider };
             try { localStorage.setItem(trackerTranslationCacheKey, JSON.stringify(trackerTitleTranslations)); } catch (_) {}
             var target = document.querySelector('[data-tracker-title-translation="' + CSS.escape(job.id) + '"]');
-            if (target) { target.textContent = translated; target.hidden = false; }
-          }).catch(function () {}).then(function () {
+            if (target && trackerTranslationSettings().provider === job.settings.provider) { target.textContent = translated; target.hidden = false; }
+          }).catch(function (error) {
+            var target = document.querySelector('[data-tracker-title-translation="' + CSS.escape(job.id) + '"]');
+            if (target && trackerTranslationSettings().provider === job.settings.provider) { target.textContent = '翻译失败：' + ((error && error.message) || '请检查服务设置'); target.classList.add('is-translation-error'); target.hidden = false; }
+          }).then(function () {
             trackerTranslationActive -= 1;
-            delete trackerTranslationPending[job.id];
+            delete trackerTranslationPending[job.key];
             pumpTrackerTitleTranslations();
           });
       })(trackerTranslationQueue.shift());
     }
+  }
+  function updateTrackerTranslationProviderFields() {
+    var provider = $('#trackerTranslationProvider').value;
+    $$('.tracker-translation-provider-fields').forEach(function (fields) { fields.hidden = fields.dataset.translationProviderFields !== provider; });
+    var help = $('#trackerTranslationHelp');
+    help.textContent = provider === 'niutrans' ? '小牛官方接口需 App ID、API Key 和 API Secret；由 Supabase 后端签名转发。' : (provider === 'deepl' ? 'DeepL API Key 将通过 Supabase 后端转发；Free/Pro 地址按上方 API 类型选择。' : 'MyMemory 无需密钥；服务额度和翻译质量由服务商决定。');
+  }
+  function openTrackerTranslationSettings() {
+    var settings = trackerTranslationSettings();
+    $('#trackerTranslationProvider').value = settings.provider;
+    $('#trackerNiuAppId').value = (settings.niutrans && settings.niutrans.appId) || '';
+    $('#trackerNiuApiKey').value = (settings.niutrans && settings.niutrans.apiKey) || '';
+    $('#trackerNiuApiSecret').value = (settings.niutrans && settings.niutrans.apiSecret) || '';
+    $('#trackerDeepLApiKey').value = (settings.deepl && settings.deepl.apiKey) || '';
+    $('#trackerDeepLPlan').value = (settings.deepl && settings.deepl.plan) || 'free';
+    $('#trackerTranslationClear').hidden = !(settings.niutrans && settings.niutrans.apiKey) && !(settings.deepl && settings.deepl.apiKey);
+    $('#trackerTranslationTestResult').textContent = '';
+    updateTrackerTranslationProviderFields();
+    $('#trackerTranslationOverlay').hidden = false;
+    $('#trackerTranslationProvider').focus();
+  }
+  function closeTrackerTranslationSettings() { $('#trackerTranslationOverlay').hidden = true; }
+  function saveTrackerTranslationSettings(event) {
+    event.preventDefault();
+    var previous = trackerTranslationSettings();
+    var settings = {
+      provider: $('#trackerTranslationProvider').value,
+      niutrans: { appId: $('#trackerNiuAppId').value.trim(), apiKey: $('#trackerNiuApiKey').value.trim(), apiSecret: $('#trackerNiuApiSecret').value.trim() },
+      deepl: { apiKey: $('#trackerDeepLApiKey').value.trim(), plan: $('#trackerDeepLPlan').value }
+    };
+    if (!settings.niutrans.appId) settings.niutrans.appId = previous.niutrans.appId || '';
+    if (!settings.niutrans.apiKey) settings.niutrans.apiKey = previous.niutrans.apiKey || '';
+    if (!settings.niutrans.apiSecret) settings.niutrans.apiSecret = previous.niutrans.apiSecret || '';
+    if (!settings.deepl.apiKey) settings.deepl.apiKey = previous.deepl.apiKey || '';
+    if (!trackerTranslationReady(settings)) { toast(settings.provider === 'niutrans' ? '请填写完整的小牛 App ID、API Key 和 API Secret' : '请填写 DeepL API Key'); return; }
+    try { localStorage.setItem(trackerTranslationSettingsKey, JSON.stringify(settings)); }
+    catch (_) { toast('浏览器无法保存翻译设置，请检查本机存储空间'); return; }
+    closeTrackerTranslationSettings();
+    renderJournalTracker();
+    toast('翻译服务设置已保存');
+  }
+  function testTrackerTranslation() {
+    var provider = $('#trackerTranslationProvider').value;
+    var settings = {
+      provider: provider,
+      niutrans: { appId: $('#trackerNiuAppId').value.trim(), apiKey: $('#trackerNiuApiKey').value.trim(), apiSecret: $('#trackerNiuApiSecret').value.trim() },
+      deepl: { apiKey: $('#trackerDeepLApiKey').value.trim(), plan: $('#trackerDeepLPlan').value }
+    };
+    var result = $('#trackerTranslationTestResult');
+    if (!trackerTranslationReady(settings)) { result.textContent = '请先填写所需密钥'; return; }
+    result.textContent = '正在测试…';
+    translateTrackerText('Academic literature tracking', settings).then(function (text) { result.textContent = text || '服务未返回译文'; }).catch(function (error) { result.textContent = (error && error.message) || '测试失败'; });
   }
 
   function searchTrackerJournals(event) {
@@ -5760,6 +5844,13 @@
     $('#trackerSearchResults').addEventListener('click', function (event) { var button = event.target.closest('[data-tracker-add]'); if (button) addTrackerJournal(button.dataset.trackerAdd, button); });
     $('#trackerSubscriptions').addEventListener('click', function (event) { var selectButton = event.target.closest('[data-tracker-select-journal]'); if (selectButton) { state.journalTrackerFilter = selectButton.dataset.trackerSelectJournal; renderJournalTracker(); $('#trackerArticles').scrollIntoView({ behavior: 'smooth', block: 'start' }); return; } var saveButton = event.target.closest('[data-tracker-feed-save]'); if (saveButton) { saveTrackerFeed(saveButton.dataset.trackerFeedSave, saveButton); return; } var button = event.target.closest('[data-tracker-remove]'); if (button) removeTrackerJournal(button.dataset.trackerRemove); });
     $('#trackerArticles').addEventListener('click', function (event) { var groupButton = event.target.closest('[data-tracker-group-toggle]'); if (groupButton) { var group = groupButton.dataset.trackerGroupToggle; state.trackerCollapsedGroups[group] = !state.trackerCollapsedGroups[group]; try { localStorage.setItem('academic-workbench-tracker-collapsed-v1', JSON.stringify(state.trackerCollapsedGroups)); } catch (_) {} renderJournalTracker(); return; } var readButton = event.target.closest('[data-tracker-read-toggle]'); if (readButton) { setTrackedArticleRead(readButton.dataset.trackerReadToggle, readButton.dataset.trackerIsRead !== 'true', readButton); return; } var zoteroButton = event.target.closest('[data-tracker-zotero]'); if (zoteroButton) { importTrackedArticleToZotero(zoteroButton.dataset.trackerZotero, zoteroButton); return; } var button = event.target.closest('[data-tracker-save-ref]'); if (button) saveTrackedArticleToLibrary(button.dataset.trackerSaveRef); });
+    $('#trackerTranslationSetup').addEventListener('click', openTrackerTranslationSettings);
+    $('#trackerTranslationProvider').addEventListener('change', updateTrackerTranslationProviderFields);
+    $('#trackerTranslationTest').addEventListener('click', testTrackerTranslation);
+    $('#trackerTranslationCancel').addEventListener('click', closeTrackerTranslationSettings);
+    $('#trackerTranslationOverlay').addEventListener('click', function (event) { if (event.target === this) closeTrackerTranslationSettings(); });
+    $('#trackerTranslationForm').addEventListener('submit', saveTrackerTranslationSettings);
+    $('#trackerTranslationClear').addEventListener('click', function () { localStorage.removeItem(trackerTranslationSettingsKey); closeTrackerTranslationSettings(); renderJournalTracker(); toast('已清除本机保存的翻译服务密钥，已切换为 MyMemory'); });
     $('#trackerZoteroSetup').addEventListener('click', openTrackerZoteroSetup);
     $('#trackerZoteroClear').addEventListener('click', function () { localStorage.removeItem(trackerZoteroConfigKey); closeTrackerZoteroSetup(); renderJournalTracker(); toast('已从此浏览器移除 Zotero 密钥'); });
     $('#trackerZoteroCancel').addEventListener('click', closeTrackerZoteroSetup);
