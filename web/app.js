@@ -5327,15 +5327,16 @@
 
   function autoRefreshStaleJournalTracker() {
     var subscriptions = state.journalTracker.subscriptions || [];
+    var missingAbstract = (state.journalTracker.articles || []).some(function (article) { return Boolean(article.doi) && !String(article.abstract || '').trim(); });
     var now = Date.now();
     var day = 24 * 60 * 60 * 1000;
-    var stale = subscriptions.some(function (item) {
+    var stale = missingAbstract || subscriptions.some(function (item) {
       var checkedAt = Date.parse(item.last_checked_at || '');
       return !checkedAt || now - checkedAt >= day;
     });
     if (!stale || now - state.journalTrackerAutoRefreshAt < 6 * 60 * 60 * 1000) return;
     state.journalTrackerAutoRefreshAt = now;
-    setTrackerStatus('发现超过 24 小时未检查的期刊，正在自动更新…', false);
+    setTrackerStatus(missingAbstract ? '正在为缺少摘要的文章补充元数据…' : '发现超过 24 小时未检查的期刊，正在自动更新…', false);
     journalTrackerRequest({ action: 'refresh' }).then(function (result) {
       applyJournalTrackerData(result);
       var failed = (result.results || []).filter(function (item) { return !item.ok; }).length;
