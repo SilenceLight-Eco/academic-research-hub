@@ -76,10 +76,10 @@ Deno.serve(async (request: Request) => {
     authUrl.searchParams.set("app_id", appId);
     authUrl.searchParams.set("redirect_uri", callbackUrl);
     authUrl.searchParams.set("state", state);
-    // Without an explicit OAuth scope Feishu grants only the basic user identity
-    // permission. The docx APIs used by import/export require the user's document
-    // permission; offline_access allows the callback/sync function to refresh it.
-    authUrl.searchParams.set("scope", "auth:user.id:read docx:document offline_access");
+    // Export uses Markdown-to-block conversion before it creates and writes the
+    // document. Request both document editing and block conversion under the
+    // user's identity; offline_access allows the sync function to refresh tokens.
+    authUrl.searchParams.set("scope", "auth:user.id:read docx:document docx:document.block:convert offline_access");
     return json(request, { ok: true, authUrl: authUrl.toString() });
   } catch {
     return json(request, { ok: false, error: "无法启动飞书授权，请稍后重试" }, 500);

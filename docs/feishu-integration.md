@@ -4,7 +4,7 @@
 
 ## 必要配置
 
-1. 飞书应用已创建，权限管理中需启用文档访问权限（目前配置为 `docs:doc`，用户权限范围）和用户身份授权。应用状态必须允许 OAuth 用户授权。
+1. 飞书应用已创建，并在“权限管理”的**用户权限**中启用 `docx:document`（创建及编辑新版文档）和 `docx:document.block:convert`（文本内容转换为云文档块）。应用状态必须允许 OAuth 用户授权；添加权限后创建并发布应用版本。
 2. 在飞书开放平台“安全设置”中，将下面的地址加入 OAuth 重定向 URL 白名单：
 
    `https://gqopwqpysoixcgdacurx.supabase.co/functions/v1/feishu-oauth-callback`
@@ -26,6 +26,7 @@ supabase functions deploy feishu-sync --project-ref gqopwqpysoixcgdacurx
 ## 使用方式
 
 - 在“知识库”或“公众号笔记”中点击“连接飞书”，完成飞书账号授权。
+- 如果此前已连接过飞书、之后才添加 `docx:document.block:convert`，必须再次点击“连接飞书”完成重新授权；旧令牌不会自动获得新权限。
 - 粘贴飞书文档链接后点“从飞书导入”；这会覆盖当前条目内容，界面会先提示确认。
 - 点“导出到飞书”会创建新的飞书文档，并把链接保存到当前条目。
 - “打开”只在新标签页中打开已关联的飞书文档。

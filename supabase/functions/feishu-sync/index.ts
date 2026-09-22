@@ -130,7 +130,9 @@ async function feishuRequest(path: string, token: string, method = "GET", body?:
       .slice(0, 240);
     const codeLabel = Number.isFinite(code) ? `错误码 ${code}` : `HTTP ${response.status}`;
     const detail = safeMessage ? `：${safeMessage}` : "";
-    const hint = Number.isFinite(code) && (code === 99991663 || code === 99991672)
+    const hint = Number.isFinite(code) && code === 99991679
+      ? "；缺少 Markdown 转换权限 docx:document.block:convert。请在飞书开放平台为应用开通该用户权限并发布版本，然后回到工作台点击“连接飞书”重新授权"
+      : Number.isFinite(code) && (code === 99991663 || code === 99991672)
       ? "；请确认已开通并发布“创建及编辑新版文档（docx:document）”用户权限，然后重新授权"
       : "；请确认当前用户有权访问该文档，且应用已获对应文档权限";
     throw new Error(`飞书文档 API ${codeLabel}${detail}${hint}`);
