@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Academic Research Hub — Zotero Bridge",
+  "version": "1.0.0",
+  "description": "仅为学术工作台连接本机 Zotero 桌面端。",
+  "permissions": [],
+  "host_permissions": [
+    "http://localhost:23119/*",
+    "http://127.0.0.1:23119/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://silencelight-eco.github.io/academic-research-hub/*"],
+      "js": ["content.js"],
+      "all_frames": true,
+      "run_at": "document_start"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}

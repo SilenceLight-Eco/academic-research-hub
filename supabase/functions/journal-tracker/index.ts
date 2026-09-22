@@ -537,6 +537,22 @@ function base64Bytes(bytes: Uint8Array): string {
 async function translateTitleWithProvider(provider: string, text: string, credentials: Record<string, unknown>): Promise<string> {
   const sourceText = text.trim();
   if (!sourceText || sourceText.length > 5000) throw new Error("待翻译标题为空或超过 5000 个字符");
+  if (provider === "mymemory") {
+    if (new TextEncoder().encode(sourceText).length > 500) throw new Error("MyMemory 单次请求最多支持 500 字节；请缩短标题或切换到其他服务");
+    const url = new URL("https://api.mymemory.translated.net/get");
+    url.searchParams.set("q", sourceText);
+    url.searchParams.set("langpair", "en|zh-CN");
+    const response = await fetch(url, { headers: { Accept: "application/json" } });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(`MyMemory 请求失败（HTTP ${response.status}）`);
+    if (result.responseStatus !== 200 || typeof result.responseData?.translatedText !== "string") {
+      const details = String(result.responseDetails || "");
+      throw new Error(details || `MyMemory 未返回译文（状态 ${String(result.responseStatus || "未知")}）；可能是免费额度或服务暂不可用`);
+    }
+    const translated = plainText(result.responseData.translatedText).trim();
+    if (!translated) throw new Error("MyMemory 返回了空译文，请稍后重试或切换服务");
+    return translated;
+  }
   if (provider === "niutrans") {
     const appId = String(credentials.appId || "").trim();
     const apiKey = String(credentials.apiKey || "").trim();

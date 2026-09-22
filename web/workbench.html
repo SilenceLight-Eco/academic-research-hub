@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>学术工作台</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='%230F766E' stroke='%230F766E' stroke-width='2'/><circle cx='16' cy='16' r='5' fill='%230F766E'/></svg>">
-  <link rel="stylesheet" href="style.css?v=20260922-70">
+  <link rel="stylesheet" href="style.css?v=20260922-71">
   <style>.sidebar-nav .retired-content{display:none!important}</style>
   <link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Serif+SC:wght@400;600;700&family=Noto+Sans+SC:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500&display=swap">
 </head>
@@ -382,7 +382,7 @@
       </section>
 
       <section class="panel" id="panel-journal-tracker">
-        <div class="tracker-hero">
+        <div class="tracker-hero" id="trackerHero">
           <div>
             <div class="card-dot"></div>
             <div class="card-label">文献追踪</div>
@@ -392,14 +392,14 @@
           <button type="button" id="trackerRefresh">立即检查更新</button>
         </div>
 
-        <div class="tracker-stats" aria-label="追踪概况">
+        <div class="tracker-stats" id="trackerStats" aria-label="追踪概况">
           <div><span>追踪期刊</span><b id="trackerJournalCount">0</b></div>
           <div><span>已收录文章</span><b id="trackerArticleCount">0</b></div>
           <div><span>最近检查</span><b id="trackerLastCheck">尚未检查</b></div>
           <div><span>自动更新</span><b>进入时检查</b></div>
         </div>
 
-        <div class="tracker-layout">
+        <div class="tracker-layout" id="trackerLayout">
           <aside class="tracker-sidebar">
             <form id="trackerSearchForm" class="tracker-add-form">
               <label for="trackerJournalQuery">添加追踪期刊</label>
@@ -432,10 +432,11 @@
             <div id="trackerArticles" class="tracker-articles"></div>
           </section>
         </div>
+        <section id="trackerArticleDetail" class="tracker-detail-view" aria-live="polite" hidden></section>
         <div class="tracker-zotero-overlay" id="trackerZoteroOverlay" hidden>
           <form class="tracker-zotero-dialog" id="trackerZoteroForm" role="dialog" aria-modal="true" aria-labelledby="trackerZoteroTitle">
-            <h3 id="trackerZoteroTitle">网页版 Zotero 文库设置</h3>
-            <p>每篇文章的主按钮会优先发送到正在运行的 Zotero 桌面端；此处只用于备用的网页版文库导入。若需云端导入，请在 <a href="https://www.zotero.org/settings/keys" target="_blank" rel="noopener">Zotero API Keys 页面</a>创建密钥并启用文库读取与写入权限。用户 ID 和密钥只保存在此浏览器，不会上传到本项目服务器。</p>
+            <h3 id="trackerZoteroTitle">连接 Zotero 文库</h3>
+            <p>使用 Zotero 官方 Web API 将条目写入个人文库；桌面客户端启用同步后即可下载。用户 ID 和密钥只保存在此浏览器，不会上传到本项目服务器。若要直接发送到本机客户端，请先启动 Zotero，并按 <a href="https://github.com/SilenceLight-Eco/academic-research-hub/tree/main/zotero-bridge" target="_blank" rel="noopener">桌面桥接扩展安装说明</a>安装一次浏览器扩展。</p>
             <label>Zotero 用户 ID<input id="trackerZoteroUserId" inputmode="numeric" autocomplete="off" required placeholder="不是用户名；可在 API Keys 页面查看"></label>
             <label>API 密钥<input id="trackerZoteroApiKey" type="password" autocomplete="new-password" placeholder="具有文库读取和写入权限的 API Key"></label>
             <div class="tracker-zotero-actions"><button type="button" id="trackerZoteroClear" hidden>断开连接</button><button type="button" id="trackerZoteroCancel">取消</button><button type="submit">保存并连接</button></div>
@@ -444,7 +445,7 @@
         <div class="tracker-zotero-overlay" id="trackerTranslationOverlay" hidden>
           <form class="tracker-zotero-dialog tracker-translation-dialog" id="trackerTranslationForm" role="dialog" aria-modal="true" aria-labelledby="trackerTranslationTitle">
             <h3 id="trackerTranslationTitle">标题翻译服务</h3>
-            <p>标题会自动发给所选服务翻译。小牛和 DeepL 的密钥保存在此浏览器，并在每次翻译时通过 HTTPS 临时发送给 Supabase 转发，不写入云端数据库；请留意服务商可能按用量计费。首次使用小牛或 DeepL 前，需先重新部署一次 Supabase 的 journal-tracker 函数；MyMemory 可直接使用。</p>
+            <p>标题通过 Supabase 后端转发，避免浏览器跨域拦截。小牛和 DeepL 的密钥保存在此浏览器，每次翻译时临时发送给 Supabase，不写入云端数据库；请留意服务商可能按用量计费。使用新版本需部署更新后的 journal-tracker 函数。</p>
             <label>翻译服务<select id="trackerTranslationProvider"><option value="mymemory">MyMemory（免密）</option><option value="niutrans">小牛翻译 NiuTrans</option><option value="deepl">DeepL API</option></select></label>
             <div class="tracker-translation-provider-fields" data-translation-provider-fields="niutrans" hidden>
               <label>小牛 App ID<input id="trackerNiuAppId" autocomplete="off" placeholder="控制台 → API 应用"></label>
@@ -1406,6 +1407,6 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
   <script src="static-api.js?v=20260922-70"></script>
-  <script src="app.js?v=20260922-70"></script>
+  <script src="app.js?v=20260922-71"></script>
 </body>
 </html>
