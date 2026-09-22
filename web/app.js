@@ -5557,6 +5557,9 @@
     button.disabled = true;
     button.textContent = '保存中…';
     journalTrackerRequest({ action: 'set-read', id: id, isRead: isRead }).then(function (result) {
+      if (result.readStateVersion !== 1 || !(result.articles || []).some(function (article) { return String(article.id) === String(id) && article.is_read === isRead; })) {
+        throw new Error('云端文献追踪函数尚未更新，阅读状态未保存。请在 Supabase 重新部署 journal-tracker 后重试。');
+      }
       applyJournalTrackerData(result);
       toast(isRead ? '已标记为已读' : '已标记为未读');
     }).catch(function (error) {
@@ -5571,6 +5574,9 @@
     button.disabled = true;
     button.textContent = '正在标记…';
     journalTrackerRequest({ action: 'mark-all-read' }).then(function (result) {
+      if (result.readStateVersion !== 1 || (result.articles || []).some(function (article) { return article.is_read !== true; })) {
+        throw new Error('云端文献追踪函数尚未更新，阅读状态未保存。请在 Supabase 重新部署 journal-tracker 后重试。');
+      }
       applyJournalTrackerData(result);
       toast('已将所有追踪文章标记为已读');
     }).catch(function (error) {
@@ -6890,20 +6896,26 @@
     return window.__academicFeishuExport({ title: String(title || '未命名文档').trim(), markdown: content });
   }
 
+  function startFeishuExportProgress(button) {
+    var phases = ['正在连接飞书…', '正在转换 Markdown…', '正在创建文档…', '正在写入文档内容…'];
+    var index = 0;
+    button.textContent = phases[index];
+    return setInterval(function () { index = (index + 1) % phases.length; button.textContent = phases[index]; }, 5000);
+  }
+
   function exportNoteToFeishu() {
     if (!state.noteId) return;
     var button = $('#noteFeishuExport'); var body = readNotePayload();
-    button.disabled = true; button.textContent = '正在导出…';
-    saveImmediately('note:' + body.id, body, persistNoteStudio).then(function () {
-      return exportMarkdownToFeishu(body.title, body.markdown);
-    }).then(function (result) {
+    button.disabled = true; var progressTimer = startFeishuExportProgress(button);
+    exportMarkdownToFeishu(body.title, body.markdown).then(function (result) {
       var note = activeNoteStudio(); if (!note) throw new Error('笔记已切换，请重新选择后再试');
       note.feishuUrl = result.documentUrl || result.document_url || '';
       note.feishuDocId = result.documentId || result.document_id || '';
       note.feishuExportedAt = new Date().toISOString();
       $('#noteFeishuUrl').value = note.feishuUrl;
-      return saveImmediately('note:' + note.id, readNotePayload(), persistNoteStudio).then(function () { toast('已导出到飞书，文档链接已保存'); });
-    }).catch(function (error) { toast(error.message || '飞书导出失败'); }).finally(function () { button.disabled = !state.noteId; button.textContent = '导出到飞书'; });
+      toast('已导出到飞书；正在保存文档链接');
+      saveImmediately('note:' + note.id, readNotePayload(), persistNoteStudio).catch(function () { toast('飞书文档已创建，但工作台未能保存链接，请手动复制链接'); });
+    }).catch(function (error) { toast(error.message || '飞书导出失败'); }).finally(function () { clearInterval(progressTimer); button.disabled = !state.noteId; button.textContent = '导出到飞书'; });
   }
 
   function importNoteFromFeishu() {
@@ -7395,18 +7407,17 @@
   function exportKnowledgeToFeishu() {
     if (!state.kbDocId) return;
     var button = $('#kbFeishuExport'); var body = knowledgePayload();
-    button.disabled = true; button.textContent = '正在导出…';
-    saveImmediately('knowledge:' + body.id, body, persistKnowledgeDoc).then(function () {
-      return exportMarkdownToFeishu(body.title, body.content);
-    }).then(function (result) {
+    button.disabled = true; var progressTimer = startFeishuExportProgress(button);
+    exportMarkdownToFeishu(body.title, body.content).then(function (result) {
       var doc = ((state.knowledgeBase && state.knowledgeBase.docs) || []).filter(function (item) { return String(item.id) === String(body.id); })[0];
       if (!doc) throw new Error('知识库文档已切换，请重新选择后再试');
       doc.feishuUrl = result.documentUrl || result.document_url || '';
       doc.feishuDocId = result.documentId || result.document_id || '';
       doc.feishuExportedAt = new Date().toISOString();
       $('#kbFeishuUrl').value = doc.feishuUrl;
-      return saveImmediately('knowledge:' + body.id, knowledgePayload(), persistKnowledgeDoc).then(function () { toast('已导出到飞书，文档链接已保存'); });
-    }).catch(function (error) { toast(error.message || '飞书导出失败'); }).finally(function () { if (!button.isConnected) return; button.disabled = !state.kbDocId; button.textContent = '导出到飞书'; });
+      toast('已导出到飞书；正在保存文档链接');
+      saveImmediately('knowledge:' + body.id, knowledgePayload(), persistKnowledgeDoc).catch(function () { toast('飞书文档已创建，但工作台未能保存链接，请手动复制链接'); });
+    }).catch(function (error) { toast(error.message || '飞书导出失败'); }).finally(function () { clearInterval(progressTimer); if (!button.isConnected) return; button.disabled = !state.kbDocId; button.textContent = '导出到飞书'; });
   }
 
   function importKnowledgeFromFeishu() {

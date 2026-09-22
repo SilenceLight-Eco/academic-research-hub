@@ -12,15 +12,21 @@
     var session = sessionResult && sessionResult.data && sessionResult.data.session;
     if (!session) throw new Error('请先登录工作台，再连接飞书');
     var result;
+    var controller = new AbortController();
+    var timeout = setTimeout(function () { controller.abort(); }, 50000);
     try {
       result = await window.__nativeFetch(url + '/functions/v1/' + functionName, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token, 'apikey': key },
-        body: JSON.stringify(payload || {})
+        body: JSON.stringify(payload || {}),
+        signal: controller.signal
       });
     } catch (error) {
+      if (error && error.name === 'AbortError') throw new Error('飞书服务响应超时（50 秒）。超时不一定代表文档未创建，请先检查飞书最近文档，避免重复导出；再检查 Supabase 函数部署和飞书授权。');
       if (error instanceof TypeError) throw new Error('无法连接 Supabase 飞书同步函数（网络或跨域请求失败）。请确认 feishu-sync 已部署，并从工作台 GitHub Pages 地址访问。');
       throw error;
+    } finally {
+      clearTimeout(timeout);
     }
     var data = await result.json().catch(function () { return {}; });
     if (!result.ok || !data.ok) throw new Error(data.error || '飞书操作失败，请检查服务端配置');

@@ -553,22 +553,25 @@ Deno.serve(async (request: Request) => {
       if (!id) return json(request, { ok: false, error: "缺少文章编号" }, 400);
       const isRead = body.isRead === true;
       const updatedAt = new Date().toISOString();
-      const updated = await rest(`journal_articles?id=eq.${encodeURIComponent(id)}&user_id=eq.${encodeURIComponent(userId)}&select=id`, {
+      const updated = await rest(`journal_articles?id=eq.${encodeURIComponent(id)}&user_id=eq.${encodeURIComponent(userId)}&select=id,is_read`, {
         method: "PATCH",
         headers: { Prefer: "return=representation" },
         body: JSON.stringify({ is_read: isRead, read_at: isRead ? updatedAt : null, updated_at: updatedAt }),
       });
       if (!Array.isArray(updated) || updated.length === 0) return json(request, { ok: false, error: "找不到这篇追踪文章" }, 404);
-      return json(request, { ok: true, ...(await listForUser(userId)) });
+      if (updated[0].is_read !== isRead) throw new Error("数据库未能确认阅读状态变更");
+      return json(request, { ok: true, ...(await listForUser(userId)), readStateVersion: 1 });
     }
     if (action === "mark-all-read") {
       const updatedAt = new Date().toISOString();
-      await rest(`journal_articles?user_id=eq.${encodeURIComponent(userId)}&is_read=eq.false`, {
+      const updated = await rest(`journal_articles?user_id=eq.${encodeURIComponent(userId)}&or=(is_read.eq.false,is_read.is.null)&select=id,is_read`, {
         method: "PATCH",
-        headers: { Prefer: "return=minimal" },
+        headers: { Prefer: "return=representation" },
         body: JSON.stringify({ is_read: true, read_at: updatedAt, updated_at: updatedAt }),
       });
-      return json(request, { ok: true, ...(await listForUser(userId)) });
+      const data = await listForUser(userId);
+      if (data.articles.some((article: Record<string, unknown>) => article.is_read !== true)) throw new Error("部分文章未能更新为已读");
+      return json(request, { ok: true, ...data, readStateVersion: 1, updatedCount: Array.isArray(updated) ? updated.length : 0 });
     }
     if (action === "search") {
       const query = String(body.query || "").trim();

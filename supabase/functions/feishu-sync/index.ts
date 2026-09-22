@@ -103,11 +103,22 @@ async function getAccessToken(userId: string): Promise<string> {
 }
 
 async function feishuRequest(path: string, token: string, method = "GET", body?: unknown): Promise<Record<string, unknown>> {
-  const response = await fetch(`https://open.feishu.cn/open-apis${path}`, {
-    method,
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=utf-8" },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  let response: Response;
+  try {
+    response = await fetch(`https://open.feishu.cn/open-apis${path}`, {
+      method,
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=utf-8" },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") throw new Error("飞书文档 API 响应超时（15 秒），请稍后重试");
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
   const result = await response.json().catch(() => ({}));
   if (!response.ok || (result.code !== undefined && Number(result.code) !== 0)) {
     const code = Number(result.code);
