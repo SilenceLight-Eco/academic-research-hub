@@ -51,11 +51,11 @@ type StoredToken = {
   refresh_expires_at?: string | null;
 };
 
-async function saveToken(userId: string, data: Record<string, unknown>): Promise<void> {
+async function saveToken(userId: string, data: Record<string, unknown>, previousRefreshToken = ""): Promise<void> {
   const row = {
     user_id: userId,
     access_token: String(data.access_token || ""),
-    refresh_token: String(data.refresh_token || ""),
+    refresh_token: String(data.refresh_token || previousRefreshToken),
     expires_at: new Date(Date.now() + Number(data.expires_in || 0) * 1000).toISOString(),
     refresh_expires_at: data.refresh_token_expires_in
       ? new Date(Date.now() + Number(data.refresh_token_expires_in) * 1000).toISOString()
@@ -81,6 +81,7 @@ async function getAccessToken(userId: string): Promise<string> {
   const token = Array.isArray(rows) ? rows[0] as StoredToken | undefined : undefined;
   if (!response.ok || !token) throw new Error("请先连接飞书账号");
   if (Date.parse(token.expires_at) > Date.now() + 60_000) return token.access_token;
+  if (!token.refresh_token) throw new Error("飞书授权已过期，且当前授权无法自动续期，请重新连接飞书");
   if (token.refresh_expires_at && Date.parse(token.refresh_expires_at) <= Date.now()) throw new Error("飞书授权已过期，请重新连接飞书");
 
   const appId = Deno.env.get("FEISHU_APP_ID") || "";
@@ -93,11 +94,11 @@ async function getAccessToken(userId: string): Promise<string> {
   });
   const refreshEnvelope = await refreshResponse.json().catch(() => ({}));
   const refreshData = refreshEnvelope.data && typeof refreshEnvelope.data === "object" ? refreshEnvelope.data : refreshEnvelope;
-  const refreshError = refreshEnvelope.code !== undefined && refreshEnvelope.code !== 0;
+  const refreshError = refreshEnvelope.code !== undefined && Number(refreshEnvelope.code) !== 0;
   if (!refreshResponse.ok || refreshError || !refreshData.access_token || !refreshData.refresh_token) {
     throw new Error("飞书授权已过期，请重新连接飞书");
   }
-  await saveToken(userId, refreshData);
+  await saveToken(userId, refreshData, token.refresh_token);
   return String(refreshData.access_token);
 }
 
@@ -108,8 +109,8 @@ async function feishuRequest(path: string, token: string, method = "GET", body?:
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const result = await response.json().catch(() => ({}));
-  if (!response.ok || (result.code !== undefined && result.code !== 0)) {
-    if (result.code === 99991663 || response.status === 401) throw new Error("飞书授权不足或已过期，请重新连接飞书并确认文档权限");
+  if (!response.ok || (result.code !== undefined && Number(result.code) !== 0)) {
+    if (Number(result.code) === 99991663 || response.status === 401) throw new Error("飞书授权不足或已过期，请重新连接飞书并确认文档权限");
     throw new Error("飞书文档 API 调用失败，请检查应用权限和文档访问范围");
   }
   return result.data || {};

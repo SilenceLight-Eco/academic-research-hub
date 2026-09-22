@@ -9,3 +9,6 @@ verify_jwt = false
 
 [functions.feishu-sync]
 verify_jwt = true
+
+[functions.journal-tracker]
+verify_jwt = false

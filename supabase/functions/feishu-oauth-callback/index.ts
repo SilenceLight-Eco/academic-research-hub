@@ -18,23 +18,25 @@ async function sha256(value: string): Promise<string> {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-function redirect(status: "connected" | "error") {
+function redirect(status: "connected" | "error", detail?: string) {
   const url = new URL(appUrl);
   url.searchParams.set("feishu", status);
+  if (detail) url.searchParams.set("feishu_detail", detail);
   return Response.redirect(url.toString(), 303);
 }
 
 Deno.serve(async (request: Request) => {
-  if (request.method !== "GET") return redirect("error");
+  if (request.method !== "GET") return redirect("error", "invalid_callback");
   const url = new URL(request.url);
   const code = url.searchParams.get("code") || "";
   const state = url.searchParams.get("state") || "";
-  if (!code || !state || state.length > 256 || !supabaseUrl || !serviceKey) return redirect("error");
+  if (!code || !state || state.length > 256) return redirect("error", "missing_code_or_state");
+  if (!supabaseUrl || !serviceKey) return redirect("error", "server_config_missing");
 
   try {
     const appId = Deno.env.get("FEISHU_APP_ID") || "";
     const appSecret = Deno.env.get("FEISHU_APP_SECRET") || "";
-    if (!appId || !appSecret) return redirect("error");
+    if (!appId || !appSecret) return redirect("error", "app_credentials_missing");
 
     const stateHash = await sha256(state);
     const stateResponse = await fetch(`${supabaseUrl}/rest/v1/feishu_oauth_states?state_hash=eq.${stateHash}&select=user_id,expires_at`, {
@@ -42,7 +44,7 @@ Deno.serve(async (request: Request) => {
     });
     const states = await stateResponse.json().catch(() => []);
     const savedState = Array.isArray(states) ? states[0] : null;
-    if (!stateResponse.ok || !savedState || Date.parse(String(savedState.expires_at || "")) < Date.now()) return redirect("error");
+    if (!stateResponse.ok || !savedState || Date.parse(String(savedState.expires_at || "")) < Date.now()) return redirect("error", "state_invalid_or_expired");
 
     await fetch(`${supabaseUrl}/rest/v1/feishu_oauth_states?state_hash=eq.${stateHash}`, {
       method: "DELETE",
@@ -56,8 +58,11 @@ Deno.serve(async (request: Request) => {
     });
     const tokenEnvelope = await exchangeResponse.json().catch(() => ({}));
     const tokenData = tokenEnvelope.data && typeof tokenEnvelope.data === "object" ? tokenEnvelope.data : tokenEnvelope;
-    const apiError = tokenEnvelope.code !== undefined && tokenEnvelope.code !== 0;
-    if (!exchangeResponse.ok || apiError || !tokenData.access_token || !tokenData.refresh_token) return redirect("error");
+    const apiError = tokenEnvelope.code !== undefined && Number(tokenEnvelope.code) !== 0;
+    if (!exchangeResponse.ok || apiError || !tokenData.access_token) {
+      console.error("[feishu-oauth-callback] token_exchange_failed");
+      return redirect("error", "token_exchange_failed");
+    }
 
     const expiresAt = new Date(Date.now() + Number(tokenData.expires_in || 0) * 1000).toISOString();
     const refreshExpiresAt = tokenData.refresh_token_expires_in
@@ -66,7 +71,10 @@ Deno.serve(async (request: Request) => {
     const tokenRow = {
       user_id: savedState.user_id,
       access_token: tokenData.access_token,
-      refresh_token: tokenData.refresh_token,
+      // Some authorizations return a short-lived access token without offline
+      // access. Keep the connection usable now; the sync function will ask the
+      // user to reconnect once that access token expires.
+      refresh_token: String(tokenData.refresh_token || ""),
       expires_at: expiresAt,
       refresh_expires_at: refreshExpiresAt,
       open_id: tokenData.open_id || null,
@@ -79,9 +87,13 @@ Deno.serve(async (request: Request) => {
       headers: serviceHeaders({ Prefer: "resolution=merge-duplicates,return=minimal" }),
       body: JSON.stringify(tokenRow),
     });
-    if (!saveResponse.ok) return redirect("error");
-    return redirect("connected");
+    if (!saveResponse.ok) {
+      console.error("[feishu-oauth-callback] token_store_failed");
+      return redirect("error", "token_store_failed");
+    }
+    return redirect("connected", tokenData.refresh_token ? undefined : "refresh_unavailable");
   } catch {
-    return redirect("error");
+    console.error("[feishu-oauth-callback] callback_failed");
+    return redirect("error", "callback_failed");
   }
 });

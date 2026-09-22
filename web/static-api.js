@@ -32,14 +32,45 @@
   window.__academicFeishuConnect = async function () {
     var result = await feishuRequest('feishu-oauth-start', {});
     if (!result.authUrl) throw new Error('飞书授权地址生成失败');
-    window.location.assign(result.authUrl);
+    // The production app is embedded in index.html's iframe. Navigate the top-level
+    // page so Feishu can complete OAuth without framing restrictions and the callback
+    // returns to the normal workbench shell.
+    window.top.location.assign(result.authUrl);
   };
-  var feishuCallbackResult = new URLSearchParams(window.location.search).get('feishu');
+  window.__academicJournalTracker = async function (payload) {
+    var sessionResult = await client.auth.getSession();
+    var session = sessionResult && sessionResult.data && sessionResult.data.session;
+    if (!session) throw new Error('请先登录后使用文献追踪');
+    var result = await window.__nativeFetch(url + '/functions/v1/journal-tracker', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token, 'apikey': key },
+      body: JSON.stringify(payload || { action: 'list' })
+    });
+    var data = await result.json().catch(function () { return {}; });
+    if (!result.ok || !data.ok) throw new Error(data.error || '文献追踪服务暂时不可用');
+    return data;
+  };
+  var callbackLocation = window.location;
+  var callbackIsTopLevel = false;
+  try {
+    if (window.top && window.top !== window && window.top.location.origin === window.location.origin) {
+      var topCallback = new URL(window.top.location.href);
+      if (topCallback.searchParams.has('feishu')) {
+        callbackLocation = topCallback;
+        callbackIsTopLevel = true;
+      }
+    }
+  } catch (_) {}
+  var callbackParams = new URLSearchParams(callbackLocation.search);
+  var feishuCallbackResult = callbackParams.get('feishu');
+  var feishuCallbackDetail = callbackParams.get('feishu_detail');
   if (feishuCallbackResult === 'connected' || feishuCallbackResult === 'error') {
     window.__academicFeishuCallbackResult = feishuCallbackResult;
-    var cleanUrl = new URL(window.location.href);
+    if (feishuCallbackDetail) window.__academicFeishuCallbackDetail = feishuCallbackDetail;
+    var cleanUrl = new URL(callbackLocation.href);
     cleanUrl.searchParams.delete('feishu');
-    window.history.replaceState({}, '', cleanUrl.pathname + cleanUrl.search + cleanUrl.hash);
+    cleanUrl.searchParams.delete('feishu_detail');
+    (callbackIsTopLevel ? window.top : window).history.replaceState({}, '', cleanUrl.pathname + cleanUrl.search + cleanUrl.hash);
   }
   client.auth.onAuthStateChange(function (event) { if (event === 'PASSWORD_RECOVERY') { window.__academicPasswordRecovery = true; window.dispatchEvent(new CustomEvent('academic-password-recovery')); } });
   var workspace = null;

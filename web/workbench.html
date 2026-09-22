@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>学术工作台</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='%230F766E' stroke='%230F766E' stroke-width='2'/><circle cx='16' cy='16' r='5' fill='%230F766E'/></svg>">
-  <link rel="stylesheet" href="style.css?v=20260921-59">
+  <link rel="stylesheet" href="style.css?v=20260922-61">
   <style>.sidebar-nav .retired-content{display:none!important}</style>
   <link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Serif+SC:wght@400;600;700&family=Noto+Sans+SC:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500&display=swap">
 </head>
@@ -83,6 +83,11 @@
         <button class="nav-item" data-panel="references">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h11l3 3v15H5z"/><path d="M16 3v4h4"/><path d="M8 11h8M8 15h8M8 19h5"/></svg>
           <span>文献与引用</span>
+        </button>
+        <button class="nav-item" data-panel="journal-tracker">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v14H4z"/><path d="M8 9h8M8 13h5"/><path d="M17 16.5l1.5 1.5 3-3"/></svg>
+          <span>文献追踪</span>
+          <span class="nav-badge" id="navTrackerBadge" hidden></span>
         </button>
         <button class="nav-item" data-panel="focus">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5V13.5l2.4 1.7"/><path d="M9 2.5h6"/><path d="M12 2.5V6"/></svg>
@@ -374,6 +379,55 @@
       <section class="panel" id="panel-references">
         <div class="ref-head"><div><div class="card-dot"></div><div class="card-label">文献与引用</div><p>登记文献，关联项目与知识库，并随时复制引用或 BibTeX。</p></div><div class="ref-actions"><button type="button" id="refTrash">回收站</button><button type="button" id="refImport">导入 BibTeX</button><button type="button" id="refNew">+ 新建文献</button><button type="button" id="refSave">立即保存</button></div></div>
         <div class="ref-workspace"><aside class="ref-list-pane"><div class="ref-search"><input id="refSearch" type="search" placeholder="搜索标题、作者、标签"><select id="refTypeFilter" aria-label="文献类型筛选"><option value="all">全部类型</option><option value="期刊论文">期刊论文</option><option value="书籍">书籍</option><option value="会议论文">会议论文</option><option value="报告">报告</option><option value="网页">网页</option></select></div><div id="refList" class="ref-list"></div></aside><section class="ref-editor"><div class="ref-editor-title"><input id="refTitle" placeholder="文献标题" aria-label="文献标题"><button id="refDelete" type="button" title="移入回收站">×</button></div><div class="ref-grid"><label>作者<input id="refAuthors" placeholder="例如：王小明；Smith, John"></label><label>年份<input id="refYear" inputmode="numeric" maxlength="4" placeholder="2026"></label><label>类型<select id="refType"><option>期刊论文</option><option>书籍</option><option>会议论文</option><option>报告</option><option>网页</option></select></label><label>期刊/出版社<input id="refSource" placeholder="期刊、出版社或会议名称"></label><label>卷(期)/页码<input id="refLocator" placeholder="12(3), 45–68"></label><label>标签<input id="refTags" placeholder="用逗号分隔"></label></div><div class="ref-link-row"><label>DOI<input id="refDoi" placeholder="10.xxxx/xxxxx"></label><button type="button" id="refFetchDoi">DOI 自动补全</button><label>原文链接<input id="refUrl" type="url" placeholder="https://…"></label></div><div class="ref-grid"><label>关联研究项目<select id="refProject"><option value="">未关联</option></select></label><label>关联知识库文档<select id="refKnowledge"><option value="">未关联</option></select></label></div><label class="ref-notes">阅读笔记<textarea id="refNotes" placeholder="记录核心观点、可引用结论或与你研究的关系。"></textarea></label></section><aside class="ref-preview"><div class="ref-preview-label">引用预览 <span>APA 7</span></div><blockquote id="refCitationPreview" class="ref-citation-preview">选择或新建一篇文献后，这里会生成引用。</blockquote><button type="button" id="refCopyCitation">复制引用</button><div class="ref-preview-label">BibTeX</div><pre id="refBibtex" class="ref-bibtex"></pre><button type="button" id="refCopyBibtex">复制 BibTeX</button></aside></div>
+      </section>
+
+      <section class="panel" id="panel-journal-tracker">
+        <div class="tracker-hero">
+          <div>
+            <div class="card-dot"></div>
+            <div class="card-label">文献追踪</div>
+            <h2>让新论文主动抵达你的工作台</h2>
+            <p>订阅期刊后，每日自动检查新收录文章；标题、作者、摘要与主题词均保留数据来源。</p>
+          </div>
+          <button type="button" id="trackerRefresh">立即检查更新</button>
+        </div>
+
+        <div class="tracker-stats" aria-label="追踪概况">
+          <div><span>追踪期刊</span><b id="trackerJournalCount">0</b></div>
+          <div><span>已收录文章</span><b id="trackerArticleCount">0</b></div>
+          <div><span>最近检查</span><b id="trackerLastCheck">尚未检查</b></div>
+          <div><span>自动更新</span><b>每日</b></div>
+        </div>
+
+        <div class="tracker-layout">
+          <aside class="tracker-sidebar">
+            <form id="trackerSearchForm" class="tracker-add-form">
+              <label for="trackerJournalQuery">添加追踪期刊</label>
+              <div><input id="trackerJournalQuery" type="search" placeholder="输入期刊名称或 ISSN" autocomplete="off"><button type="submit">查找</button></div>
+              <input id="trackerFeedUrl" type="url" placeholder="期刊官网 RSS / Atom 地址（可选）" aria-label="期刊官网 RSS 或 Atom 地址">
+              <p>优先用官网 RSS 发现新文章；未填写或读取失败时使用 Crossref 后备。使用 ISSN 可得到最准确的期刊匹配。</p>
+            </form>
+            <div id="trackerSearchResults" class="tracker-search-results" hidden></div>
+            <div class="tracker-subscription-title"><span>我的期刊</span><b id="trackerSubscriptionCount">0</b></div>
+            <div id="trackerSubscriptions" class="tracker-subscriptions"></div>
+          </aside>
+
+          <section class="tracker-feed">
+            <div class="tracker-feed-toolbar">
+              <div>
+                <span class="tracker-eyebrow">LATEST ARTICLES</span>
+                <h3>最新文章</h3>
+              </div>
+              <div class="tracker-filters">
+                <input id="trackerArticleSearch" type="search" placeholder="搜索标题、作者或关键词">
+                <select id="trackerJournalFilter" aria-label="按期刊筛选"><option value="all">全部期刊</option></select>
+              </div>
+            </div>
+            <div class="tracker-source-note"><span>数据说明</span>官网 RSS / Atom 优先发现新文章；Semantic Scholar 补充作者和摘要；Crossref 用于 RSS 不可用时发现文章，并作为 DOI 等元数据后备。各字段会标注实际来源。</div>
+            <div id="trackerStatus" class="tracker-status" hidden></div>
+            <div id="trackerArticles" class="tracker-articles"></div>
+          </section>
+        </div>
       </section>
 
       <section class="panel" id="panel-focus">
@@ -1319,7 +1373,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-  <script src="static-api.js?v=20260921-60"></script>
-  <script src="app.js?v=20260921-60"></script>
+  <script src="static-api.js?v=20260922-61"></script>
+  <script src="app.js?v=20260922-61"></script>
 </body>
 </html>
