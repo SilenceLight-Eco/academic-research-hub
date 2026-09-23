@@ -338,20 +338,30 @@
   }
 
   function applyResearchHubSnapshot(values) {
+    var changed = false;
     Object.keys(values || {}).forEach(function (key) {
       if (researchHubKeys.indexOf(key) < 0) return;
-      if (values[key] === null) localStorage.removeItem(key); else localStorage.setItem(key, values[key]);
+      var current = localStorage.getItem(key);
+      var next = values[key];
+      if (next === null || next === undefined) {
+        if (current !== null) { localStorage.removeItem(key); changed = true; }
+      } else if (current !== String(next)) {
+        localStorage.setItem(key, next);
+        changed = true;
+      }
     });
     var frame = $('.research-hub-frame');
-    if (frame) frame.src = frame.src;
+    if (changed && frame) frame.src = frame.src;
   }
 
+  var syncDataInFlight = false;
   function syncData() {
-    if (!account) return Promise.resolve();
+    if (!account || document.hidden || syncDataInFlight) return Promise.resolve();
+    syncDataInFlight = true;
     return api('/api/sync', { method: 'POST', body: JSON.stringify({ data: {
       todos: state.todos, journal: state.journal,
       researchHub: researchHubSnapshot()
-    } }) }).catch(function () {});
+    } }) }).catch(function () {}).then(function () { syncDataInFlight = false; });
   }
 
   function applySyncData(data) {
@@ -369,7 +379,7 @@
     if (menuEmail) menuEmail.textContent = account ? account.email : '';
     if (!account && $('#accountMenu')) $('#accountMenu').hidden = true;
     if (syncTimer) clearInterval(syncTimer);
-    syncTimer = account ? setInterval(syncData, 15000) : null;
+    syncTimer = account ? setInterval(syncData, 60000) : null;
   }
 
   function checkAccount() {
@@ -5532,7 +5542,7 @@
       var isSelected = String(state.journalTrackerFilter) === String(item.id);
       return '<div class="tracker-subscription' + (item.last_error ? ' is-error' : '') + (isSelected ? ' is-selected' : '') + '">' +
         '<button type="button" class="tracker-subscription-main" data-tracker-select-journal="' + escapeHtml(item.id) + '" aria-pressed="' + isSelected + '" title="查看该期刊的文章">' +
-        '<b>' + escapeHtml(item.journal_title || item.issn) + '</b><span>' + escapeHtml(item.publisher === '手动 RSS' ? (String(item.issn || '').indexOf('MANUAL-') === 0 ? '手动 RSS' : item.issn) : (item.issn || '')) + '</span></button>' +
+        '<b>' + escapeHtml(item.journal_title || item.issn) + '</b><span>' + escapeHtml(String(item.issn || '').indexOf('MANUAL-') === 0 ? (item.publisher === '按刊名检索' ? '按刊名检索' : '手动 RSS') : (item.issn || '')) + '</span></button>' +
         '<em title="' + escapeHtml(status) + '">' + escapeHtml(status) + '</em>' +
         '<div class="tracker-feed-config"><input type="url" data-tracker-feed-input="' + escapeHtml(item.id) + '" value="' + escapeHtml(item.feed_url || '') + '" placeholder="官网 RSS / Atom 地址" aria-label="' + escapeHtml(item.journal_title || item.issn) + ' RSS 地址"><button type="button" data-tracker-feed-save="' + escapeHtml(item.id) + '">保存 RSS</button></div>' +
         '<button type="button" data-tracker-remove="' + escapeHtml(item.id) + '" title="停止追踪" aria-label="停止追踪 ' + escapeHtml(item.journal_title || item.issn) + '">×</button></div>';
@@ -5596,14 +5606,20 @@
     setTrackerStatus('', false);
     journalTrackerRequest({ action: 'search', query: query }).then(function (result) {
       var journals = Array.isArray(result.journals) ? result.journals : [];
-      renderTrackerJournalCandidates(journals);
+      renderTrackerJournalCandidates(journals, query);
     }).catch(function (error) { setTrackerStatus((error && error.message) || '期刊查找失败', true); }).then(function () { formButton.disabled = false; formButton.textContent = '查找'; });
   }
 
-  function renderTrackerJournalCandidates(journals) {
+  function renderTrackerJournalCandidates(journals, query) {
     var container = $('#trackerSearchResults');
     container.hidden = false;
-    container.innerHTML = journals.length ? journals.map(function (journal) { return '<div class="tracker-search-result"><div><b>' + escapeHtml(journal.title || journal.issn) + '</b><span>' + escapeHtml(journal.issn) + (journal.publisher ? ' · ' + escapeHtml(journal.publisher) : '') + '</span></div><button type="button" data-tracker-add="' + escapeHtml(journal.issn) + '">追踪</button></div>'; }).join('') : '<div class="tracker-empty"><b>没有找到期刊</b><span>请检查名称，或改用 ISSN 搜索。</span></div>';
+    if (journals.length) {
+      container.innerHTML = journals.map(function (journal) { return '<div class="tracker-search-result"><div><b>' + escapeHtml(journal.title || journal.issn) + '</b><span>' + escapeHtml(journal.issn) + (journal.publisher ? ' · ' + escapeHtml(journal.publisher) : '') + '</span></div><button type="button" data-tracker-add="' + escapeHtml(journal.issn) + '">追踪</button></div>'; }).join('');
+    } else if (query && /\p{Script=Han}/u.test(query)) {
+      container.innerHTML = '<div class="tracker-search-result"><div><b>' + escapeHtml(query) + '</b><span>未找到期刊目录记录；可尝试按刊名检索 Crossref 文章，或填写官网 RSS / Atom。</span></div><button type="button" data-tracker-add-title="1">按刊名追踪</button></div>';
+    } else {
+      container.innerHTML = '<div class="tracker-empty"><b>没有找到期刊</b><span>请检查名称，或改用 ISSN 搜索。</span></div>';
+    }
   }
 
   function addTrackerJournalDirect() {
@@ -5619,13 +5635,13 @@
       $('#trackerJournalQuery').value = '';
       $('#trackerJournalIssn').value = '';
       $('#trackerFeedUrl').value = '';
-      setTrackerStatus('', false);
-      toast('期刊已加入追踪，正在按设置自动更新');
+      setTrackerStatus(result.warning ? '订阅已保存，但首次检查未找到文章：' + result.warning : '', false);
+      toast(result.warning ? '订阅已保存；可为该期刊补充官网 RSS' : '期刊已加入追踪，正在按设置自动更新');
     }).catch(function (error) {
       var message = (error && error.message) || '直接添加期刊失败';
-      if (message.indexOf('多个期刊') >= 0) {
+      if (/多个期刊|相近期刊|候选列表/.test(message)) {
         journalTrackerRequest({ action: 'search', query: query }).then(function (result) {
-          renderTrackerJournalCandidates(Array.isArray(result.journals) ? result.journals : []);
+          renderTrackerJournalCandidates(Array.isArray(result.journals) ? result.journals : [], query);
           setTrackerStatus('匹配到多个期刊，请按 ISSN 选择准确的那一本。', false);
         }).catch(function (searchError) { setTrackerStatus((searchError && searchError.message) || message, true); });
       } else setTrackerStatus(message, true);
@@ -5642,8 +5658,8 @@
       $('#trackerJournalQuery').value = '';
       $('#trackerJournalIssn').value = '';
       $('#trackerFeedUrl').value = '';
-      setTrackerStatus('', false);
-      toast('期刊已加入每日追踪');
+      setTrackerStatus(result.warning ? '订阅已保存，但首次检查未找到文章：' + result.warning : '', false);
+      toast(result.warning ? '订阅已保存；可为该期刊补充官网 RSS' : '期刊已加入每日追踪');
     }).catch(function (error) {
       setTrackerStatus((error && error.message) || '添加期刊失败', true);
       if (button) { button.disabled = false; button.textContent = '追踪'; }
@@ -5885,7 +5901,7 @@
     $('#trackerDirectAdd').addEventListener('click', addTrackerJournalDirect);
     $('#trackerRefresh').addEventListener('click', refreshJournalTracker);
     $('#trackerMarkAllRead').addEventListener('click', function () { markAllTrackedArticlesRead(this); });
-    $('#trackerSearchResults').addEventListener('click', function (event) { var button = event.target.closest('[data-tracker-add]'); if (button) addTrackerJournal(button.dataset.trackerAdd, button); });
+    $('#trackerSearchResults').addEventListener('click', function (event) { if (event.target.closest('[data-tracker-add-title]')) { addTrackerJournalDirect(); return; } var button = event.target.closest('[data-tracker-add]'); if (button) addTrackerJournal(button.dataset.trackerAdd, button); });
     $('#trackerSubscriptions').addEventListener('click', function (event) { var rankButton = event.target.closest('[data-tracker-journal-rank]'); if (rankButton) { queryTrackerJournalRank(rankButton.dataset.trackerJournalRank, rankButton); return; } var selectButton = event.target.closest('[data-tracker-select-journal]'); if (selectButton) { state.journalTrackerFilter = selectButton.dataset.trackerSelectJournal; renderJournalTracker(); $('#trackerArticles').scrollIntoView({ behavior: 'smooth', block: 'start' }); return; } var saveButton = event.target.closest('[data-tracker-feed-save]'); if (saveButton) { saveTrackerFeed(saveButton.dataset.trackerFeedSave, saveButton); return; } var button = event.target.closest('[data-tracker-remove]'); if (button) removeTrackerJournal(button.dataset.trackerRemove); });
     $('#trackerArticles').addEventListener('click', function (event) { var groupButton = event.target.closest('[data-tracker-group-toggle]'); if (groupButton) { var group = groupButton.dataset.trackerGroupToggle; state.trackerCollapsedGroups[group] = !state.trackerCollapsedGroups[group]; try { localStorage.setItem('academic-workbench-tracker-collapsed-v1', JSON.stringify(state.trackerCollapsedGroups)); } catch (_) {} renderJournalTracker(); return; } var rankButton = event.target.closest('[data-tracker-journal-rank]'); if (rankButton) { queryTrackerJournalRank(rankButton.dataset.trackerJournalRank, rankButton); return; } if (event.target.closest('[data-tracker-open-detail]')) { openTrackerArticleDetail(event.target.closest('[data-tracker-open-detail]').dataset.trackerOpenDetail); return; } handleTrackerArticleAction(event); });
     $('#trackerArticleDetail').addEventListener('click', function (event) { if (event.target.closest('[data-tracker-back-to-list]')) { closeTrackerArticleDetail(); return; } var rankButton = event.target.closest('[data-tracker-journal-rank]'); if (rankButton) { queryTrackerJournalRank(rankButton.dataset.trackerJournalRank, rankButton); return; } handleTrackerArticleAction(event); });
@@ -8104,6 +8120,7 @@
       // 专注计时用的是时间戳，回前台立刻校准一次（后台标签页会被降频，
       // 也可能在后台期间已经到点）
       if (!document.hidden && focusIsActive()) { focusTick(); focusRenderAll(); }
+      if (!document.hidden && account) syncData();
     });
     // The static browser edition restores Supabase's persisted session first.
     // A noncritical data-loading error must never make the header look logged out.

@@ -77,6 +77,10 @@ function normalizeDoi(value: unknown): string {
   return String(value || "").trim().replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, "").toLowerCase();
 }
 
+function normalizeTitle(value: unknown): string {
+  return String(value || "").normalize("NFKC").toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
 function plainText(value: unknown): string {
   return String(value || "")
     .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
@@ -125,6 +129,114 @@ async function crossref(path: string, params: Record<string, string> = {}) {
   if (!response.ok) throw new Error(`Crossref 返回 ${response.status}`);
   const payload = await response.json();
   return payload && payload.message ? payload.message : payload;
+}
+
+function crossrefJournalCandidate(item: Record<string, unknown>): { issn: string; title: string; publisher: string } | null {
+  const titles = Array.isArray(item["container-title"]) ? item["container-title"] as unknown[] : [];
+  const title = plainText(titles[0] || item.title);
+  const issns = Array.isArray(item.ISSN) ? item.ISSN as unknown[] : [];
+  const issn = normalizeIssn(issns[0] || item.issn || "");
+  if (!title || !issn) return null;
+  return { issn, title, publisher: plainText(item.publisher) || "Crossref" };
+}
+
+async function crossrefWorksByTitle(title: string): Promise<CrossrefWork[]> {
+  const message = await crossref("works", {
+    "query.container-title": title,
+    rows: "30",
+    select: "DOI,title,author,abstract,container-title,ISSN,publisher,subject,type,published,published-online,published-print,issued,URL",
+    sort: "published",
+    order: "desc",
+  });
+  return (Array.isArray(message.items) ? message.items : []) as CrossrefWork[];
+}
+
+async function crossrefWorksByPaperTitle(title: string): Promise<CrossrefWork[]> {
+  const message = await crossref("works", {
+    "query.title": title,
+    rows: "10",
+    select: "DOI,title,author,abstract,container-title,subject,published,published-online,published-print,issued,URL",
+    sort: "relevance",
+  });
+  return (Array.isArray(message.items) ? message.items : []) as CrossrefWork[];
+}
+
+async function semanticScholarRequest(endpoint: URL): Promise<Record<string, unknown>> {
+  const response = await fetch(endpoint, {
+    headers: { Accept: "application/json", ...(semanticScholarKey ? { "x-api-key": semanticScholarKey } : {}) },
+    signal: AbortSignal.timeout(20000),
+  });
+  const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
+  if (!response.ok) {
+    const message = response.status === 429
+      ? "Semantic Scholar 请求过于频繁，请稍后重试"
+      : `Semantic Scholar 返回 HTTP ${response.status}`;
+    throw new Error(message);
+  }
+  return payload;
+}
+
+async function fetchSemanticScholarPaper(doi: string, title: string): Promise<Record<string, unknown>> {
+  const fields = "title,authors,abstract,year,venue,externalIds,s2FieldsOfStudy";
+  let paper: Record<string, unknown> | null = null;
+  let lastError: unknown = null;
+  if (doi) {
+    const endpoint = new URL(`https://api.semanticscholar.org/graph/v1/paper/DOI:${encodeURIComponent(doi)}`);
+    endpoint.searchParams.set("fields", fields);
+    try { paper = await semanticScholarRequest(endpoint); } catch (error) { lastError = error; }
+  }
+  if (!paper && title) {
+    const endpoint = new URL("https://api.semanticscholar.org/graph/v1/paper/search");
+    endpoint.searchParams.set("query", title);
+    endpoint.searchParams.set("limit", "10");
+    endpoint.searchParams.set("fields", fields);
+    try {
+      const payload = await semanticScholarRequest(endpoint);
+      const results = Array.isArray(payload.data) ? payload.data as Array<Record<string, unknown>> : [];
+      paper = results.find((candidate) => normalizeTitle(candidate.title) === normalizeTitle(title)) || null;
+      if (!paper && !lastError) lastError = new Error("Semantic Scholar 中没有标题完全匹配的记录");
+    } catch (error) { lastError = error; }
+  }
+  if (!paper) throw lastError instanceof Error ? lastError : new Error("Semantic Scholar 没有找到匹配论文");
+  return paper;
+}
+
+async function publishedSemanticScholarMetadata(doi: string, title: string) {
+  let paper: Record<string, unknown> = {};
+  let semanticError: unknown = null;
+  try { paper = await fetchSemanticScholarPaper(doi, title); } catch (error) { semanticError = error; }
+  const externalIds = paper.externalIds && typeof paper.externalIds === "object" ? paper.externalIds as Record<string, unknown> : {};
+  const resolvedDoi = normalizeDoi(externalIds.DOI || doi);
+  const crossrefByDoi = resolvedDoi ? await crossrefWorksByDoi([resolvedDoi]).catch(() => new Map<string, CrossrefWork>()) : new Map<string, CrossrefWork>();
+  let crossrefWork = resolvedDoi ? crossrefByDoi.get(resolvedDoi) : undefined;
+  if (!crossrefWork && title) {
+    const candidates = await crossrefWorksByPaperTitle(title).catch(() => []);
+    crossrefWork = candidates.find((candidate) => normalizeTitle(Array.isArray(candidate.title) ? candidate.title[0] : candidate.title) === normalizeTitle(title));
+  }
+  if (!Object.keys(paper).length && !crossrefWork) {
+    throw semanticError instanceof Error ? semanticError : new Error("Semantic Scholar 与 Crossref 都没有找到匹配论文");
+  }
+  const semanticAuthors = Array.isArray(paper.authors)
+    ? (paper.authors as Array<Record<string, unknown>>).map((author) => plainText(author.name)).filter(Boolean)
+    : [];
+  const subjects = crossrefWork && Array.isArray(crossrefWork.subject) ? crossrefWork.subject.map(plainText).filter(Boolean).slice(0, 20) : [];
+  const studyFields = Array.isArray(paper.s2FieldsOfStudy)
+    ? (paper.s2FieldsOfStudy as Array<Record<string, unknown>>).map((field) => plainText(field.category)).filter(Boolean).slice(0, 20)
+    : [];
+  const crossrefTitle = crossrefWork ? plainText(Array.isArray(crossrefWork.title) ? crossrefWork.title[0] : crossrefWork.title) : "";
+  const crossrefAuthors = crossrefWork ? authorNames(crossrefWork.author) : [];
+  const yearParts = crossrefWork ? publicationDate(crossrefWork) : null;
+  return {
+    title: plainText(paper.title) || crossrefTitle || title,
+    authors: semanticAuthors.length ? semanticAuthors : crossrefAuthors,
+    abstract: plainText(paper.abstract) || plainText(crossrefWork && crossrefWork.abstract),
+    journal: plainText(paper.venue) || plainText(crossrefWork && Array.isArray(crossrefWork["container-title"]) ? crossrefWork["container-title"][0] : ""),
+    year: paper.year || (yearParts ? yearParts.slice(0, 4) : ""),
+    doi: resolvedDoi,
+    keywords: subjects.length ? subjects : studyFields,
+    keywordSource: subjects.length ? "Crossref 主题词" : (studyFields.length ? "Semantic Scholar 学科分类" : ""),
+    metadataSource: Object.keys(paper).length ? "Semantic Scholar + Crossref" : "Crossref",
+  };
 }
 
 function directChildText(node: Element, names: string[]): string {
@@ -380,14 +492,29 @@ async function searchJournals(query: string) {
       publisher: plainText(item.publisher),
     }];
   }
-  const message = await crossref("journals", { query, rows: "8" });
-  const items = Array.isArray(message.items) ? message.items : [];
-  const seen = new Set<string>();
-  return items.map((item: Record<string, unknown>) => {
-    const issns = Array.isArray(item.ISSN) ? item.ISSN : [];
-    const issn = normalizeIssn(issns[0] || item.issn || "");
-    return { issn, title: plainText(item.title) || issn, publisher: plainText(item.publisher) };
-  }).filter((item: { issn: string }) => item.issn && !seen.has(item.issn) && seen.add(item.issn));
+  const byIssn = new Map<string, { issn: string; title: string; publisher: string }>();
+  try {
+    const message = await crossref("journals", { query, rows: "8" });
+    const items = Array.isArray(message.items) ? message.items as Array<Record<string, unknown>> : [];
+    items.forEach((item) => {
+      const issns = Array.isArray(item.ISSN) ? item.ISSN : [];
+      const issn = normalizeIssn(issns[0] || item.issn || "");
+      if (issn) byIssn.set(issn, { issn, title: plainText(item.title) || issn, publisher: plainText(item.publisher) });
+    });
+  } catch (_) {}
+  // Some Chinese journals are absent from Crossref's journal directory but their
+  // deposited articles still carry a journal title and ISSN in /works metadata.
+  try {
+    const works = await crossrefWorksByTitle(query);
+    works.forEach((work) => {
+      const candidate = crossrefJournalCandidate(work);
+      if (candidate && !byIssn.has(candidate.issn)) byIssn.set(candidate.issn, candidate);
+    });
+  } catch (_) {}
+  const normalizedQuery = normalizeTitle(query);
+  return Array.from(byIssn.values())
+    .sort((left, right) => Number(normalizeTitle(right.title) === normalizedQuery) - Number(normalizeTitle(left.title) === normalizedQuery))
+    .slice(0, 8);
 }
 
 async function listSubscriptions(userId?: string): Promise<Subscription[]> {
@@ -437,7 +564,14 @@ async function refreshSubscription(subscription: Subscription) {
       if (!subscription.feed_url) throw new Error("手动登记的期刊需要有效的官网 RSS / Atom 地址才能追踪。");
     }
     if (!feedItems.length && subscription.publisher !== "手动 RSS") {
-      const message = await crossref(`journals/${encodeURIComponent(subscription.issn)}/works`, {
+      const message = subscription.publisher === "按刊名检索"
+        ? await crossref("works", {
+          filter: `from-pub-date:${since},container-title:${subscription.journal_title}`,
+          sort: "published",
+          order: "desc",
+          rows: "40",
+        })
+        : await crossref(`journals/${encodeURIComponent(subscription.issn)}/works`, {
         filter: `from-pub-date:${since}`,
         sort: "published",
         order: "desc",
@@ -446,6 +580,9 @@ async function refreshSubscription(subscription: Subscription) {
       crossrefDiscovery = (Array.isArray(message.items) ? message.items : [])
         .filter((item: CrossrefWork) => !item.type || item.type === "journal-article")
         .slice(0, 40) as CrossrefWork[];
+      if (!crossrefDiscovery.length && subscription.publisher === "按刊名检索") {
+        throw new Error(`Crossref 暂未找到「${subscription.journal_title}」的可追踪文章；请填写该刊官网 RSS / Atom 地址后重试。`);
+      }
       feedItems = crossrefDiscovery.map((work) => ({
         title: plainText(Array.isArray(work.title) ? work.title[0] : work.title),
         link: plainText(work.URL),
@@ -703,6 +840,15 @@ Deno.serve(async (request: Request) => {
       const journal = String(body.journal || "");
       return json(request, { ok: true, ...(await discoverPublishedFromJournal(feedUrl, journal)) });
     }
+    if (action === "semantic-scholar-metadata") {
+      const doi = normalizeDoi(body.doi);
+      const title = String(body.title || "").trim().slice(0, 500);
+      if ((!doi || doi.includes("xxxx")) && title.length < 3) {
+        return json(request, { ok: false, error: "请提供有效 DOI 或论文标题" }, 400);
+      }
+      const metadata = await publishedSemanticScholarMetadata(doi && !doi.includes("xxxx") ? doi : "", title);
+      return json(request, { ok: true, metadata, source: "Semantic Scholar + Crossref" });
+    }
     if (action === "set-read") {
       const id = String(body.id || "");
       if (!id) return json(request, { ok: false, error: "缺少文章编号" }, 400);
@@ -748,21 +894,22 @@ Deno.serve(async (request: Request) => {
       let crossrefError: unknown = null;
       try { candidates = await searchJournals(requestedIssn || query); }
       catch (error) { crossrefError = error; }
-      const normalizedQuery = query.toLocaleLowerCase().replace(/\s+/g, " ").trim();
-      const exact = candidates.filter((item) => item.title.toLocaleLowerCase().replace(/\s+/g, " ").trim() === normalizedQuery);
-      let journal = requestedIssn ? candidates[0] : (exact[0] || (!feedUrl && candidates.length === 1 ? candidates[0] : null));
-      if (!journal && candidates.length > 1 && !feedUrl) {
-        return json(request, { ok: false, error: "找到多个期刊，请先从候选列表中选择准确的期刊" }, 409);
+      const normalizedQuery = normalizeTitle(query);
+      const exact = candidates.filter((item) => normalizeTitle(item.title) === normalizedQuery);
+      let journal = requestedIssn ? candidates[0] : exact[0] || null;
+      if (!journal && candidates.length && !feedUrl) {
+        return json(request, { ok: false, error: "找到相近期刊，请在候选列表中选择准确的刊名和 ISSN" }, 409);
       }
       if (!journal) {
-        if (!feedUrl) {
+        const chineseTitle = /\p{Script=Han}/u.test(query);
+        if (!feedUrl && !chineseTitle) {
           if (crossrefError) throw crossrefError;
-          return json(request, { ok: false, error: "Crossref 中没有找到该期刊；如为中文期刊，请填写官网 RSS / Atom 地址后直接添加" }, 404);
+          return json(request, { ok: false, error: "Crossref 中没有找到该期刊。中文期刊可直接按刊名追踪；若 Crossref 也没有该刊文章，请补充官网 RSS / Atom 地址。" }, 404);
         }
         journal = {
           issn: requestedIssn || await manualJournalId(query),
           title: query,
-          publisher: "手动 RSS",
+          publisher: chineseTitle && !requestedIssn ? "按刊名检索" : (feedUrl ? "手动 RSS" : "按刊名检索"),
         };
       }
       const issn = journal.issn;
@@ -774,8 +921,12 @@ Deno.serve(async (request: Request) => {
         body: JSON.stringify({ user_id: userId, issn, journal_title: journal.title, publisher: journal.publisher, feed_url: savedFeedUrl, enabled: true, updated_at: new Date().toISOString() }),
       });
       const subscription = Array.isArray(inserted) ? inserted[0] as Subscription : null;
-      if (subscription) await refreshSubscription(subscription);
-      return json(request, { ok: true, ...(await listForUser(userId)) });
+      const firstRefresh = subscription ? await refreshSubscription(subscription) : null;
+      return json(request, {
+        ok: true,
+        ...(await listForUser(userId)),
+        warning: firstRefresh && !firstRefresh.ok ? firstRefresh.error : undefined,
+      });
     }
     if (action === "set-feed") {
       const id = String(body.id || "");
