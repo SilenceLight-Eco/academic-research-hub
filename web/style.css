@@ -6618,6 +6618,11 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .tracker-search-result button { padding:5px 7px; color:var(--accent); }
 .tracker-subscription-title { display:flex; align-items:center; justify-content:space-between; margin:20px 3px 8px; color:var(--text-muted); font-size:10px; letter-spacing:.08em; }
 .tracker-subscription-title b { min-width:19px; padding:2px 6px; border-radius:999px; background:var(--accent-dim); color:var(--accent); text-align:center; }
+.tracker-journal-category { margin:0 0 9px; }
+.tracker-journal-category-toggle { display:flex; align-items:center; gap:8px; width:100%; padding:7px 8px; border:1px solid var(--hairline-soft); border-radius:7px; background:var(--glass); color:var(--text-secondary); cursor:pointer; text-align:left; font:600 11px "Noto Sans SC",sans-serif; }
+.tracker-journal-category-toggle:hover { border-color:var(--hairline); background:var(--glass-strong); }
+.tracker-journal-category-toggle b { min-width:18px; margin-left:auto; padding:2px 6px; border-radius:99px; background:var(--accent-dim); color:var(--accent); text-align:center; font:600 9px var(--font-mono); }
+.tracker-journal-category-items { padding-top:4px; }
 .tracker-subscription { position:relative; margin:3px 0; padding:10px 34px 10px 10px; border:1px solid transparent; border-radius:8px; }
 .tracker-subscription:hover { border-color:var(--hairline); background:var(--glass-strong); }
 .tracker-subscription.is-selected { border-color:var(--accent); background:var(--accent-dim); }
@@ -6627,6 +6632,8 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .tracker-subscription b,.tracker-subscription span,.tracker-subscription em { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .tracker-subscription b { color:var(--text-secondary); font-size:12px; font-weight:600; }
 .tracker-subscription span { margin-top:4px; color:var(--text-muted); font:10px var(--font-mono); }
+.tracker-subscription .tracker-subscription-category { display:block; width:calc(100% - 7px); box-sizing:border-box; margin:7px 0 0; padding:5px 7px; border:1px solid var(--hairline-soft); border-radius:6px; background:var(--glass-strong); color:var(--text-muted); font:10px "Noto Sans SC",sans-serif; }
+.tracker-subscription .tracker-subscription-category:focus { border-color:var(--accent); outline:0; box-shadow:0 0 0 2px var(--accent-dim); }
 .tracker-rank-row { display:flex; align-items:center; flex-wrap:wrap; gap:4px; margin-top:6px; }
 .tracker-rank-chip { display:inline-flex!important; width:max-content; max-width:100%; margin:0!important; padding:4px 9px; border:1px solid #d49b20; border-radius:999px; background:#fff0c2; color:#614000!important; box-shadow:0 1px 5px rgba(139,91,0,.16); font:700 11px/1.35 "Noto Sans SC",sans-serif!important; white-space:normal!important; }
 .tracker-rank-empty { display:inline-block!important; margin:0!important; color:var(--text-muted)!important; font:10px "Noto Sans SC",sans-serif!important; }

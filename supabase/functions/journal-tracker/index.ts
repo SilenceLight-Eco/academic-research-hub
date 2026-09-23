@@ -31,6 +31,7 @@ type Subscription = {
   user_id: string;
   issn: string;
   journal_title: string;
+  category: string;
   publisher: string;
   feed_url: string;
   enabled: boolean;
@@ -968,6 +969,18 @@ Deno.serve(async (request: Request) => {
         body: JSON.stringify({ feed_url: feedUrl, updated_at: new Date().toISOString() }),
       });
       if (feedUrl) await refreshSubscription({ ...subscription, feed_url: feedUrl });
+      return json(request, { ok: true, ...(await listForUser(userId)) });
+    }
+    if (action === "set-category") {
+      const id = String(body.id || "");
+      const category = String(body.category || "").replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 60);
+      if (!id) return json(request, { ok: false, error: "缺少期刊订阅编号" }, 400);
+      const updated = await rest(`journal_subscriptions?id=eq.${encodeURIComponent(id)}&user_id=eq.${encodeURIComponent(userId)}&select=id`, {
+        method: "PATCH",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify({ category, updated_at: new Date().toISOString() }),
+      });
+      if (!Array.isArray(updated) || updated.length === 0) return json(request, { ok: false, error: "找不到该期刊订阅" }, 404);
       return json(request, { ok: true, ...(await listForUser(userId)) });
     }
     if (action === "remove") {
