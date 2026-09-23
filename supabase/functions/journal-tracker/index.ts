@@ -1061,6 +1061,19 @@ Deno.serve(async (request: Request) => {
       await rest(`journal_subscriptions?id=eq.${encodeURIComponent(id)}&user_id=eq.${encodeURIComponent(userId)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
       return json(request, { ok: true, ...(await listForUser(userId)) });
     }
+    if (action === "refresh-category") {
+      const category = String(body.category || "").replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 60);
+      if (!category || category === "all" || category === "__new_category__") {
+        return json(request, { ok: false, error: "请先选择有效的期刊分类" }, 400);
+      }
+      const subscriptions = (await listSubscriptions(userId)).filter((item) =>
+        item.enabled && ((String(item.category || "").trim() || "未分类") === category)
+      );
+      if (!subscriptions.length) return json(request, { ok: false, error: "该分类没有启用中的期刊" }, 404);
+      const results = [];
+      for (const subscription of subscriptions) results.push(await refreshSubscription(subscription));
+      return json(request, { ok: true, category, results, ...(await listForUser(userId)) });
+    }
     if (action === "refresh") {
       const requestedId = String(body.id || "");
       const subscriptions = (await listSubscriptions(userId)).filter((item) => item.enabled && (!requestedId || item.id === requestedId));
