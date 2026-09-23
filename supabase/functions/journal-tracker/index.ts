@@ -177,7 +177,7 @@ async function semanticScholarRequest(endpoint: URL): Promise<Record<string, unk
 }
 
 async function fetchSemanticScholarPaper(doi: string, title: string): Promise<Record<string, unknown>> {
-  const fields = "title,authors,abstract,year,venue,externalIds,s2FieldsOfStudy";
+  const fields = "title,authors,abstract,year,venue,externalIds";
   let paper: Record<string, unknown> | null = null;
   let lastError: unknown = null;
   if (doi) {
@@ -207,8 +207,14 @@ async function publishedSemanticScholarMetadata(doi: string, title: string) {
   try { paper = await fetchSemanticScholarPaper(doi, title); } catch (error) { semanticError = error; }
   const externalIds = paper.externalIds && typeof paper.externalIds === "object" ? paper.externalIds as Record<string, unknown> : {};
   const resolvedDoi = normalizeDoi(externalIds.DOI || doi);
-  const crossrefByDoi = resolvedDoi ? await crossrefWorksByDoi([resolvedDoi]).catch(() => new Map<string, CrossrefWork>()) : new Map<string, CrossrefWork>();
+  const [crossrefByDoi, openAlexByDoi] = resolvedDoi
+    ? await Promise.all([
+      crossrefWorksByDoi([resolvedDoi]).catch(() => new Map<string, CrossrefWork>()),
+      openAlexWorksByDoi([resolvedDoi]).catch(() => new Map<string, Record<string, unknown>>()),
+    ])
+    : [new Map<string, CrossrefWork>(), new Map<string, Record<string, unknown>>()];
   let crossrefWork = resolvedDoi ? crossrefByDoi.get(resolvedDoi) : undefined;
+  const openAlexWork = resolvedDoi ? openAlexByDoi.get(resolvedDoi) : undefined;
   if (!crossrefWork && title) {
     const candidates = await crossrefWorksByPaperTitle(title).catch(() => []);
     crossrefWork = candidates.find((candidate) => normalizeTitle(Array.isArray(candidate.title) ? candidate.title[0] : candidate.title) === normalizeTitle(title));
@@ -219,7 +225,7 @@ async function publishedSemanticScholarMetadata(doi: string, title: string) {
   const semanticAuthors = Array.isArray(paper.authors)
     ? (paper.authors as Array<Record<string, unknown>>).map((author) => plainText(author.name)).filter(Boolean)
     : [];
-  const publisherUrl = plainText(crossrefWork && crossrefWork.URL);
+  const publisherUrl = plainText(crossrefWork && crossrefWork.URL) || (resolvedDoi ? `https://doi.org/${resolvedDoi}` : "");
   const publisherMetadata = /^https:\/\//i.test(publisherUrl)
     ? await fetchArticlePageMetadata(publisherUrl)
     : { abstract: "", keywords: [] as string[] };
@@ -229,13 +235,19 @@ async function publishedSemanticScholarMetadata(doi: string, title: string) {
   return {
     title: plainText(paper.title) || crossrefTitle || title,
     authors: semanticAuthors.length ? semanticAuthors : crossrefAuthors,
-    abstract: plainText(paper.abstract) || plainText(crossrefWork && crossrefWork.abstract) || publisherMetadata.abstract,
+    abstract: plainText(paper.abstract) || plainText(crossrefWork && crossrefWork.abstract)
+      || reconstructOpenAlexAbstract(openAlexWork && openAlexWork.abstract_inverted_index)
+      || publisherMetadata.abstract,
     journal: plainText(paper.venue) || plainText(crossrefWork && Array.isArray(crossrefWork["container-title"]) ? crossrefWork["container-title"][0] : ""),
     year: paper.year || (yearParts ? yearParts.slice(0, 4) : ""),
     doi: resolvedDoi,
     keywords: publisherMetadata.keywords,
     keywordSource: publisherMetadata.keywords.length ? "期刊网页（作者关键词）" : "",
-    metadataSource: Object.keys(paper).length ? "Semantic Scholar + Crossref" : "Crossref",
+    abstractSource: plainText(paper.abstract) ? "Semantic Scholar"
+      : plainText(crossrefWork && crossrefWork.abstract) ? "Crossref"
+      : reconstructOpenAlexAbstract(openAlexWork && openAlexWork.abstract_inverted_index) ? "OpenAlex"
+      : publisherMetadata.abstract ? "期刊原文页" : "",
+    metadataSource: Object.keys(paper).length ? "Semantic Scholar + OpenAlex + Crossref" : "OpenAlex + Crossref",
   };
 }
 
@@ -350,7 +362,7 @@ async function fetchArticlePageMetadata(value: unknown): Promise<{ abstract: str
       const jsonLd = jsonLdRecords.map((record: any) => plainText(record.abstract)).find((value) => value.length >= 40) || "";
       // Only use publisher metadata explicitly identified as author keywords.
       // Do not treat generic SEO keywords, Crossref subjects, or S2 fields of study as keywords.
-      const citationKeywords = Array.from(document.querySelectorAll('meta[name="citation_keywords" i]'))
+      const citationKeywords = Array.from(document.querySelectorAll('meta[name="citation_keywords" i], meta[name="citation_keyword" i]'))
         .flatMap((meta) => splitPublisherKeywords(meta.getAttribute("content")));
       const schemaKeywords = jsonLdRecords.flatMap((record: any) => splitPublisherKeywords(record.keywords));
       const keywords = Array.from(new Set([...citationKeywords, ...schemaKeywords])).slice(0, 30);
@@ -429,7 +441,7 @@ async function semanticScholarByDois(dois: string[]) {
   const result = new Map<string, Record<string, unknown>>();
   if (!unique.length) return result;
   const target = new URL("https://api.semanticscholar.org/graph/v1/paper/batch");
-  target.searchParams.set("fields", "title,authors,abstract,publicationDate,venue,externalIds,s2FieldsOfStudy");
+  target.searchParams.set("fields", "title,authors,abstract,publicationDate,venue,externalIds");
   const response = await fetch(target, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(semanticScholarKey ? { "x-api-key": semanticScholarKey } : {}) },

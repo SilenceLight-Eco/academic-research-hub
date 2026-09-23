@@ -1540,7 +1540,8 @@ async function importPublishedSemanticScholar(key) {
     const keywordNotice = metadata.keywordSource === "期刊网页（作者关键词）"
       ? "关键词来自期刊页面明确标注的作者关键词。"
       : "未找到期刊页面公开的作者关键词；Semantic Scholar 不提供作者关键词字段，故不会用学科分类或 Crossref 主题词冒充关键词。";
-    alert(updated ? `已从 Semantic Scholar/Crossref 补充 ${updated} 项空缺信息。${keywordNotice}` : "已找到论文记录，但卡片现有字段均已填写，因此没有覆盖现有内容。");
+    const abstractNotice = metadata.abstractSource ? `摘要来源：${metadata.abstractSource}。` : "暂未找到可公开获取的摘要。";
+    alert(updated ? `已补充 ${updated} 项空缺信息。${abstractNotice}${keywordNotice}` : `已查询元数据，但卡片现有字段没有可更新的空缺。${abstractNotice}${keywordNotice}`);
   } catch (error) {
     alert((error && error.message) || "Semantic Scholar 查询失败，请检查网络、标题或 DOI。");
   } finally {
