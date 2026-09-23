@@ -5532,11 +5532,11 @@
       var isSelected = String(state.journalTrackerFilter) === String(item.id);
       return '<div class="tracker-subscription' + (item.last_error ? ' is-error' : '') + (isSelected ? ' is-selected' : '') + '">' +
         '<button type="button" class="tracker-subscription-main" data-tracker-select-journal="' + escapeHtml(item.id) + '" aria-pressed="' + isSelected + '" title="查看该期刊的文章">' +
-        '<b>' + escapeHtml(item.journal_title || item.issn) + '</b><span>' + escapeHtml(item.issn || '') + '</span></button>' +
+        '<b>' + escapeHtml(item.journal_title || item.issn) + '</b><span>' + escapeHtml(item.publisher === '手动 RSS' ? (String(item.issn || '').indexOf('MANUAL-') === 0 ? '手动 RSS' : item.issn) : (item.issn || '')) + '</span></button>' +
         '<em title="' + escapeHtml(status) + '">' + escapeHtml(status) + '</em>' +
         '<div class="tracker-feed-config"><input type="url" data-tracker-feed-input="' + escapeHtml(item.id) + '" value="' + escapeHtml(item.feed_url || '') + '" placeholder="官网 RSS / Atom 地址" aria-label="' + escapeHtml(item.journal_title || item.issn) + ' RSS 地址"><button type="button" data-tracker-feed-save="' + escapeHtml(item.id) + '">保存 RSS</button></div>' +
         '<button type="button" data-tracker-remove="' + escapeHtml(item.id) + '" title="停止追踪" aria-label="停止追踪 ' + escapeHtml(item.journal_title || item.issn) + '">×</button></div>';
-    }).join('') : '<div class="tracker-empty"><b>还没有追踪期刊</b><span>在上方输入期刊名称或 ISSN，选择准确的期刊后即可开始。</span></div>';
+    }).join('') : '<div class="tracker-empty"><b>还没有追踪期刊</b><span>输入期刊名称搜索；中文期刊未被 Crossref 收录时，可填写官网 RSS / Atom 后直接添加。</span></div>';
 
     var select = $('#trackerJournalFilter');
     var selected = state.journalTrackerFilter;
@@ -5613,10 +5613,11 @@
     button.disabled = true;
     button.textContent = '添加中…';
     setTrackerStatus('正在匹配期刊并开始获取近期文章…', false);
-    journalTrackerRequest({ action: 'add', query: query, feedUrl: $('#trackerFeedUrl').value.trim() }).then(function (result) {
+    journalTrackerRequest({ action: 'add', query: query, issn: $('#trackerJournalIssn').value.trim(), feedUrl: $('#trackerFeedUrl').value.trim() }).then(function (result) {
       applyJournalTrackerData(result);
       $('#trackerSearchResults').hidden = true;
       $('#trackerJournalQuery').value = '';
+      $('#trackerJournalIssn').value = '';
       $('#trackerFeedUrl').value = '';
       setTrackerStatus('', false);
       toast('期刊已加入追踪，正在按设置自动更新');
@@ -5639,6 +5640,7 @@
       applyJournalTrackerData(result);
       $('#trackerSearchResults').hidden = true;
       $('#trackerJournalQuery').value = '';
+      $('#trackerJournalIssn').value = '';
       $('#trackerFeedUrl').value = '';
       setTrackerStatus('', false);
       toast('期刊已加入每日追踪');

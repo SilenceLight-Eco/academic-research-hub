@@ -66,6 +66,13 @@ function normalizeIssn(value: unknown): string {
   return match ? `${match[1]}-${match[2]}` : "";
 }
 
+async function manualJournalId(title: string): Promise<string> {
+  const normalized = title.normalize("NFKC").toLocaleLowerCase().replace(/\s+/g, " ").trim();
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(normalized));
+  const suffix = Array.from(new Uint8Array(digest).slice(0, 10), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `MANUAL-${suffix}`;
+}
+
 function normalizeDoi(value: unknown): string {
   return String(value || "").trim().replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, "").toLowerCase();
 }
@@ -280,7 +287,17 @@ async function readFeedBody(response: Response): Promise<string> {
   const bytes = new Uint8Array(total);
   let offset = 0;
   chunks.forEach((chunk) => { bytes.set(chunk, offset); offset += chunk.byteLength; });
-  return new TextDecoder().decode(bytes);
+  const utf8Prefix = new TextDecoder().decode(bytes.slice(0, Math.min(bytes.length, 512)));
+  const declaredEncoding = response.headers.get("content-type")?.match(/charset\s*=\s*["']?([^;"'\s]+)/i)?.[1]
+    || utf8Prefix.match(/<\?xml[^>]*encoding\s*=\s*["']([^"']+)["']/i)?.[1]
+    || "utf-8";
+  const normalizedEncoding = declaredEncoding.toLowerCase().replace(/^gb2312$/, "gbk").replace(/^windows-936$/, "gbk");
+  try {
+    return new TextDecoder(normalizedEncoding).decode(bytes);
+  } catch {
+    // A malformed/unsupported charset declaration should not prevent UTF-8 feeds from being read.
+    return new TextDecoder("utf-8").decode(bytes);
+  }
 }
 
 async function semanticScholarByDois(dois: string[]) {
@@ -410,10 +427,16 @@ async function refreshSubscription(subscription: Subscription) {
       try {
         feedItems = await fetchFeed(subscription.feed_url);
       } catch (error) {
-        fallbackNotice = `官网 RSS 读取失败，已使用 Crossref 后备：${error instanceof Error ? error.message : "读取失败"}`;
+        fallbackNotice = subscription.publisher === "手动 RSS"
+          ? `官网 RSS 读取失败：${error instanceof Error ? error.message : "读取失败"}`
+          : `官网 RSS 读取失败，已使用 Crossref 后备：${error instanceof Error ? error.message : "读取失败"}`;
       }
     }
-    if (!feedItems.length) {
+    if (!feedItems.length && subscription.publisher === "手动 RSS") {
+      if (fallbackNotice) throw new Error(`${fallbackNotice}；手动登记期刊没有 Crossref 后备，请检查 RSS 地址。`);
+      if (!subscription.feed_url) throw new Error("手动登记的期刊需要有效的官网 RSS / Atom 地址才能追踪。");
+    }
+    if (!feedItems.length && subscription.publisher !== "手动 RSS") {
       const message = await crossref(`journals/${encodeURIComponent(subscription.issn)}/works`, {
         filter: `from-pub-date:${since}`,
         sort: "published",
@@ -713,19 +736,35 @@ Deno.serve(async (request: Request) => {
     if (action === "add") {
       const query = String(body.query || body.issn || "").trim();
       if (query.length < 2) return json(request, { ok: false, error: "请输入期刊全名或 ISSN" }, 400);
-      const requestedIssn = normalizeIssn(body.issn || query);
+      if (query.length > 300) return json(request, { ok: false, error: "期刊名称最多 300 个字符" }, 400);
+      const suppliedIssn = String(body.issn || "").trim();
+      const requestedIssn = normalizeIssn(suppliedIssn || query);
+      if (suppliedIssn && !requestedIssn) return json(request, { ok: false, error: "ISSN 格式无效，请使用 1234-567X 格式" }, 400);
       const feedUrl = String(body.feedUrl || "").trim();
       if (feedUrl) {
         try { publicHttpsUrl(feedUrl); } catch (error) { return json(request, { ok: false, error: error instanceof Error ? error.message : "RSS 地址无效" }, 400); }
       }
-      const candidates = await searchJournals(requestedIssn || query);
+      let candidates: Array<{ issn: string; title: string; publisher: string }> = [];
+      let crossrefError: unknown = null;
+      try { candidates = await searchJournals(requestedIssn || query); }
+      catch (error) { crossrefError = error; }
       const normalizedQuery = query.toLocaleLowerCase().replace(/\s+/g, " ").trim();
       const exact = candidates.filter((item) => item.title.toLocaleLowerCase().replace(/\s+/g, " ").trim() === normalizedQuery);
-      const journal = requestedIssn ? candidates[0] : (exact[0] || (candidates.length === 1 ? candidates[0] : null));
-      if (!journal && candidates.length > 1) {
+      let journal = requestedIssn ? candidates[0] : (exact[0] || (!feedUrl && candidates.length === 1 ? candidates[0] : null));
+      if (!journal && candidates.length > 1 && !feedUrl) {
         return json(request, { ok: false, error: "找到多个期刊，请先从候选列表中选择准确的期刊" }, 409);
       }
-      if (!journal) return json(request, { ok: false, error: "Crossref 中没有找到该期刊，请检查名称或使用 ISSN" }, 404);
+      if (!journal) {
+        if (!feedUrl) {
+          if (crossrefError) throw crossrefError;
+          return json(request, { ok: false, error: "Crossref 中没有找到该期刊；如为中文期刊，请填写官网 RSS / Atom 地址后直接添加" }, 404);
+        }
+        journal = {
+          issn: requestedIssn || await manualJournalId(query),
+          title: query,
+          publisher: "手动 RSS",
+        };
+      }
       const issn = journal.issn;
       const existingRows = await rest(`journal_subscriptions?user_id=eq.${encodeURIComponent(userId)}&issn=eq.${encodeURIComponent(issn)}&select=feed_url`);
       const savedFeedUrl = feedUrl || (Array.isArray(existingRows) ? String(existingRows[0]?.feed_url || "") : "");

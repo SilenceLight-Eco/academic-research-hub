@@ -463,6 +463,22 @@ async function fetchSemanticScholarMetadata(normalized) {
   return { title: String(paper.title || "").trim(), authors: Array.isArray(paper.authors) ? paper.authors.map(author => String(author.name || "").trim()).filter(Boolean) : [], abstract: typeof paper.abstract === "string" ? paper.abstract.trim() : "", journal: String(paper.venue || "").trim(), year: paper.year || "", doi: normalizeDoi(paper.externalIds && paper.externalIds.DOI || normalized), keywords: [] };
 }
 
+async function searchSemanticScholarMetadataByTitle(title) {
+  const endpoint = new URL("https://api.semanticscholar.org/graph/v1/paper/search");
+  endpoint.searchParams.set("query", title);
+  endpoint.searchParams.set("limit", "10");
+  endpoint.searchParams.set("fields", "title,authors,abstract,year,venue,externalIds");
+  const response = await fetch(endpoint, { headers: { "Accept": "application/json" } });
+  if (!response.ok) throw new Error(`Semantic Scholar 查询失败（HTTP ${response.status}）`);
+  const payload = await response.json();
+  const normalizeTitle = value => String(value || "").normalize("NFKC").toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+  const expected = normalizeTitle(title);
+  const match = (Array.isArray(payload.data) ? payload.data : []).find(paper => normalizeTitle(paper.title) === expected);
+  if (!match) throw new Error("Semantic Scholar 未找到标题完全匹配的论文；为避免补错文献，请检查标题或填写 DOI 后重试。");
+  const externalIds = match.externalIds && typeof match.externalIds === "object" ? match.externalIds : {};
+  return { title: String(match.title || "").trim(), authors: Array.isArray(match.authors) ? match.authors.map(author => String(author.name || "").trim()).filter(Boolean) : [], abstract: typeof match.abstract === "string" ? match.abstract.trim() : "", journal: String(match.venue || "").trim(), year: match.year || "", doi: normalizeDoi(externalIds.DOI || ""), keywords: [] };
+}
+
 // 已发表论文：Semantic Scholar / OpenAlex 优先补充摘要和作者，Crossref 作为 DOI 元数据后备。
 async function fetchCrossrefMetadata(doi) {
   const normalized = normalizeDoi(doi);
@@ -951,7 +967,7 @@ function renderPublishedCard(p) {
     <div class="card-line"><span class="muted">卷(期)</span><strong>${volumeIssueEditable(p)}</strong></div>
     <div class="card-line"><span class="muted">页码</span><strong>${editableText(p, "pages")}</strong></div>
     <div class="card-line"><span class="muted">DOI</span><strong>${editableText(p, "doi")}</strong></div>
-    <button class="btn" onclick="importPublishedMetadata('${p._key}')">按 DOI 补全摘要与关键词</button>
+    <div class="citation-actions"><button class="btn" onclick="importPublishedMetadata('${p._key}')">按 DOI 补全摘要与关键词</button><button class="btn" data-semantic-scholar-key="${escapeHtml(p._key)}" onclick="importPublishedSemanticScholar('${p._key}')" title="优先按 DOI 查询；无 DOI 时按标题精确匹配，仅补充空字段">Semantic Scholar 补充信息</button></div>
     ${renderCitationBlock(p)}
     <div><div class="muted" style="margin-bottom:6px">摘要</div><div class="abstract">${editableText(p, "abstract", "editable-abstract")}</div></div>
     ${renderChipEditor(p, "keywords", "关键词")}
@@ -1489,6 +1505,41 @@ async function importPublishedMetadata(key) {
     render(); updateStatusBar();
     alert("已按 DOI 更新公开元数据。若关键词为空，表示出版商未随 DOI 提供主题词，可在卡片中手动添加。");
   } catch (error) { alert((error && error.message) || "DOI 查询失败，请检查网络或 DOI。"); }
+}
+
+async function importPublishedSemanticScholar(key) {
+  const paper = findPaperByKey(key);
+  if (!paper) return;
+  const doi = normalizeDoi(getPaperField(paper, "doi") || "");
+  const title = String(getPaperField(paper, "title") || "").trim();
+  if ((!doi || doi.includes("xxxx")) && !title) { alert("请先填写论文标题或真实 DOI。"); return; }
+  const button = Array.from(document.querySelectorAll("[data-semantic-scholar-key]")).find(item => item.dataset.semanticScholarKey === key);
+  if (button) { button.disabled = true; button.textContent = "Semantic Scholar 查询中…"; }
+  try {
+    const metadata = doi && !doi.includes("xxxx")
+      ? await fetchSemanticScholarMetadata(doi)
+      : await searchSemanticScholarMetadataByTitle(title);
+    const fields = ["title", "authors", "abstract", "journal", "year", "doi"];
+    const isEmpty = value => value == null || value === "" || (Array.isArray(value) && value.length === 0);
+    const hasDetails = ["authors", "abstract", "journal", "volume", "issue", "pages", "keywords"].some(field => !isEmpty(getPaperField(paper, field)));
+    let updated = 0;
+    fields.forEach(field => {
+      const value = metadata[field];
+      const current = getPaperField(paper, field);
+      const isDefaultYear = field === "year" && Number(current) === new Date().getFullYear() && !hasDetails;
+      if (value !== undefined && !isEmpty(value) && (isEmpty(current) || isDefaultYear)) {
+        setPaperField(paper, field, value);
+        updated += 1;
+      }
+    });
+    render();
+    updateStatusBar();
+    alert(updated ? `Semantic Scholar 已补充 ${updated} 项空缺信息。关键词若未返回，请手动填写。` : "已找到 Semantic Scholar 记录，但卡片现有字段均已填写，因此没有覆盖现有内容。");
+  } catch (error) {
+    alert((error && error.message) || "Semantic Scholar 查询失败，请检查网络、标题或 DOI。");
+  } finally {
+    if (button && button.isConnected) { button.disabled = false; button.textContent = "Semantic Scholar 补充信息"; }
+  }
 }
 
 function deletePaperCard(kind, key) {

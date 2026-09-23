@@ -398,9 +398,10 @@
           <aside class="tracker-sidebar">
             <form id="trackerSearchForm" class="tracker-add-form">
               <label for="trackerJournalQuery">添加追踪期刊</label>
-              <div class="tracker-journal-input-row"><input id="trackerJournalQuery" type="search" placeholder="输入期刊全名或 ISSN" autocomplete="off"><button id="trackerDirectAdd" type="button">直接添加</button><button type="submit">查找</button></div>
-              <input id="trackerFeedUrl" type="url" placeholder="期刊官网 RSS / Atom 地址（可选）" aria-label="期刊官网 RSS 或 Atom 地址">
-              <p>输入 ISSN 或唯一匹配的期刊名可直接订阅；名称有多个匹配时会显示候选项。自动检查最多每 24 小时一次，仅更新超过 24 小时未检查的期刊；缺少摘要不会触发自动刷新，可手动点“立即检查更新”。官网 RSS 优先，Crossref 后备。</p>
+              <div class="tracker-journal-input-row"><input id="trackerJournalQuery" type="search" placeholder="输入期刊名称" autocomplete="off"><button id="trackerDirectAdd" type="button">直接添加</button><button type="submit">查找</button></div>
+              <input id="trackerJournalIssn" type="text" inputmode="text" placeholder="ISSN（可选，如 1000-0000）" aria-label="期刊 ISSN，可选">
+              <input id="trackerFeedUrl" type="url" placeholder="期刊官网 RSS / Atom 地址（未收录中文期刊请填写）" aria-label="期刊官网 RSS 或 Atom 地址">
+              <p>名称必填，ISSN 可选。Crossref 可识别的期刊可直接追踪；未收录的中文期刊请填写官网 RSS / Atom 地址后直接添加。官网 RSS 优先；自动检查最多每 24 小时一次。</p>
             </form>
             <div id="trackerSearchResults" class="tracker-search-results" hidden></div>
             <div class="tracker-subscription-title"><span>我的期刊</span><b id="trackerSubscriptionCount">0</b></div>
