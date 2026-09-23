@@ -5526,6 +5526,23 @@
     }
   }
 
+  function trackerVisibleArticles() {
+    var articles = state.journalTracker.articles || [];
+    var subscriptionById = trackerSubscriptionMap();
+    var needle = (state.journalTrackerQuery || '').trim().toLowerCase();
+    return articles.filter(function (article) {
+      if (state.journalTrackerFilter !== 'all' && String(article.subscription_id) !== String(state.journalTrackerFilter)) return false;
+      if (state.trackerJournalCategoryFilter !== 'all') {
+        var subscription = subscriptionById[String(article.subscription_id)] || {};
+        if ((String(subscription.category || '').trim() || '未分类') !== state.trackerJournalCategoryFilter) return false;
+      }
+      if (state.journalTrackerReadFilter === 'unread' && article.is_read === true) return false;
+      if (state.journalTrackerReadFilter === 'read' && article.is_read !== true) return false;
+      if (!needle) return true;
+      return [article.title, (article.authors || []).join(' '), (article.keywords || []).join(' '), article.abstract].join(' ').toLowerCase().indexOf(needle) >= 0;
+    });
+  }
+
   function renderJournalTracker() {
     if (!$('#trackerArticles')) return;
     var subscriptions = state.journalTracker.subscriptions || [];
@@ -5541,7 +5558,6 @@
     var unreadLabel = $('#trackerUnreadCount');
     if (unreadLabel) { unreadLabel.textContent = unreadCount + ' 篇未读'; unreadLabel.hidden = unreadCount === 0; }
     var markAllReadButton = $('#trackerMarkAllRead');
-    if (markAllReadButton) markAllReadButton.disabled = unreadCount === 0;
 
     var journalCategories = Array.from(new Set(subscriptions.map(function (item) { return String(item.category || '').trim() || '未分类'; })))
       .sort(function (left, right) { if (left === '未分类') return -1; if (right === '未分类') return 1; return left.localeCompare(right, 'zh-CN'); });
@@ -5609,18 +5625,13 @@
     if (selectedCategory !== 'all' && journalCategories.indexOf(selectedCategory) >= 0) categoryFilter.value = selectedCategory;
     else { state.trackerJournalCategoryFilter = 'all'; categoryFilter.value = 'all'; }
 
-    var needle = (state.journalTrackerQuery || '').trim().toLowerCase();
-    var visible = articles.filter(function (article) {
-      if (state.journalTrackerFilter !== 'all' && String(article.subscription_id) !== String(state.journalTrackerFilter)) return false;
-      if (state.trackerJournalCategoryFilter !== 'all') {
-        var articleSubscription = subscriptionById[String(article.subscription_id)] || {};
-        if ((String(articleSubscription.category || '').trim() || '未分类') !== state.trackerJournalCategoryFilter) return false;
-      }
-      if (state.journalTrackerReadFilter === 'unread' && article.is_read === true) return false;
-      if (state.journalTrackerReadFilter === 'read' && article.is_read !== true) return false;
-      if (!needle) return true;
-      return [article.title, (article.authors || []).join(' '), (article.keywords || []).join(' '), article.abstract].join(' ').toLowerCase().indexOf(needle) >= 0;
-    });
+    var visible = trackerVisibleArticles();
+    var visibleUnread = visible.filter(function (article) { return article.is_read !== true; });
+    if (markAllReadButton) {
+      markAllReadButton.disabled = visibleUnread.length === 0;
+      markAllReadButton.textContent = '标为已读（' + visibleUnread.length + '）';
+      markAllReadButton.title = visibleUnread.length ? '仅标记当前筛选范围内的 ' + visibleUnread.length + ' 篇未读文章' : '当前筛选范围没有未读文章';
+    }
     var emptyIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 5h16v14H4z"/><path d="M8 9h8M8 13h5"/><circle cx="17" cy="17" r="4"/><path d="M20 20l2 2"/></svg>';
     function renderArticleCard(article) {
       var journal = subscriptionById[String(article.subscription_id)] || {};
@@ -5993,22 +6004,40 @@
   }
 
   function markAllTrackedArticlesRead(button) {
-    if (!(state.journalTracker.articles || []).some(function (article) { return article.is_read !== true; })) return;
+    var selectedArticles = trackerVisibleArticles().filter(function (article) { return article.is_read !== true; });
+    if (!selectedArticles.length) return;
+    var scope = [];
+    if (state.journalTrackerFilter !== 'all') {
+      var selectedSubscription = (state.journalTracker.subscriptions || []).filter(function (item) { return String(item.id) === String(state.journalTrackerFilter); })[0];
+      scope.push('期刊：' + (selectedSubscription ? selectedSubscription.journal_title || selectedSubscription.issn : '当前期刊'));
+    } else if (state.trackerJournalCategoryFilter !== 'all') scope.push('分类：' + state.trackerJournalCategoryFilter);
+    else scope.push('全部期刊');
+    var query = (state.journalTrackerQuery || '').trim();
+    if (query) scope.push('搜索词：' + query);
+    if (state.journalTrackerReadFilter === 'unread') scope.push('仅未读');
+    if (!confirm('将当前筛选范围内的 ' + selectedArticles.length + ' 篇未读文章标记为已读？\n范围：' + scope.join('；'))) return;
     button.disabled = true;
     button.textContent = '正在标记…';
-    journalTrackerRequest({ action: 'mark-all-read' }).then(function (result) {
-      if (result.readStateVersion !== 1 || (result.articles || []).some(function (article) { return article.is_read !== true; })) {
+    var selectedIds = selectedArticles.map(function (article) { return String(article.id); });
+    journalTrackerRequest({ action: 'mark-selected-read', ids: selectedIds }).then(function (result) {
+      var updatedArticles = result.articles || [];
+      var selectedStillUnread = updatedArticles.some(function (article) { return selectedIds.indexOf(String(article.id)) >= 0 && article.is_read !== true; });
+      if (result.readStateVersion !== 1 || selectedStillUnread) {
         throw new Error('云端文献追踪函数尚未更新，阅读状态未保存。请在 Supabase 重新部署 journal-tracker 后重试。');
       }
       state.trackerCollapsedGroups.read = true;
       try { localStorage.setItem('academic-workbench-tracker-collapsed-v1', JSON.stringify(state.trackerCollapsedGroups)); } catch (_) {}
       applyJournalTrackerData(result);
-      toast('已将所有追踪文章标记为已读');
+      toast('已将 ' + Number(result.updatedCount || 0) + ' 篇文章标记为已读');
     }).catch(function (error) {
       toast((error && error.message) || '批量标记失败');
     }).then(function () {
       var current = $('#trackerMarkAllRead');
-      if (current) { current.disabled = !(state.journalTracker.articles || []).some(function (article) { return article.is_read !== true; }); current.textContent = '一键全部已读'; }
+      if (current) {
+        var currentUnread = trackerVisibleArticles().filter(function (article) { return article.is_read !== true; }).length;
+        current.disabled = currentUnread === 0;
+        current.textContent = '标为已读（' + currentUnread + '）';
+      }
     });
   }
 

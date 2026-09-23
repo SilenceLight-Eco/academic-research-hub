@@ -885,6 +885,28 @@ Deno.serve(async (request: Request) => {
       if (updated[0].is_read !== isRead) throw new Error("数据库未能确认阅读状态变更");
       return json(request, { ok: true, ...(await listForUser(userId)), readStateVersion: 1 });
     }
+    if (action === "mark-selected-read") {
+      const ids = Array.isArray(body.ids) ? [...new Set(body.ids.map((value: unknown) => String(value || "")))] : [];
+      if (!ids.length || ids.length > 300 || ids.some((id) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))) {
+        return json(request, { ok: false, error: "请重新筛选未读文章后再操作" }, 400);
+      }
+      const updatedRows: unknown[] = [];
+      const updatedAt = new Date().toISOString();
+      for (let index = 0; index < ids.length; index += 100) {
+        const chunk = ids.slice(index, index + 100);
+        const path = "journal_articles?id=in.(" + chunk.join(",") + ")&user_id=eq." + encodeURIComponent(userId) + "&or=(is_read.eq.false,is_read.is.null)&select=id,is_read";
+        const updated = await rest(path, {
+          method: "PATCH",
+          headers: { Prefer: "return=representation" },
+          body: JSON.stringify({ is_read: true, read_at: updatedAt, updated_at: updatedAt }),
+        });
+        if (Array.isArray(updated)) updatedRows.push(...updated);
+      }
+      const data = await listForUser(userId);
+      const selectedStillUnread = data.articles.some((article: Record<string, unknown>) => ids.includes(String(article.id)) && article.is_read !== true);
+      if (selectedStillUnread) throw new Error("部分筛选文章未能更新为已读");
+      return json(request, { ok: true, ...data, readStateVersion: 1, updatedCount: updatedRows.length });
+    }
     if (action === "mark-all-read") {
       const updatedAt = new Date().toISOString();
       const updated = await rest(`journal_articles?user_id=eq.${encodeURIComponent(userId)}&or=(is_read.eq.false,is_read.is.null)&select=id,is_read`, {
