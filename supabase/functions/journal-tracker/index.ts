@@ -219,22 +219,22 @@ async function publishedSemanticScholarMetadata(doi: string, title: string) {
   const semanticAuthors = Array.isArray(paper.authors)
     ? (paper.authors as Array<Record<string, unknown>>).map((author) => plainText(author.name)).filter(Boolean)
     : [];
-  const subjects = crossrefWork && Array.isArray(crossrefWork.subject) ? crossrefWork.subject.map(plainText).filter(Boolean).slice(0, 20) : [];
-  const studyFields = Array.isArray(paper.s2FieldsOfStudy)
-    ? (paper.s2FieldsOfStudy as Array<Record<string, unknown>>).map((field) => plainText(field.category)).filter(Boolean).slice(0, 20)
-    : [];
+  const publisherUrl = plainText(crossrefWork && crossrefWork.URL);
+  const publisherMetadata = /^https:\/\//i.test(publisherUrl)
+    ? await fetchArticlePageMetadata(publisherUrl)
+    : { abstract: "", keywords: [] as string[] };
   const crossrefTitle = crossrefWork ? plainText(Array.isArray(crossrefWork.title) ? crossrefWork.title[0] : crossrefWork.title) : "";
   const crossrefAuthors = crossrefWork ? authorNames(crossrefWork.author) : [];
   const yearParts = crossrefWork ? publicationDate(crossrefWork) : null;
   return {
     title: plainText(paper.title) || crossrefTitle || title,
     authors: semanticAuthors.length ? semanticAuthors : crossrefAuthors,
-    abstract: plainText(paper.abstract) || plainText(crossrefWork && crossrefWork.abstract),
+    abstract: plainText(paper.abstract) || plainText(crossrefWork && crossrefWork.abstract) || publisherMetadata.abstract,
     journal: plainText(paper.venue) || plainText(crossrefWork && Array.isArray(crossrefWork["container-title"]) ? crossrefWork["container-title"][0] : ""),
     year: paper.year || (yearParts ? yearParts.slice(0, 4) : ""),
     doi: resolvedDoi,
-    keywords: subjects.length ? subjects : studyFields,
-    keywordSource: subjects.length ? "Crossref 主题词" : (studyFields.length ? "Semantic Scholar 学科分类" : ""),
+    keywords: publisherMetadata.keywords,
+    keywordSource: publisherMetadata.keywords.length ? "期刊网页（作者关键词）" : "",
     metadataSource: Object.keys(paper).length ? "Semantic Scholar + Crossref" : "Crossref",
   };
 }
@@ -274,10 +274,6 @@ function parseFeed(xml: string): Array<Record<string, unknown>> {
     const publishedRaw = directChildText(node, ["published", "updated", "pubdate", "date", "issued"]);
     const parsedDate = publishedRaw ? new Date(publishedRaw) : null;
     const publication_date = parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate.toISOString().slice(0, 10) : null;
-    const categoryValues = Array.from(node.children)
-      .filter((child) => child.localName.toLowerCase() === "category")
-      .map((child) => plainText(child.getAttribute("term") || child.textContent))
-      .filter(Boolean).slice(0, 12);
     const idOrGuid = directChildText(node, ["id", "guid"]);
     const doiMatch = `${link} ${idOrGuid} ${title}`.match(/10\.\d{4,9}\/[\-._;()/:A-Z0-9]+/i);
     return {
@@ -285,7 +281,8 @@ function parseFeed(xml: string): Array<Record<string, unknown>> {
       link,
       abstract: plainText(summary),
       authors: feedAuthors(node),
-      keywords: categoryValues,
+      // RSS/Atom categories are commonly classifications, not author keywords.
+      keywords: [],
       publication_date,
       doi: doiMatch ? normalizeDoi(doiMatch[0].replace(/[.,;)]+$/, "")) : "",
     };
@@ -307,7 +304,15 @@ function publicHttpsUrl(value: unknown): URL {
   return url;
 }
 
-async function fetchArticlePageAbstract(value: unknown): Promise<string> {
+function splitPublisherKeywords(value: unknown): string[] {
+  const values = Array.isArray(value) ? value : [value];
+  return values.flatMap((entry) => String(entry || "").split(/[,，;；|]/))
+    .map((entry) => plainText(entry).replace(/^\[|\]$/g, "").trim())
+    .filter((entry) => entry.length > 1 && entry.length <= 120)
+    .slice(0, 30);
+}
+
+async function fetchArticlePageMetadata(value: unknown): Promise<{ abstract: string; keywords: string[] }> {
   let target = publicHttpsUrl(value);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
@@ -320,11 +325,11 @@ async function fetchArticlePageAbstract(value: unknown): Promise<string> {
       });
       if (response.status >= 300 && response.status < 400) {
         const location = response.headers.get("location");
-        if (!location) return "";
+        if (!location) return { abstract: "", keywords: [] };
         target = publicHttpsUrl(new URL(location, target).toString());
         continue;
       }
-      if (!response.ok || !/^text\/html|application\/xhtml\+xml/i.test(response.headers.get("content-type") || "")) return "";
+      if (!response.ok || !/^text\/html|application\/xhtml\+xml/i.test(response.headers.get("content-type") || "")) return { abstract: "", keywords: [] };
       const html = await readFeedBody(response);
       const document = new DOMParser().parseFromString(html, "text/html");
       const metaAbstract = (names: string[]) => {
@@ -335,27 +340,34 @@ async function fetchArticlePageAbstract(value: unknown): Promise<string> {
         }
         return "";
       };
-      const jsonLd = Array.from(document.querySelectorAll('script[type="application/ld+json"]')).map((script) => {
+      const jsonLdRecords = Array.from(document.querySelectorAll('script[type="application/ld+json"]')).flatMap((script) => {
         try {
           const value = JSON.parse(script.textContent || "{}");
-          const records = Array.isArray(value) ? value : [value];
-          const record = records.find((item) => item && typeof item.abstract === "string");
-          return plainText(record?.abstract);
-        } catch { return ""; }
-      }).find((value) => value.length >= 40) || "";
+          const records: unknown[] = Array.isArray(value) ? value : [value];
+          return records.flatMap((record: any) => record && Array.isArray(record["@graph"]) ? [record, ...record["@graph"]] : [record]);
+        } catch { return []; }
+      }).filter((record: any) => record && typeof record === "object");
+      const jsonLd = jsonLdRecords.map((record: any) => plainText(record.abstract)).find((value) => value.length >= 40) || "";
+      // Only use publisher metadata explicitly identified as author keywords.
+      // Do not treat generic SEO keywords, Crossref subjects, or S2 fields of study as keywords.
+      const citationKeywords = Array.from(document.querySelectorAll('meta[name="citation_keywords" i]'))
+        .flatMap((meta) => splitPublisherKeywords(meta.getAttribute("content")));
+      const schemaKeywords = jsonLdRecords.flatMap((record: any) => splitPublisherKeywords(record.keywords));
+      const keywords = Array.from(new Set([...citationKeywords, ...schemaKeywords])).slice(0, 30);
       const abstractNode = document.querySelector('[id="abstract" i], [id="abstracts" i], [class*="abstract" i], [role="doc-abstract"]');
       const sectionAbstract = plainText(abstractNode?.textContent).replace(/^abstract\s*/i, "");
-      return metaAbstract(["citation_abstract", "dc.description", "dc.abstract", "abstract"])
+      const abstract = metaAbstract(["citation_abstract", "dc.description", "dc.abstract", "abstract"])
         || jsonLd
         || (sectionAbstract.length >= 40 ? sectionAbstract.slice(0, 20_000) : "")
         || metaAbstract(["description", "og:description"]);
+      return { abstract, keywords };
     }
   } catch {
-    return "";
+    return { abstract: "", keywords: [] };
   } finally {
     clearTimeout(timeout);
   }
-  return "";
+  return { abstract: "", keywords: [] };
 }
 
 async function fetchFeed(feedUrl: string): Promise<Array<Record<string, unknown>>> {
@@ -512,9 +524,13 @@ async function searchJournals(query: string) {
     });
   } catch (_) {}
   const normalizedQuery = normalizeTitle(query);
-  return Array.from(byIssn.values())
+  const matches = Array.from(byIssn.values())
     .sort((left, right) => Number(normalizeTitle(right.title) === normalizedQuery) - Number(normalizeTitle(left.title) === normalizedQuery))
     .slice(0, 8);
+  // Crossref's Chinese title search is especially fuzzy; never present a merely
+  // similar Chinese journal as an exact identification.
+  if (/\p{Script=Han}/u.test(query) && !matches.some((item) => normalizeTitle(item.title) === normalizedQuery)) return [];
+  return matches;
 }
 
 async function listSubscriptions(userId?: string): Promise<Subscription[]> {
@@ -588,7 +604,7 @@ async function refreshSubscription(subscription: Subscription) {
         link: plainText(work.URL),
         authors: authorNames(work.author),
         abstract: plainText(work.abstract),
-        keywords: Array.isArray(work.subject) ? work.subject.map(plainText).filter(Boolean) : [],
+        keywords: [],
         publication_date: publicationDate(work),
         doi: normalizeDoi(work.DOI),
       }));
@@ -600,20 +616,16 @@ async function refreshSubscription(subscription: Subscription) {
       openAlexWorksByDoi(dois).catch(() => new Map<string, Record<string, unknown>>()),
       crossrefWorksByDoi(dois),
     ]);
-    const pageAbstracts = new Map<string, string>();
+    const pageMetadata = new Map<string, { abstract: string; keywords: string[] }>();
     const pageCandidates = feedItems.filter((item) => {
-      const doi = normalizeDoi(item.doi);
-      const semantic = doi ? semanticPapers.get(doi) : undefined;
-      const openAlex = doi ? openAlexWorks.get(doi) : undefined;
-      const fallback = doi ? crossrefFallbacks.get(doi) : undefined;
-      return !plainText(item.abstract) && !plainText(semantic?.abstract)
-        && !reconstructOpenAlexAbstract(openAlex?.abstract_inverted_index)
-        && !plainText(fallback?.abstract) && /^https:\/\//i.test(String(item.link || ""));
+      // Fetch a small, bounded set of article pages so we can enrich abstracts
+      // and retrieve publisher-declared author keywords (when exposed).
+      return /^https:\/\//i.test(String(item.link || ""));
     }).slice(0, 12);
     for (let offset = 0; offset < pageCandidates.length; offset += 4) {
       const batch = pageCandidates.slice(offset, offset + 4);
-      const abstracts = await Promise.all(batch.map((item) => fetchArticlePageAbstract(item.link).catch(() => "")));
-      batch.forEach((item, index) => { if (abstracts[index]) pageAbstracts.set(String(item.link), abstracts[index]); });
+      const metadata = await Promise.all(batch.map((item) => fetchArticlePageMetadata(item.link).catch(() => ({ abstract: "", keywords: [] }))));
+      batch.forEach((item, index) => { pageMetadata.set(String(item.link), metadata[index]); });
     }
     const rows = feedItems.map((item) => {
       const doi = normalizeDoi(item.doi);
@@ -630,14 +642,11 @@ async function refreshSubscription(subscription: Subscription) {
       const semanticAbstract = plainText(semantic && semantic.abstract);
       const openAlexAbstract = reconstructOpenAlexAbstract(openAlex && openAlex.abstract_inverted_index);
       const crossrefAbstract = plainText(fallback && fallback.abstract);
-      const pageAbstract = pageAbstracts.get(String(item.link || "")) || "";
+      const page = pageMetadata.get(String(item.link || "")) || { abstract: "", keywords: [] };
+      const pageAbstract = page.abstract;
       const abstract = rssAbstract || semanticAbstract || openAlexAbstract || crossrefAbstract || pageAbstract;
-      const rssKeywords = Array.isArray(item.keywords) ? item.keywords.map(plainText).filter(Boolean).slice(0, 12) : [];
-      const crossrefSubjects = fallback && Array.isArray(fallback.subject) ? fallback.subject.map(plainText).filter(Boolean).slice(0, 12) : [];
-      const semanticFields = semantic && Array.isArray(semantic.s2FieldsOfStudy)
-        ? semantic.s2FieldsOfStudy.map((field: Record<string, unknown>) => plainText(field.category)).filter(Boolean).slice(0, 12)
-        : [];
-      const keywords = rssKeywords.length ? rssKeywords : (crossrefSubjects.length ? crossrefSubjects : semanticFields);
+      const publisherKeywords = page.keywords;
+      const keywords = publisherKeywords;
       const date = String(item.publication_date || (semantic && semantic.publicationDate) || publicationDate(fallback || {}) || "").slice(0, 10) || null;
       const title = plainText(item.title || (semantic && semantic.title) || (fallback && (Array.isArray(fallback.title) ? fallback.title[0] : fallback.title))) || "未命名文章";
       const url = plainText(item.link || (fallback && fallback.URL)) || (doi ? `https://doi.org/${doi}` : "");
@@ -647,7 +656,7 @@ async function refreshSubscription(subscription: Subscription) {
       if (semantic) sources.push("Semantic Scholar");
       if (openAlex) sources.push("OpenAlex");
       if (fallback) sources.push("Crossref");
-      const keywordSource = rssKeywords.length ? "期刊 RSS" : (crossrefSubjects.length ? "Crossref 主题词" : (semanticFields.length ? "Semantic Scholar 学科分类" : ""));
+      const keywordSource = publisherKeywords.length ? "期刊网页（作者关键词）" : "";
       return {
         subscription_id: subscription.id,
         user_id: subscription.user_id,
@@ -710,7 +719,7 @@ async function discoverPublishedFromJournal(feedUrl: string, journal: string) {
     feedItems = works.filter(work => !work.type || work.type === "journal-article").slice(0, 40).map(work => ({
       title: plainText(Array.isArray(work.title) ? work.title[0] : work.title),
       link: plainText(work.URL), authors: authorNames(work.author),
-      abstract: plainText(work.abstract), keywords: Array.isArray(work.subject) ? work.subject.map(plainText).filter(Boolean) : [],
+      abstract: plainText(work.abstract), keywords: [],
       publication_date: publicationDate(work), doi: normalizeDoi(work.DOI),
     })).filter(item => item.title);
   }
@@ -749,7 +758,7 @@ async function discoverPublishedFromJournal(feedUrl: string, journal: string) {
       year: String(item.publication_date || publicationDate(fallback || {}) || "").slice(0, 4),
       volume: plainText(fallback && fallback.volume), issue: plainText(fallback && fallback.issue), pages: plainText(fallback && fallback.page),
       doi: doi || null, url: plainText(item.link || (fallback && fallback.URL)) || (doi ? `https://doi.org/${doi}` : ""),
-      keywords: Array.isArray(item.keywords) && item.keywords.length ? item.keywords.map(plainText).filter(Boolean).slice(0, 12) : (Array.isArray(fallback && fallback.subject) ? fallback.subject.map(plainText).filter(Boolean).slice(0, 12) : []),
+      keywords: [],
       citations: Number(fallback && fallback["is-referenced-by-count"]) || 0,
       metadata_sources: Array.from(new Set(sources)),
       discovery_source: discoverySource,
@@ -897,6 +906,9 @@ Deno.serve(async (request: Request) => {
       const normalizedQuery = normalizeTitle(query);
       const exact = candidates.filter((item) => normalizeTitle(item.title) === normalizedQuery);
       let journal = requestedIssn ? candidates[0] : exact[0] || null;
+      if (!requestedIssn && exact.length > 1 && !feedUrl) {
+        return json(request, { ok: false, error: "找到多个刊名完全相同的期刊，请在候选列表中选择准确的刊名和 ISSN" }, 409);
+      }
       if (!journal && candidates.length && !feedUrl) {
         return json(request, { ok: false, error: "找到相近期刊，请在候选列表中选择准确的刊名和 ISSN" }, 409);
       }
