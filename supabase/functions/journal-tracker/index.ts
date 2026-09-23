@@ -36,6 +36,7 @@ type Subscription = {
   feed_url: string;
   enabled: boolean;
   last_checked_at: string | null;
+  last_error?: string | null;
 };
 
 type CrossrefWork = Record<string, unknown>;
@@ -1073,6 +1074,22 @@ Deno.serve(async (request: Request) => {
       const results = [];
       for (const subscription of subscriptions) results.push(await refreshSubscription(subscription));
       return json(request, { ok: true, category, results, ...(await listForUser(userId)) });
+    }
+    if (action === "retry-failed") {
+      const category = String(body.category || "all").replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 60) || "all";
+      const journalId = String(body.journalId || "").trim();
+      if (category === "__new_category__") return json(request, { ok: false, error: "无效的期刊分类" }, 400);
+      if (journalId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(journalId)) {
+        return json(request, { ok: false, error: "无效的期刊标识" }, 400);
+      }
+      const subscriptions = (await listSubscriptions(userId)).filter((item) =>
+        item.enabled && Boolean(item.last_error) &&
+        (!journalId || item.id === journalId) &&
+        (category === "all" || ((String(item.category || "").trim() || "未分类") === category))
+      );
+      const results = [];
+      for (const subscription of subscriptions) results.push(await refreshSubscription(subscription));
+      return json(request, { ok: true, category, journalId: journalId || null, results, ...(await listForUser(userId)) });
     }
     if (action === "refresh") {
       const requestedId = String(body.id || "");

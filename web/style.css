@@ -6588,8 +6588,9 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .tracker-refresh-actions { display:flex; flex:0 0 auto; flex-wrap:wrap; justify-content:flex-end; gap:7px; }
 .tracker-refresh-actions>button { padding:9px 14px; border:1px solid var(--accent); border-radius:8px; background:var(--accent); color:var(--btn-text); cursor:pointer; font:600 12px "Noto Sans SC",sans-serif; white-space:nowrap; }
 .tracker-refresh-actions>#trackerRefreshCategory { border-color:var(--hairline); background:var(--glass-strong); color:var(--text-secondary); }
+.tracker-refresh-actions>#trackerRetryFailed { border-color:rgba(198,113,69,.38); background:rgba(198,113,69,.1); color:#b65d36; }
 .tracker-refresh-actions>button:disabled { opacity:.55; cursor:wait; }
-.tracker-refresh-actions>#trackerRefreshCategory[hidden] { display:none!important; }
+.tracker-refresh-actions>button[hidden] { display:none!important; }
 .tracker-stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); margin-bottom:16px; overflow:hidden; border:1px solid var(--hairline-soft); border-radius:var(--radius-lg); background:var(--glass-strong); }
 .tracker-stats>div { min-width:0; padding:14px 17px; border-right:1px solid var(--hairline-soft); }
 .tracker-stats>div:last-child { border-right:0; }
