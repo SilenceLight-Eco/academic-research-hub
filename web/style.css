@@ -6684,6 +6684,7 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .tracker-filters { display:flex; gap:8px; }
 .tracker-filters input { width:min(270px,30vw); }
 .tracker-filters select { max-width:190px; }
+.tracker-filters #trackerCategoryFilter { max-width:230px; }
 .tracker-source-note { margin-bottom:13px; padding:9px 11px; border-left:3px solid var(--accent); background:var(--accent-dim); color:var(--text-muted); font-size:10px; line-height:1.65; }
 .tracker-source-note span { margin-right:8px; color:var(--accent); font-weight:600; }
 .tracker-status { margin-bottom:12px; padding:10px 12px; border:1px solid var(--hairline); border-radius:8px; color:var(--text-secondary); font-size:11px; }

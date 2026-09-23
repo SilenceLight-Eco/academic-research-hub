@@ -68,6 +68,7 @@
     journalTrackerAutoRefreshAt: 0,
     journalTrackerQuery: '',
     journalTrackerFilter: 'all',
+    trackerJournalCategoryFilter: 'all',
     journalTrackerReadFilter: 'all',
     trackerCollapsedGroups: { unread: false, read: true },
     trackerJournalCategoryCollapsed: {},
@@ -5582,9 +5583,30 @@
     if (selected !== 'all' && subscriptions.some(function (item) { return String(item.id) === String(selected); })) select.value = selected;
     else { state.journalTrackerFilter = 'all'; select.value = 'all'; }
 
+    var categoryCounts = {};
+    articles.forEach(function (article) {
+      var subscription = subscriptionById[String(article.subscription_id)] || {};
+      var category = String(subscription.category || '').trim() || '未分类';
+      if (!categoryCounts[category]) categoryCounts[category] = { total: 0, unread: 0 };
+      categoryCounts[category].total += 1;
+      if (article.is_read !== true) categoryCounts[category].unread += 1;
+    });
+    var categoryFilter = $('#trackerCategoryFilter');
+    var selectedCategory = state.trackerJournalCategoryFilter;
+    categoryFilter.innerHTML = '<option value="all">全部分类</option>' + journalCategories.map(function (category) {
+      var counts = categoryCounts[category] || { total: 0, unread: 0 };
+      return '<option value="' + escapeHtml(category) + '">' + escapeHtml(category) + ' · ' + counts.total + ' 篇 / ' + counts.unread + ' 未读</option>';
+    }).join('');
+    if (selectedCategory !== 'all' && journalCategories.indexOf(selectedCategory) >= 0) categoryFilter.value = selectedCategory;
+    else { state.trackerJournalCategoryFilter = 'all'; categoryFilter.value = 'all'; }
+
     var needle = (state.journalTrackerQuery || '').trim().toLowerCase();
     var visible = articles.filter(function (article) {
       if (state.journalTrackerFilter !== 'all' && String(article.subscription_id) !== String(state.journalTrackerFilter)) return false;
+      if (state.trackerJournalCategoryFilter !== 'all') {
+        var articleSubscription = subscriptionById[String(article.subscription_id)] || {};
+        if ((String(articleSubscription.category || '').trim() || '未分类') !== state.trackerJournalCategoryFilter) return false;
+      }
       if (state.journalTrackerReadFilter === 'unread' && article.is_read === true) return false;
       if (state.journalTrackerReadFilter === 'read' && article.is_read !== true) return false;
       if (!needle) return true;
@@ -5999,7 +6021,7 @@
       else delete state.trackerSelectedJournalIds[checkbox.dataset.trackerBulkSelect];
       renderJournalTracker();
     });
-    $('#trackerSubscriptions').addEventListener('click', function (event) { var categoryToggle = event.target.closest('[data-tracker-category-toggle]'); if (categoryToggle) { var category = categoryToggle.dataset.trackerCategoryToggle; state.trackerJournalCategoryCollapsed[category] = !state.trackerJournalCategoryCollapsed[category]; try { localStorage.setItem('academic-workbench-journal-categories-collapsed-v1', JSON.stringify(state.trackerJournalCategoryCollapsed)); } catch (_) {} renderJournalTracker(); return; } var rankButton = event.target.closest('[data-tracker-journal-rank]'); if (rankButton) { queryTrackerJournalRank(rankButton.dataset.trackerJournalRank, rankButton); return; } var selectButton = event.target.closest('[data-tracker-select-journal]'); if (selectButton) { state.journalTrackerFilter = selectButton.dataset.trackerSelectJournal; renderJournalTracker(); $('#trackerArticles').scrollIntoView({ behavior: 'smooth', block: 'start' }); return; } var saveButton = event.target.closest('[data-tracker-feed-save]'); if (saveButton) { saveTrackerFeed(saveButton.dataset.trackerFeedSave, saveButton); return; } var button = event.target.closest('[data-tracker-remove]'); if (button) removeTrackerJournal(button.dataset.trackerRemove); });
+    $('#trackerSubscriptions').addEventListener('click', function (event) { var categoryToggle = event.target.closest('[data-tracker-category-toggle]'); if (categoryToggle) { var category = categoryToggle.dataset.trackerCategoryToggle; state.trackerJournalCategoryCollapsed[category] = !state.trackerJournalCategoryCollapsed[category]; try { localStorage.setItem('academic-workbench-journal-categories-collapsed-v1', JSON.stringify(state.trackerJournalCategoryCollapsed)); } catch (_) {} renderJournalTracker(); return; } var rankButton = event.target.closest('[data-tracker-journal-rank]'); if (rankButton) { queryTrackerJournalRank(rankButton.dataset.trackerJournalRank, rankButton); return; } var selectButton = event.target.closest('[data-tracker-select-journal]'); if (selectButton) { state.journalTrackerFilter = selectButton.dataset.trackerSelectJournal; state.trackerJournalCategoryFilter = 'all'; renderJournalTracker(); $('#trackerArticles').scrollIntoView({ behavior: 'smooth', block: 'start' }); return; } var saveButton = event.target.closest('[data-tracker-feed-save]'); if (saveButton) { saveTrackerFeed(saveButton.dataset.trackerFeedSave, saveButton); return; } var button = event.target.closest('[data-tracker-remove]'); if (button) removeTrackerJournal(button.dataset.trackerRemove); });
     $('#trackerSubscriptions').addEventListener('change', function (event) { var categorySelect = event.target.closest('[data-tracker-category]'); if (!categorySelect) return; var selectedCategory = categorySelect.value; if (selectedCategory === '__new_category__') { var name = window.prompt('输入新的期刊分类名称（最多 60 个字符）：'); if (name === null) { renderJournalTracker(); return; } selectedCategory = name.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 60); if (!selectedCategory || selectedCategory === '未分类' || selectedCategory === '__new_category__') { renderJournalTracker(); toast('请输入有效的分类名称'); return; } } saveTrackerJournalCategory(categorySelect.dataset.trackerCategory, selectedCategory); });
     $('#trackerArticles').addEventListener('click', function (event) { var groupButton = event.target.closest('[data-tracker-group-toggle]'); if (groupButton) { var group = groupButton.dataset.trackerGroupToggle; state.trackerCollapsedGroups[group] = !state.trackerCollapsedGroups[group]; try { localStorage.setItem('academic-workbench-tracker-collapsed-v1', JSON.stringify(state.trackerCollapsedGroups)); } catch (_) {} renderJournalTracker(); return; } var rankButton = event.target.closest('[data-tracker-journal-rank]'); if (rankButton) { queryTrackerJournalRank(rankButton.dataset.trackerJournalRank, rankButton); return; } if (event.target.closest('[data-tracker-open-detail]')) { openTrackerArticleDetail(event.target.closest('[data-tracker-open-detail]').dataset.trackerOpenDetail); return; } handleTrackerArticleAction(event); });
     $('#trackerArticleDetail').addEventListener('click', function (event) { if (event.target.closest('[data-tracker-back-to-list]')) { closeTrackerArticleDetail(); return; } var rankButton = event.target.closest('[data-tracker-journal-rank]'); if (rankButton) { queryTrackerJournalRank(rankButton.dataset.trackerJournalRank, rankButton); return; } handleTrackerArticleAction(event); });
@@ -6015,7 +6037,8 @@
     $('#trackerZoteroTargetConfirm').addEventListener('click', confirmTrackerZoteroTarget);
     $('#trackerZoteroTargetOverlay').addEventListener('click', function (event) { if (event.target === this) closeTrackerZoteroTargetPicker(); });
     $('#trackerArticleSearch').addEventListener('input', function () { state.journalTrackerQuery = this.value; renderJournalTracker(); });
-    $('#trackerJournalFilter').addEventListener('change', function () { state.journalTrackerFilter = this.value; renderJournalTracker(); });
+    $('#trackerJournalFilter').addEventListener('change', function () { state.journalTrackerFilter = this.value; state.trackerJournalCategoryFilter = 'all'; renderJournalTracker(); });
+    $('#trackerCategoryFilter').addEventListener('change', function () { state.trackerJournalCategoryFilter = this.value; state.journalTrackerFilter = 'all'; renderJournalTracker(); });
     $('#trackerReadFilter').addEventListener('change', function () { state.journalTrackerReadFilter = this.value; if (this.value === 'read') state.trackerCollapsedGroups.read = false; if (this.value === 'unread') state.trackerCollapsedGroups.unread = false; renderJournalTracker(); });
 
     // 概览里的"查看全部"
