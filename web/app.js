@@ -5541,8 +5541,8 @@
       var status = item.last_error ? item.last_error : (item.last_success_at ? '更新于 ' + trackerDateLabel(item.last_success_at, true) : '等待首次检查');
       var isSelected = String(state.journalTrackerFilter) === String(item.id);
       return '<div class="tracker-subscription' + (item.last_error ? ' is-error' : '') + (isSelected ? ' is-selected' : '') + '">' +
-        '<button type="button" class="tracker-subscription-main" data-tracker-select-journal="' + escapeHtml(item.id) + '" aria-pressed="' + isSelected + '" title="查看该期刊的文章">' +
-        '<b>' + escapeHtml(item.journal_title || item.issn) + '</b><span>' + escapeHtml(String(item.issn || '').indexOf('MANUAL-') === 0 ? (item.publisher === '按刊名检索' ? '按刊名检索' : '手动 RSS') : (item.issn || '')) + '</span></button>' +
+        '<button type="button" class="tracker-subscription-main" data-tracker-select-journal="' + escapeHtml(item.id) + '" aria-pressed="' + isSelected + '" aria-label="查看期刊：' + escapeHtml(item.journal_title || item.issn) + '" title="' + escapeHtml(item.journal_title || item.issn) + '">' +
+        '<b title="' + escapeHtml(item.journal_title || item.issn) + '">' + escapeHtml(item.journal_title || item.issn) + '</b><span>' + escapeHtml(String(item.issn || '').indexOf('MANUAL-') === 0 ? (item.publisher === '按刊名检索' ? '按刊名检索' : '手动 RSS') : (item.issn || '')) + '</span></button>' +
         '<em title="' + escapeHtml(status) + '">' + escapeHtml(status) + '</em>' +
         '<div class="tracker-feed-config"><input type="url" data-tracker-feed-input="' + escapeHtml(item.id) + '" value="' + escapeHtml(item.feed_url || '') + '" placeholder="官网 RSS / Atom 地址" aria-label="' + escapeHtml(item.journal_title || item.issn) + ' RSS 地址"><button type="button" data-tracker-feed-save="' + escapeHtml(item.id) + '">保存 RSS</button></div>' +
         '<button type="button" data-tracker-remove="' + escapeHtml(item.id) + '" title="停止追踪" aria-label="停止追踪 ' + escapeHtml(item.journal_title || item.issn) + '">×</button></div>';
@@ -5614,9 +5614,9 @@
     var container = $('#trackerSearchResults');
     container.hidden = false;
     if (journals.length) {
-      container.innerHTML = journals.map(function (journal) { return '<div class="tracker-search-result"><div><b>' + escapeHtml(journal.title || journal.issn) + '</b><span>' + escapeHtml(journal.issn) + (journal.publisher ? ' · ' + escapeHtml(journal.publisher) : '') + '</span></div><button type="button" data-tracker-add="' + escapeHtml(journal.issn) + '">追踪</button></div>'; }).join('');
+      container.innerHTML = journals.map(function (journal) { var fullTitle = journal.title || journal.issn; return '<div class="tracker-search-result"><div><b title="' + escapeHtml(fullTitle) + '" aria-label="期刊全名：' + escapeHtml(fullTitle) + '">' + escapeHtml(fullTitle) + '</b><span>' + escapeHtml(journal.issn) + (journal.publisher ? ' · ' + escapeHtml(journal.publisher) : '') + '</span></div><button type="button" data-tracker-add="' + escapeHtml(journal.issn) + '" aria-label="追踪 ' + escapeHtml(fullTitle) + '">追踪</button></div>'; }).join('');
     } else if (query && /\p{Script=Han}/u.test(query)) {
-      container.innerHTML = '<div class="tracker-search-result"><div><b>' + escapeHtml(query) + '</b><span>未找到期刊目录记录；可尝试按刊名检索 Crossref 文章，或填写官网 RSS / Atom。</span></div><button type="button" data-tracker-add-title="1">按刊名追踪</button></div>';
+      container.innerHTML = '<div class="tracker-search-result"><div><b title="' + escapeHtml(query) + '" aria-label="期刊全名：' + escapeHtml(query) + '">' + escapeHtml(query) + '</b><span>未找到期刊目录记录；可尝试按刊名检索 Crossref 文章，或填写官网 RSS / Atom。</span></div><button type="button" data-tracker-add-title="1" aria-label="按刊名追踪 ' + escapeHtml(query) + '">按刊名追踪</button></div>';
     } else {
       container.innerHTML = '<div class="tracker-empty"><b>没有找到期刊</b><span>请检查名称，或改用 ISSN 搜索。</span></div>';
     }
