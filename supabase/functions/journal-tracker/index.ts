@@ -983,6 +983,41 @@ Deno.serve(async (request: Request) => {
       if (!Array.isArray(updated) || updated.length === 0) return json(request, { ok: false, error: "找不到该期刊订阅" }, 404);
       return json(request, { ok: true, ...(await listForUser(userId)) });
     }
+    if (action === "set-categories") {
+      const ids = Array.isArray(body.ids) ? [...new Set(body.ids.map((value: unknown) => String(value || "")))].slice(0, 200) : [];
+      const category = String(body.category || "").replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 60);
+      if (!ids.length || ids.some((id) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))) {
+        return json(request, { ok: false, error: "请选择有效的期刊" }, 400);
+      }
+      await rest("journal_subscriptions?id=in.(" + ids.join(",") + ")&user_id=eq." + encodeURIComponent(userId), {
+        method: "PATCH",
+        headers: { Prefer: "return=minimal" },
+        body: JSON.stringify({ category, updated_at: new Date().toISOString() }),
+      });
+      return json(request, { ok: true, ...(await listForUser(userId)) });
+    }
+    if (action === "rename-category") {
+      const from = String(body.from || "").replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 60);
+      const to = String(body.to || "").replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 60);
+      if (!from || from === "未分类" || !to || to === "未分类") return json(request, { ok: false, error: "分类名称无效" }, 400);
+      const updated = await rest("journal_subscriptions?category=eq." + encodeURIComponent(from) + "&user_id=eq." + encodeURIComponent(userId) + "&select=id", {
+        method: "PATCH",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify({ category: to, updated_at: new Date().toISOString() }),
+      });
+      if (!Array.isArray(updated) || updated.length === 0) return json(request, { ok: false, error: "找不到该分类中的期刊" }, 404);
+      return json(request, { ok: true, ...(await listForUser(userId)) });
+    }
+    if (action === "delete-category") {
+      const category = String(body.category || "").replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 60);
+      if (!category || category === "未分类") return json(request, { ok: false, error: "不能删除该分类" }, 400);
+      await rest("journal_subscriptions?category=eq." + encodeURIComponent(category) + "&user_id=eq." + encodeURIComponent(userId), {
+        method: "PATCH",
+        headers: { Prefer: "return=minimal" },
+        body: JSON.stringify({ category: "", updated_at: new Date().toISOString() }),
+      });
+      return json(request, { ok: true, ...(await listForUser(userId)) });
+    }
     if (action === "remove") {
       const id = String(body.id || "");
       await rest(`journal_subscriptions?id=eq.${encodeURIComponent(id)}&user_id=eq.${encodeURIComponent(userId)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });

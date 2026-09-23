@@ -6618,11 +6618,31 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .tracker-search-result button { padding:5px 7px; color:var(--accent); }
 .tracker-subscription-title { display:flex; align-items:center; justify-content:space-between; margin:20px 3px 8px; color:var(--text-muted); font-size:10px; letter-spacing:.08em; }
 .tracker-subscription-title b { min-width:19px; padding:2px 6px; border-radius:999px; background:var(--accent-dim); color:var(--accent); text-align:center; }
+.tracker-subscription-heading-actions { display:flex; align-items:center; gap:6px; }
+.tracker-subscription-heading-actions button { padding:4px 7px; border:1px solid var(--hairline-soft); border-radius:6px; background:var(--glass); color:var(--text-secondary); font:10px "Noto Sans SC",sans-serif; cursor:pointer; }
+.tracker-subscription-heading-actions button[aria-pressed="true"] { border-color:var(--accent); background:var(--accent-dim); color:var(--accent); }
+.tracker-category-toolbar { margin:0 3px 7px; color:var(--text-muted); font-size:9px; line-height:1.5; }
+.tracker-category-bulk-tools { display:grid; grid-template-columns:1fr 1fr; gap:5px; margin:0 0 9px; padding:8px; border:1px solid var(--hairline-soft); border-radius:8px; background:var(--glass); }
+.tracker-category-bulk-tools>span { grid-column:1/-1; color:var(--text-secondary); font-size:10px; }
+.tracker-category-bulk-tools select,.tracker-category-bulk-tools button { min-width:0; padding:6px 7px; border:1px solid var(--hairline-soft); border-radius:6px; background:var(--glass-strong); color:var(--text-secondary); font:10px "Noto Sans SC",sans-serif; }
+.tracker-category-bulk-tools button { cursor:pointer; }
+.tracker-category-bulk-tools button:disabled { opacity:.48; cursor:not-allowed; }
 .tracker-journal-category { margin:0 0 9px; }
+.tracker-journal-category-heading { display:flex; align-items:center; gap:4px; }
 .tracker-journal-category-toggle { display:flex; align-items:center; gap:8px; width:100%; padding:7px 8px; border:1px solid var(--hairline-soft); border-radius:7px; background:var(--glass); color:var(--text-secondary); cursor:pointer; text-align:left; font:600 11px "Noto Sans SC",sans-serif; }
 .tracker-journal-category-toggle:hover { border-color:var(--hairline); background:var(--glass-strong); }
+.tracker-journal-category-heading>.tracker-journal-category-toggle { flex:1; min-width:0; }
+.tracker-journal-category-actions { display:flex; gap:3px; }
+.tracker-journal-category-actions button { padding:5px 6px; border:1px solid var(--hairline-soft); border-radius:6px; background:var(--glass); color:var(--text-muted); font:9px "Noto Sans SC",sans-serif; cursor:pointer; white-space:nowrap; }
+.tracker-journal-category-actions button:hover { border-color:var(--accent); color:var(--accent); }
+.tracker-journal-category-actions button:last-child:hover { border-color:#c66; color:#b44; }
 .tracker-journal-category-toggle b { min-width:18px; margin-left:auto; padding:2px 6px; border-radius:99px; background:var(--accent-dim); color:var(--accent); text-align:center; font:600 9px var(--font-mono); }
 .tracker-journal-category-items { padding-top:4px; }
+.tracker-bulk-select { position:absolute; z-index:1; top:13px; left:8px; display:flex; align-items:center; justify-content:center; width:17px; height:17px; cursor:pointer; }
+.tracker-bulk-select input { width:14px; height:14px; margin:0; accent-color:var(--accent); cursor:pointer; }
+.tracker-bulk-select .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
+.tracker-subscriptions.is-managing-categories .tracker-subscription-main { padding-left:22px; }
+.tracker-subscription.is-bulk-selected { border-color:var(--accent); background:var(--accent-dim); }
 .tracker-subscription { position:relative; margin:3px 0; padding:10px 34px 10px 10px; border:1px solid transparent; border-radius:8px; }
 .tracker-subscription:hover { border-color:var(--hairline); background:var(--glass-strong); }
 .tracker-subscription.is-selected { border-color:var(--accent); background:var(--accent-dim); }
