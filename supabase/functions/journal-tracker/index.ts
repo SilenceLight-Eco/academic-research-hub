@@ -940,10 +940,26 @@ Deno.serve(async (request: Request) => {
       const issn = journal.issn;
       const existingRows = await rest(`journal_subscriptions?user_id=eq.${encodeURIComponent(userId)}&issn=eq.${encodeURIComponent(issn)}&select=feed_url`);
       const savedFeedUrl = feedUrl || (Array.isArray(existingRows) ? String(existingRows[0]?.feed_url || "") : "");
+      const category = typeof body.category === "string"
+        ? body.category.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 60)
+        : undefined;
+      if (category === "__default__" || category === "__new_category__" || category === "未分类") {
+        return json(request, { ok: false, error: "期刊分类名称无效" }, 400);
+      }
+      const subscriptionPayload: Record<string, unknown> = {
+        user_id: userId,
+        issn,
+        journal_title: journal.title,
+        publisher: journal.publisher,
+        feed_url: savedFeedUrl,
+        enabled: true,
+        updated_at: new Date().toISOString(),
+      };
+      if (category !== undefined) subscriptionPayload.category = category;
       const inserted = await rest("journal_subscriptions?on_conflict=user_id,issn", {
         method: "POST",
         headers: { Prefer: "resolution=merge-duplicates,return=representation" },
-        body: JSON.stringify({ user_id: userId, issn, journal_title: journal.title, publisher: journal.publisher, feed_url: savedFeedUrl, enabled: true, updated_at: new Date().toISOString() }),
+        body: JSON.stringify(subscriptionPayload),
       });
       const subscription = Array.isArray(inserted) ? inserted[0] as Subscription : null;
       const firstRefresh = subscription ? await refreshSubscription(subscription) : null;

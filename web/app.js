@@ -69,6 +69,7 @@
     journalTrackerQuery: '',
     journalTrackerFilter: 'all',
     trackerJournalCategoryFilter: 'all',
+    trackerAddCategory: '__default__',
     journalTrackerReadFilter: 'all',
     trackerCollapsedGroups: { unread: false, read: true },
     trackerJournalCategoryCollapsed: {},
@@ -5544,6 +5545,14 @@
 
     var journalCategories = Array.from(new Set(subscriptions.map(function (item) { return String(item.category || '').trim() || '未分类'; })))
       .sort(function (left, right) { if (left === '未分类') return -1; if (right === '未分类') return 1; return left.localeCompare(right, 'zh-CN'); });
+    var addCategorySelect = $('#trackerAddCategory');
+    var addCategoryValue = state.trackerAddCategory === undefined ? '__default__' : state.trackerAddCategory;
+    var addCategoryOptions = journalCategories.filter(function (category) { return category !== '未分类'; });
+    if (addCategoryValue && addCategoryValue !== '__default__' && addCategoryOptions.indexOf(addCategoryValue) < 0) addCategoryOptions.push(addCategoryValue);
+    addCategorySelect.innerHTML = '<option value="__default__">新期刊归入未分类；已有期刊保持原分类</option><option value="">未分类（手动指定）</option>' + addCategoryOptions.sort(function (left, right) { return left.localeCompare(right, 'zh-CN'); }).map(function (category) {
+      return '<option value="' + escapeHtml(category) + '">' + escapeHtml(category) + '</option>';
+    }).join('') + '<option value="__new_category__">＋新建分类…</option>';
+    addCategorySelect.value = addCategoryValue;
     var categoryManageButton = $('#trackerCategoryManageToggle');
     categoryManageButton.textContent = state.trackerCategoryManageMode ? '完成' : '管理分类';
     categoryManageButton.setAttribute('aria-pressed', String(Boolean(state.trackerCategoryManageMode)));
@@ -5679,12 +5688,17 @@
     button.disabled = true;
     button.textContent = '添加中…';
     setTrackerStatus('正在匹配期刊并开始获取近期文章…', false);
-    journalTrackerRequest({ action: 'add', query: query, issn: $('#trackerJournalIssn').value.trim(), feedUrl: $('#trackerFeedUrl').value.trim() }).then(function (result) {
+    var category = $('#trackerAddCategory').value;
+    var addPayload = { action: 'add', query: query, issn: $('#trackerJournalIssn').value.trim(), feedUrl: $('#trackerFeedUrl').value.trim() };
+    if (category !== '__default__' && category !== '__new_category__') addPayload.category = category;
+    journalTrackerRequest(addPayload).then(function (result) {
       applyJournalTrackerData(result);
       $('#trackerSearchResults').hidden = true;
       $('#trackerJournalQuery').value = '';
       $('#trackerJournalIssn').value = '';
       $('#trackerFeedUrl').value = '';
+      state.trackerAddCategory = '__default__';
+      $('#trackerAddCategory').value = '__default__';
       setTrackerStatus(result.warning ? '订阅已保存，但首次检查未找到文章：' + result.warning : '', false);
       toast(result.warning ? '订阅已保存；可为该期刊补充官网 RSS' : '期刊已加入追踪，正在按设置自动更新');
     }).catch(function (error) {
@@ -5702,12 +5716,17 @@
     if (button) { button.disabled = true; button.textContent = '添加中…'; }
     setTrackerStatus('正在创建订阅并抓取近期文章，首次更新可能需要十几秒…', false);
     var feedUrl = $('#trackerFeedUrl').value.trim();
-    journalTrackerRequest({ action: 'add', issn: issn, feedUrl: feedUrl }).then(function (result) {
+    var category = $('#trackerAddCategory').value;
+    var addPayload = { action: 'add', issn: issn, feedUrl: feedUrl };
+    if (category !== '__default__' && category !== '__new_category__') addPayload.category = category;
+    journalTrackerRequest(addPayload).then(function (result) {
       applyJournalTrackerData(result);
       $('#trackerSearchResults').hidden = true;
       $('#trackerJournalQuery').value = '';
       $('#trackerJournalIssn').value = '';
       $('#trackerFeedUrl').value = '';
+      state.trackerAddCategory = '__default__';
+      $('#trackerAddCategory').value = '__default__';
       setTrackerStatus(result.warning ? '订阅已保存，但首次检查未找到文章：' + result.warning : '', false);
       toast(result.warning ? '订阅已保存；可为该期刊补充官网 RSS' : '期刊已加入每日追踪');
     }).catch(function (error) {
@@ -6023,6 +6042,29 @@
     });
     $('#trackerSubscriptions').addEventListener('click', function (event) { var categoryToggle = event.target.closest('[data-tracker-category-toggle]'); if (categoryToggle) { var category = categoryToggle.dataset.trackerCategoryToggle; state.trackerJournalCategoryCollapsed[category] = !state.trackerJournalCategoryCollapsed[category]; try { localStorage.setItem('academic-workbench-journal-categories-collapsed-v1', JSON.stringify(state.trackerJournalCategoryCollapsed)); } catch (_) {} renderJournalTracker(); return; } var rankButton = event.target.closest('[data-tracker-journal-rank]'); if (rankButton) { queryTrackerJournalRank(rankButton.dataset.trackerJournalRank, rankButton); return; } var selectButton = event.target.closest('[data-tracker-select-journal]'); if (selectButton) { state.journalTrackerFilter = selectButton.dataset.trackerSelectJournal; state.trackerJournalCategoryFilter = 'all'; renderJournalTracker(); $('#trackerArticles').scrollIntoView({ behavior: 'smooth', block: 'start' }); return; } var saveButton = event.target.closest('[data-tracker-feed-save]'); if (saveButton) { saveTrackerFeed(saveButton.dataset.trackerFeedSave, saveButton); return; } var button = event.target.closest('[data-tracker-remove]'); if (button) removeTrackerJournal(button.dataset.trackerRemove); });
     $('#trackerSubscriptions').addEventListener('change', function (event) { var categorySelect = event.target.closest('[data-tracker-category]'); if (!categorySelect) return; var selectedCategory = categorySelect.value; if (selectedCategory === '__new_category__') { var name = window.prompt('输入新的期刊分类名称（最多 60 个字符）：'); if (name === null) { renderJournalTracker(); return; } selectedCategory = name.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 60); if (!selectedCategory || selectedCategory === '未分类' || selectedCategory === '__new_category__') { renderJournalTracker(); toast('请输入有效的分类名称'); return; } } saveTrackerJournalCategory(categorySelect.dataset.trackerCategory, selectedCategory); });
+    $('#trackerAddCategory').addEventListener('change', function () {
+      var selectedCategory = this.value;
+      if (selectedCategory === '__new_category__') {
+        var proposed = window.prompt('输入新的期刊分类名称（最多 60 个字符）：');
+        if (proposed === null) { state.trackerAddCategory = '__default__'; this.value = '__default__'; return; }
+        selectedCategory = cleanTrackerCategoryName(proposed);
+        if (!selectedCategory || selectedCategory === '未分类' || selectedCategory === '__default__' || selectedCategory === '__new_category__') {
+          state.trackerAddCategory = '__default__';
+          this.value = '__default__';
+          toast('请输入有效的分类名称');
+          return;
+        }
+        var existingOption = Array.from(this.options).some(function (option) { return option.value === selectedCategory; });
+        if (!existingOption) {
+          var newOption = document.createElement('option');
+          newOption.value = selectedCategory;
+          newOption.textContent = selectedCategory;
+          this.insertBefore(newOption, this.options[this.options.length - 1]);
+        }
+      }
+      state.trackerAddCategory = selectedCategory;
+      this.value = selectedCategory;
+    });
     $('#trackerArticles').addEventListener('click', function (event) { var groupButton = event.target.closest('[data-tracker-group-toggle]'); if (groupButton) { var group = groupButton.dataset.trackerGroupToggle; state.trackerCollapsedGroups[group] = !state.trackerCollapsedGroups[group]; try { localStorage.setItem('academic-workbench-tracker-collapsed-v1', JSON.stringify(state.trackerCollapsedGroups)); } catch (_) {} renderJournalTracker(); return; } var rankButton = event.target.closest('[data-tracker-journal-rank]'); if (rankButton) { queryTrackerJournalRank(rankButton.dataset.trackerJournalRank, rankButton); return; } if (event.target.closest('[data-tracker-open-detail]')) { openTrackerArticleDetail(event.target.closest('[data-tracker-open-detail]').dataset.trackerOpenDetail); return; } handleTrackerArticleAction(event); });
     $('#trackerArticleDetail').addEventListener('click', function (event) { if (event.target.closest('[data-tracker-back-to-list]')) { closeTrackerArticleDetail(); return; } var rankButton = event.target.closest('[data-tracker-journal-rank]'); if (rankButton) { queryTrackerJournalRank(rankButton.dataset.trackerJournalRank, rankButton); return; } handleTrackerArticleAction(event); });
     $('#trackerEasyScholarSetup').addEventListener('click', openTrackerEasyScholarSettings);

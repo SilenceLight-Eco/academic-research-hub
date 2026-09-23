@@ -401,6 +401,7 @@
               <div class="tracker-journal-input-row"><input id="trackerJournalQuery" type="search" placeholder="输入期刊名称" autocomplete="off"><button id="trackerDirectAdd" type="button">直接添加</button><button type="submit">查找</button></div>
               <input id="trackerJournalIssn" type="text" inputmode="text" placeholder="ISSN（可选，如 1000-0000）" aria-label="期刊 ISSN，可选">
               <input id="trackerFeedUrl" type="url" placeholder="期刊官网 RSS / Atom 地址（未收录中文期刊请填写）" aria-label="期刊官网 RSS 或 Atom 地址">
+              <select id="trackerAddCategory" aria-label="添加期刊时选择分类"><option value="__default__">新期刊归入未分类；已有期刊保持原分类</option></select>
               <p>名称必填，ISSN 可选。可搜索 Crossref 期刊目录及论文记录；中文期刊无目录结果时可按刊名追踪。若 Crossref 尚无该刊文章，请填写官网 RSS / Atom 地址。自动检查最多每 24 小时一次。</p>
             </form>
             <div id="trackerSearchResults" class="tracker-search-results" hidden></div>
@@ -1401,6 +1402,6 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
   <script src="static-api.js?v=20260922-72"></script>
-  <script src="app.js?v=20260923-84"></script>
+  <script src="app.js?v=20260923-85"></script>
 </body>
 </html>
