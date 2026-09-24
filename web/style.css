@@ -6733,6 +6733,9 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .tracker-article-pager button:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
 .tracker-article-pager button:disabled { cursor:not-allowed; opacity:.45; }
 .tracker-article-pager span { text-align:center; }
+.tracker-article-pager label { display:inline-flex; align-items:center; gap:4px; white-space:nowrap; }
+.tracker-article-pager input { width:48px; height:28px; box-sizing:border-box; padding:4px 5px; border:1px solid var(--hairline); border-radius:6px; background:var(--glass-strong); color:var(--text); text-align:center; font:10px "Noto Sans SC",sans-serif; }
+.tracker-article-pager input:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 .tracker-article { padding:16px 17px; border:1px solid var(--hairline-soft); border-radius:10px; background:var(--glass); transition:border-color .18s ease,transform .18s ease; }
 .tracker-article.is-unread { border-left:3px solid var(--accent); }
 .tracker-article:hover { transform:translateY(-1px); border-color:var(--hairline); }
