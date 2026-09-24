@@ -600,6 +600,21 @@ async function countArticlesForUser(userId: string): Promise<number | null> {
   return match && match[1] !== "*" ? Number(match[1]) : null;
 }
 
+async function listArticlesForUser(userId: string, expectedCount: number | null) {
+  const pageSize = 1000;
+  const rows: unknown[] = [];
+  let offset = 0;
+  while (expectedCount === null || offset < expectedCount) {
+    const page = await rest(`journal_articles?user_id=eq.${encodeURIComponent(userId)}&select=*&order=publication_date.desc.nullslast,discovered_at.desc&limit=${pageSize}&offset=${offset}`);
+    const batch = Array.isArray(page) ? page : [];
+    if (!batch.length) break;
+    rows.push(...batch);
+    offset += batch.length;
+    if (batch.length < pageSize) break;
+  }
+  return rows;
+}
+
 async function recordRefreshLogs(subscriptions: Subscription[], results: RefreshResult[], source: string) {
   const byId = new Map(subscriptions.map((subscription) => [subscription.id, subscription]));
   const rows = results.flatMap((result) => {
@@ -625,12 +640,12 @@ async function recordRefreshLogs(subscriptions: Subscription[], results: Refresh
 
 async function listForUser(userId: string) {
   await purgeExpiredReadArticles(userId);
-  const [subscriptions, articles, logs, articleCount] = await Promise.all([
+  const [subscriptions, logs, articleCount] = await Promise.all([
     listSubscriptions(userId),
-    rest(`journal_articles?user_id=eq.${encodeURIComponent(userId)}&select=*&order=publication_date.desc.nullslast,discovered_at.desc&limit=300`),
     rest(`journal_tracker_refresh_logs?user_id=eq.${encodeURIComponent(userId)}&select=*&order=checked_at.desc&limit=20`),
     countArticlesForUser(userId).catch(() => null),
   ]);
+  const articles = await listArticlesForUser(userId, articleCount);
   const articleRows = Array.isArray(articles) ? articles : [];
   return { subscriptions, articles: articleRows, articleCount: articleCount === null ? articleRows.length : articleCount, refreshLogs: Array.isArray(logs) ? logs : [] };
 }
