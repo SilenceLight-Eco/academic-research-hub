@@ -203,6 +203,10 @@
     var queued = workspaceWriteChain.catch(function () {}).then(function () {
       return userPromise.then(function (user) {
         if (!user || generation !== workspaceSessionGeneration) return;
+        if (pendingWorkspaceConflict && !force) {
+          pendingWorkspaceConflict.localData = copyPayload(payload);
+          throw conflictError(payload, pendingWorkspaceConflict.cloudUpdatedAt);
+        }
         return commitWorkspace(user, generation, payload, basePayload, baseRevision, force, localModifiedAt, 0);
       });
     });
@@ -260,10 +264,11 @@
       pendingWorkspaceConflict = null;
       workspace = copyPayload(latestPayload);
       workspaceBasePayload = copyPayload(latestPayload);
-      if (samePayload(merged, latestPayload) || attempt >= 4) {
+      if (samePayload(merged, latestPayload)) {
         notifyCloudMerge();
         return;
       }
+      if (attempt >= 4) throw conflictError(merged, latestRevision);
       await commitWorkspace(user, generation, merged, copyPayload(latestPayload), latestRevision, false, localModifiedAt, attempt + 1);
       if (generation !== workspaceSessionGeneration) return;
       notifyCloudMerge();

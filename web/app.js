@@ -1053,7 +1053,7 @@
     if (panel === 'prompt-library') loadPromptLibrary();
     if (panel === 'research-projects') loadResearchProjects();
     if (panel === 'references') loadReferenceLibrary();
-    if (panel === 'journal-tracker') loadJournalTracker(true);
+    if (panel === 'journal-tracker') loadJournalTracker(false);
     if (panel === 'focus') focusRenderAll();   // 专注面板：进度/统计/记录实时刷新
     refreshUnreadBadges();   // 进入即视为已读，红点立刻消
     positionNavInk(true);
@@ -5560,12 +5560,14 @@
       refreshLogs: Array.isArray(result && result.refreshLogs) ? result.refreshLogs : [],
     };
     state.journalTrackerLoaded = true;
+    state.journalTrackerLoadedAt = Date.now();
     renderJournalTracker();
   }
 
   function loadJournalTracker(force) {
     if (state.journalTrackerLoading) return Promise.resolve();
-    if (state.journalTrackerLoaded && !force) { renderJournalTracker(); return Promise.resolve(); }
+    var cacheFresh = state.journalTrackerLoaded && Date.now() - (state.journalTrackerLoadedAt || 0) < 2 * 60 * 1000;
+    if (state.journalTrackerLoaded && !force && cacheFresh) { renderJournalTracker(); return Promise.resolve(); }
     state.journalTrackerLoading = true;
     setTrackerStatus('正在载入期刊订阅与最新文章…', false);
     return journalTrackerRequest({ action: 'list' }).then(function (result) {
