@@ -81,7 +81,7 @@
   };
   try { state.trackerCollapsedGroups = Object.assign(state.trackerCollapsedGroups, JSON.parse(localStorage.getItem('academic-workbench-tracker-collapsed-v1') || '{}')); } catch (_) {}
   try { state.trackerJournalCategoryCollapsed = JSON.parse(localStorage.getItem('academic-workbench-journal-categories-collapsed-v1') || '{}'); } catch (_) {}
-  var journalTrackerAutoRefreshStorageKey = 'academic-workbench-journal-tracker-last-auto-refresh-v1';
+  var journalTrackerAutoRefreshStorageKey = 'academic-workbench-journal-tracker-last-auto-refresh-v2';
   try { state.journalTrackerAutoRefreshAt = Number(localStorage.getItem(journalTrackerAutoRefreshStorageKey)) || 0; } catch (_) {}
 
   const PANEL_TITLES = {
@@ -5350,22 +5350,37 @@
   function autoRefreshStaleJournalTracker() {
     var subscriptions = state.journalTracker.subscriptions || [];
     var now = Date.now();
-    var day = 24 * 60 * 60 * 1000;
-    var stale = subscriptions.some(function (item) {
-      var checkedAt = Date.parse(item.last_checked_at || '');
-      return !checkedAt || now - checkedAt >= day;
-    });
-    if (!stale || now - state.journalTrackerAutoRefreshAt < day) return;
+    var due = subscriptions.filter(function (item) { return isTrackerSubscriptionDue(item, now); });
+    if (!due.length || state.journalTrackerRefreshingAll || state.journalTrackerRefreshingCategory || state.journalTrackerRetryingFailed || now - state.journalTrackerAutoRefreshAt < 5 * 60 * 1000) return;
     state.journalTrackerAutoRefreshAt = now;
     try { localStorage.setItem(journalTrackerAutoRefreshStorageKey, String(now)); } catch (_) {}
-    setTrackerStatus('发现超过 24 小时未检查的期刊，正在自动更新…', false);
-    journalTrackerRequest({ action: 'refresh' }).then(function (result) {
+    setTrackerStatus('有 ' + due.length + ' 本期刊到达自动检查时间，正在更新…', false);
+    journalTrackerRequest({ action: 'refresh-due' }).then(function (result) {
       applyJournalTrackerData(result);
-      var failed = (result.results || []).filter(function (item) { return !item.ok; }).length;
-      setTrackerStatus(failed ? failed + ' 个期刊暂时更新失败；其他订阅已更新。' : '期刊订阅已自动更新。', Boolean(failed));
+      var results = Array.isArray(result.results) ? result.results : [];
+      if (!results.length) { setTrackerStatus('', false); return; }
+      var failed = results.filter(function (item) { return !item.ok; }).length;
+      setTrackerStatus(failed ? failed + ' 本期刊暂时更新失败；系统会按退避间隔自动重试。' : '到期的期刊订阅已自动更新。', Boolean(failed));
     }).catch(function (error) {
       setTrackerStatus((error && error.message) || '期刊自动更新失败，请稍后手动重试。', true);
     });
+  }
+
+  function trackerRetryDelayMs(item, now) {
+    if (!item || !item.last_error) return 24 * 60 * 60 * 1000;
+    var lastSuccess = Date.parse(item.last_success_at || '');
+    if (!lastSuccess) return 15 * 60 * 1000;
+    var failureAge = Math.max(0, (now || Date.now()) - lastSuccess);
+    if (failureAge < 60 * 60 * 1000) return 10 * 60 * 1000;
+    if (failureAge < 6 * 60 * 60 * 1000) return 30 * 60 * 1000;
+    if (failureAge < 24 * 60 * 60 * 1000) return 2 * 60 * 60 * 1000;
+    return 6 * 60 * 60 * 1000;
+  }
+
+  function isTrackerSubscriptionDue(item, now) {
+    if (!item || item.enabled === false) return false;
+    var checkedAt = Date.parse(item.last_checked_at || '');
+    return !checkedAt || (now || Date.now()) - checkedAt >= trackerRetryDelayMs(item, now);
   }
 
   function loadJournalTracker(force) {
@@ -5609,6 +5624,9 @@
     $('#trackerSubscriptions').classList.toggle('is-managing-categories', Boolean(state.trackerCategoryManageMode));
     function renderTrackerSubscription(item) {
       var status = item.last_error ? item.last_error : (item.last_success_at ? '更新于 ' + trackerDateLabel(item.last_success_at, true) : '等待首次检查');
+      var checkedAt = Date.parse(item.last_checked_at || '');
+      var checkStatus = checkedAt ? '最近检查 ' + trackerDateLabel(item.last_checked_at, true) : '尚未检查';
+      if (item.last_error && checkedAt) checkStatus += ' · 下次重试 ' + trackerDateLabel(new Date(checkedAt + trackerRetryDelayMs(item, Date.now())).toISOString(), true);
       var isSelected = String(state.journalTrackerFilter) === String(item.id);
       var isBulkSelected = Boolean(state.trackerSelectedJournalIds && state.trackerSelectedJournalIds[String(item.id)]);
       var currentCategory = String(item.category || '').trim();
@@ -5621,6 +5639,7 @@
         '<b title="' + escapeHtml(item.journal_title || item.issn) + '">' + escapeHtml(item.journal_title || item.issn) + '</b><span>' + escapeHtml(String(item.issn || '').indexOf('MANUAL-') === 0 ? (item.publisher === '按刊名检索' ? '按刊名检索' : '手动 RSS') : (item.issn || '')) + '</span></button>' +
         '<select class="tracker-subscription-category" data-tracker-category="' + escapeHtml(item.id) + '" aria-label="设置 ' + escapeHtml(item.journal_title || item.issn) + ' 的分类">' + itemCategoryOptions + '</select>' +
         '<em title="' + escapeHtml(status) + '">' + escapeHtml(status) + '</em>' +
+        '<small class="tracker-check-time" title="' + escapeHtml(item.last_error ? status + '；按失败持续时间自动退避重试' : '期刊最近一次检查时间') + '">' + escapeHtml(checkStatus) + '</small>' +
         '<div class="tracker-feed-config"><input type="url" data-tracker-feed-input="' + escapeHtml(item.id) + '" value="' + escapeHtml(item.feed_url || '') + '" placeholder="官网 RSS / Atom 地址" aria-label="' + escapeHtml(item.journal_title || item.issn) + ' RSS 地址"><button type="button" data-tracker-feed-save="' + escapeHtml(item.id) + '">保存 RSS</button></div>' +
         '<button type="button" data-tracker-remove="' + escapeHtml(item.id) + '" title="停止追踪" aria-label="停止追踪 ' + escapeHtml(item.journal_title || item.issn) + '">×</button></div>';
     }
@@ -8409,7 +8428,11 @@
       // 也可能在后台期间已经到点）
       if (!document.hidden && focusIsActive()) { focusTick(); focusRenderAll(); }
       if (!document.hidden && account) syncData();
+      if (!document.hidden && state.panel === 'journal-tracker' && state.journalTrackerLoaded) autoRefreshStaleJournalTracker();
     });
+    window.setInterval(function () {
+      if (!document.hidden && state.panel === 'journal-tracker' && state.journalTrackerLoaded) autoRefreshStaleJournalTracker();
+    }, 5 * 60 * 1000);
     // The static browser edition restores Supabase's persisted session first.
     // A noncritical data-loading error must never make the header look logged out.
     Promise.resolve(window.__academicAuthReady).catch(function () {}).then(function () {

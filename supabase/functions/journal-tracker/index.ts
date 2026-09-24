@@ -36,6 +36,7 @@ type Subscription = {
   feed_url: string;
   enabled: boolean;
   last_checked_at: string | null;
+  last_success_at?: string | null;
   last_error?: string | null;
 };
 
@@ -553,6 +554,23 @@ async function listSubscriptions(userId?: string): Promise<Subscription[]> {
   return Array.isArray(rows) ? rows as Subscription[] : [];
 }
 
+function subscriptionRefreshIntervalMs(subscription: Subscription, now = Date.now()): number {
+  if (!subscription.last_error) return 24 * 60 * 60 * 1000;
+  const lastSuccessAt = subscription.last_success_at ? Date.parse(subscription.last_success_at) : NaN;
+  if (!Number.isFinite(lastSuccessAt)) return 15 * 60 * 1000;
+  const failureAge = Math.max(0, now - lastSuccessAt);
+  if (failureAge < 60 * 60 * 1000) return 10 * 60 * 1000;
+  if (failureAge < 6 * 60 * 60 * 1000) return 30 * 60 * 1000;
+  if (failureAge < 24 * 60 * 60 * 1000) return 2 * 60 * 60 * 1000;
+  return 6 * 60 * 60 * 1000;
+}
+
+function subscriptionRefreshDue(subscription: Subscription, now = Date.now()): boolean {
+  if (!subscription.enabled) return false;
+  const lastCheckedAt = subscription.last_checked_at ? Date.parse(subscription.last_checked_at) : NaN;
+  return !Number.isFinite(lastCheckedAt) || now - lastCheckedAt >= subscriptionRefreshIntervalMs(subscription, now);
+}
+
 async function purgeExpiredReadArticles(userId?: string) {
   const cutoff = new Date(Date.now() - 3 * 86400_000).toISOString();
   const userFilter = userId ? `user_id=eq.${encodeURIComponent(userId)}&` : "";
@@ -845,7 +863,7 @@ Deno.serve(async (request: Request) => {
       const configured = Deno.env.get("JOURNAL_TRACKER_CRON_SECRET") || "";
       if (!configured || request.headers.get("x-cron-secret") !== configured) return json(request, { ok: false, error: "定时任务凭证无效" }, 401);
       const cleaned = await purgeExpiredReadArticles();
-      const subscriptions = (await listSubscriptions()).filter((item) => item.enabled).slice(0, 100);
+      const subscriptions = (await listSubscriptions()).filter((item) => subscriptionRefreshDue(item)).slice(0, 100);
       const results = [];
       for (const subscription of subscriptions) results.push(await refreshSubscription(subscription));
       return json(request, { ok: true, checked: results.length, cleanedReadArticles: cleaned, results });
@@ -1090,6 +1108,12 @@ Deno.serve(async (request: Request) => {
       const results = [];
       for (const subscription of subscriptions) results.push(await refreshSubscription(subscription));
       return json(request, { ok: true, category, journalId: journalId || null, results, ...(await listForUser(userId)) });
+    }
+    if (action === "refresh-due") {
+      const subscriptions = (await listSubscriptions(userId)).filter((item) => subscriptionRefreshDue(item)).slice(0, 100);
+      const results = [];
+      for (const subscription of subscriptions) results.push(await refreshSubscription(subscription));
+      return json(request, { ok: true, results, ...(await listForUser(userId)) });
     }
     if (action === "refresh") {
       const requestedId = String(body.id || "");
