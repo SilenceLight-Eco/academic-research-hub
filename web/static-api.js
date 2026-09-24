@@ -35,7 +35,7 @@
   var applyingBrowserSnapshot = false;
   var saveTimer = null;
   var focusKeys = ['academic-workbench-theme', 'wb_pomo_counts', 'wb_focus_preset', 'wb_focus_log', 'wb_focus_state'];
-  var researchHubKeys = ['research-hub-crossref-email', 'research-hub-crossref-citations-v1', 'research-hub-stages-v1', 'research-hub-fields-v1', 'research-hub-cards-v1', 'research-hub-theme', 'research-hub-unassigned-data-code-v1'];
+  var researchHubKeys = ['research-hub-crossref-email', 'research-hub-crossref-citations-v1', 'research-hub-stages-v1', 'research-hub-fields-v1', 'research-hub-cards-v1', 'research-hub-theme', 'research-hub-unassigned-data-code-v1', 'academic-workbench-tracker-display-v1'];
 
   function response(data, status) { return new Response(JSON.stringify(data), { status: status || 200, headers: { 'Content-Type': 'application/json' } }); }
   function nowId() { return Date.now(); }
@@ -281,7 +281,12 @@
     applyingBrowserSnapshot = true;
     try {
       focusKeys.concat(researchHubKeys).forEach(function (k) { if (Object.prototype.hasOwnProperty.call(values, k)) values[k] === null ? localStorage.removeItem(k) : localStorage.setItem(k, values[k]); });
-      Object.keys((payload && payload.researchHub) || {}).forEach(function (k) { if (researchHubKeys.indexOf(k) >= 0) localStorage.setItem(k, payload.researchHub[k]); });
+      Object.keys((payload && payload.researchHub) || {}).forEach(function (k) {
+        if (researchHubKeys.indexOf(k) < 0) return;
+        if (k === 'academic-workbench-tracker-display-v1' && payload.researchHub[k] == null) return;
+        if (payload.researchHub[k] == null) localStorage.removeItem(k);
+        else localStorage.setItem(k, payload.researchHub[k]);
+      });
     } finally { applyingBrowserSnapshot = previousApplying; }
   }
   function queueSave() {

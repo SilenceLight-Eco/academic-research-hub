@@ -231,7 +231,7 @@
   var registering = false;
   var syncTimer = null;
   var academicEditorKind = '';
-  var researchHubKeys = ['research-hub-crossref-email', 'research-hub-crossref-citations-v1', 'research-hub-stages-v1', 'research-hub-fields-v1', 'research-hub-cards-v1', 'research-hub-theme', 'research-hub-unassigned-data-code-v1'];
+  var researchHubKeys = ['research-hub-crossref-email', 'research-hub-crossref-citations-v1', 'research-hub-stages-v1', 'research-hub-fields-v1', 'research-hub-cards-v1', 'research-hub-theme', 'research-hub-unassigned-data-code-v1', 'academic-workbench-tracker-display-v1'];
   var autoSaveSlots = {};
   var autoSaveChain = Promise.resolve();
   var autoSaveRunning = 0;
@@ -393,17 +393,24 @@
 
   function applyResearchHubSnapshot(values) {
     var changed = false;
+    var trackerPreferencesChanged = false;
     Object.keys(values || {}).forEach(function (key) {
       if (researchHubKeys.indexOf(key) < 0) return;
       var current = localStorage.getItem(key);
       var next = values[key];
       if (next === null || next === undefined) {
+        if (key === trackerDisplayPreferencesKey && current !== null) return;
         if (current !== null) { localStorage.removeItem(key); changed = true; }
       } else if (current !== String(next)) {
         localStorage.setItem(key, next);
         changed = true;
       }
+      if (key === trackerDisplayPreferencesKey && next != null) trackerPreferencesChanged = true;
     });
+    if (trackerPreferencesChanged) {
+      restoreTrackerDisplayPreferences();
+      if (state.journalTrackerLoaded) renderJournalTracker();
+    }
     var frame = $('.research-hub-frame');
     if (changed && frame) frame.src = frame.src;
   }
@@ -440,7 +447,7 @@
     return api('/api/auth/me').then(function (result) {
       setAccount(result.user);
       if (!account) return;
-      return api('/api/sync').then(function (sync) { applySyncData(sync.data); });
+      return api('/api/sync').then(function (sync) { applySyncData(sync.data); return syncData(); });
     }).catch(function () { setAccount(null); });
   }
 
