@@ -62,7 +62,7 @@
     referenceTrashOpen: false,
     referenceQuery: '',
     referenceTypeFilter: 'all',
-    journalTracker: { subscriptions: [], articles: [], refreshLogs: [] },
+    journalTracker: { subscriptions: [], articles: [], articleCount: 0, refreshLogs: [] },
     journalTrackerLoaded: false,
     journalTrackerLoading: false,
     journalTrackerRefreshingAll: false,
@@ -1046,6 +1046,7 @@
     if (RETIRED_PANELS.indexOf(panel) >= 0) panel = 'dashboard';
     var prev = state.panel;
     if (prev === 'journal-tracker' && panel !== prev && trackerArticleDetailId) closeTrackerArticleDetail();
+    if (prev === 'journal-tracker' && panel !== prev) stopTrackerListPolling();
     if (prev && prev !== panel) scrollMemory[prev] = window.scrollY || 0;
     state.panel = panel;
     $$('.nav-item').forEach(function (btn) {
@@ -1069,7 +1070,7 @@
     if (panel === 'prompt-library') loadPromptLibrary();
     if (panel === 'research-projects') loadResearchProjects();
     if (panel === 'references') loadReferenceLibrary();
-    if (panel === 'journal-tracker') loadJournalTracker(false);
+    if (panel === 'journal-tracker') { loadJournalTracker(false); startTrackerListPolling(); }
     if (panel === 'focus') focusRenderAll();   // 专注面板：进度/统计/记录实时刷新
     refreshUnreadBadges();   // 进入即视为已读，红点立刻消
     positionNavInk(true);
@@ -5570,9 +5571,11 @@
   }
 
   function applyJournalTrackerData(result) {
+    var articles = Array.isArray(result && result.articles) ? result.articles : [];
     state.journalTracker = {
       subscriptions: Array.isArray(result && result.subscriptions) ? result.subscriptions : [],
-      articles: Array.isArray(result && result.articles) ? result.articles : [],
+      articles: articles,
+      articleCount: Number.isFinite(result && result.articleCount) ? Math.max(0, result.articleCount) : articles.length,
       refreshLogs: Array.isArray(result && result.refreshLogs) ? result.refreshLogs : [],
     };
     state.journalTrackerLoaded = true;
@@ -5593,6 +5596,26 @@
       setTrackerStatus((error && error.message) || '文献追踪载入失败', true);
       renderJournalTracker();
     }).then(function () { state.journalTrackerLoading = false; });
+  }
+
+  var trackerListPollTimer = null;
+  var trackerListPollInFlight = false;
+  function startTrackerListPolling() {
+    if (trackerListPollTimer) return;
+    trackerListPollTimer = window.setInterval(function () {
+      if (state.panel !== 'journal-tracker' || document.hidden || !account || !state.journalTrackerLoaded || state.journalTrackerLoading || trackerListPollInFlight || state.journalTrackerRefreshingAll || state.journalTrackerRefreshingCategory || state.journalTrackerRetryingFailed) return;
+      trackerListPollInFlight = true;
+      journalTrackerRequest({ action: 'count' }).then(function (result) {
+        if (state.panel !== 'journal-tracker' || !Number.isFinite(result && result.articleCount)) return;
+        state.journalTracker.articleCount = Math.max(0, result.articleCount);
+        $('#trackerArticleCount').textContent = state.journalTracker.articleCount;
+      }).catch(function () {}).then(function () { trackerListPollInFlight = false; });
+    }, 10 * 60 * 1000);
+  }
+  function stopTrackerListPolling() {
+    if (trackerListPollTimer) window.clearInterval(trackerListPollTimer);
+    trackerListPollTimer = null;
+    trackerListPollInFlight = false;
   }
 
   function trackerRetryDelayMs(item, now) {
@@ -5937,7 +5960,7 @@
     var articles = state.journalTracker.articles || [];
     var subscriptionById = trackerSubscriptionMap();
     $('#trackerJournalCount').textContent = subscriptions.length;
-    $('#trackerArticleCount').textContent = articles.length;
+    $('#trackerArticleCount').textContent = Number.isFinite(state.journalTracker.articleCount) ? state.journalTracker.articleCount : articles.length;
     $('#trackerSubscriptionCount').textContent = subscriptions.length;
     var checks = subscriptions.map(function (item) { return item.last_checked_at; }).filter(Boolean).sort().reverse();
     $('#trackerLastCheck').textContent = checks.length ? trackerDateLabel(checks[0], true) : '尚未检查';

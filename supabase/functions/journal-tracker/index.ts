@@ -590,6 +590,16 @@ async function purgeExpiredRefreshLogs() {
   });
 }
 
+async function countArticlesForUser(userId: string): Promise<number | null> {
+  const response = await fetch(`${supabaseUrl}/rest/v1/journal_articles?user_id=eq.${encodeURIComponent(userId)}&select=id`, {
+    method: "HEAD",
+    headers: serviceHeaders({ Prefer: "count=exact", "Range-Unit": "items", Range: "0-0" }),
+  });
+  if (!response.ok) return null;
+  const match = (response.headers.get("content-range") || "").match(/\/(\d+|\*)$/);
+  return match && match[1] !== "*" ? Number(match[1]) : null;
+}
+
 async function recordRefreshLogs(subscriptions: Subscription[], results: RefreshResult[], source: string) {
   const byId = new Map(subscriptions.map((subscription) => [subscription.id, subscription]));
   const rows = results.flatMap((result) => {
@@ -615,10 +625,14 @@ async function recordRefreshLogs(subscriptions: Subscription[], results: Refresh
 
 async function listForUser(userId: string) {
   await purgeExpiredReadArticles(userId);
-  const subscriptions = await listSubscriptions(userId);
-  const articles = await rest(`journal_articles?user_id=eq.${encodeURIComponent(userId)}&select=*&order=publication_date.desc.nullslast,discovered_at.desc&limit=300`);
-  const logs = await rest(`journal_tracker_refresh_logs?user_id=eq.${encodeURIComponent(userId)}&select=*&order=checked_at.desc&limit=20`);
-  return { subscriptions, articles: Array.isArray(articles) ? articles : [], refreshLogs: Array.isArray(logs) ? logs : [] };
+  const [subscriptions, articles, logs, articleCount] = await Promise.all([
+    listSubscriptions(userId),
+    rest(`journal_articles?user_id=eq.${encodeURIComponent(userId)}&select=*&order=publication_date.desc.nullslast,discovered_at.desc&limit=300`),
+    rest(`journal_tracker_refresh_logs?user_id=eq.${encodeURIComponent(userId)}&select=*&order=checked_at.desc&limit=20`),
+    countArticlesForUser(userId).catch(() => null),
+  ]);
+  const articleRows = Array.isArray(articles) ? articles : [];
+  return { subscriptions, articles: articleRows, articleCount: articleCount === null ? articleRows.length : articleCount, refreshLogs: Array.isArray(logs) ? logs : [] };
 }
 
 async function refreshSubscription(subscription: Subscription) {
@@ -905,6 +919,11 @@ Deno.serve(async (request: Request) => {
     }
 
     const userId = await authenticate(request);
+    if (action === "count") {
+      const articleCount = await countArticlesForUser(userId);
+      if (articleCount === null) return json(request, { ok: false, error: "暂时无法统计已收录文章数量" }, 503);
+      return json(request, { ok: true, articleCount });
+    }
     if (action === "easyScholar-rank") {
       const secretKey = String(body.secretKey || "");
       const publicationName = String(body.publicationName || "");
