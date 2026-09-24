@@ -6027,7 +6027,7 @@
     setTrackerStatus('正在匹配期刊并开始获取近期文章…', false);
     var category = $('#trackerAddCategory').value;
     var addPayload = { action: 'add', query: query, issn: $('#trackerJournalIssn').value.trim(), feedUrl: $('#trackerFeedUrl').value.trim() };
-    if (category !== '__default__' && category !== '__new_category__') addPayload.category = category;
+    if (category && category !== '__default__' && category !== '__new_category__') addPayload.category = category;
     journalTrackerRequest(addPayload).then(function (result) {
       applyJournalTrackerData(result);
       $('#trackerSearchResults').hidden = true;
@@ -6055,7 +6055,7 @@
     var feedUrl = $('#trackerFeedUrl').value.trim();
     var category = $('#trackerAddCategory').value;
     var addPayload = { action: 'add', issn: issn, feedUrl: feedUrl };
-    if (category !== '__default__' && category !== '__new_category__') addPayload.category = category;
+    if (category && category !== '__default__' && category !== '__new_category__') addPayload.category = category;
     journalTrackerRequest(addPayload).then(function (result) {
       applyJournalTrackerData(result);
       $('#trackerSearchResults').hidden = true;
