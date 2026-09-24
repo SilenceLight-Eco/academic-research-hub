@@ -76,6 +76,7 @@
     journalTrackerReadFilter: 'all',
     trackerCollapsedGroups: { unread: false, read: true },
     trackerArticlePages: { unread: 1, read: 1 },
+    trackerArticleSorts: { unread: 'newest', read: 'newest' },
     trackerJournalCategoryCollapsed: {},
     trackerCategoryManageMode: false,
     trackerSelectedJournalIds: {},
@@ -5722,14 +5723,26 @@
     function renderArticleGroup(key, label, items) {
       if (!items.length) return '';
       var collapsed = Boolean(state.trackerCollapsedGroups[key]);
+      var sortMode = state.trackerArticleSorts[key] === 'oldest' ? 'oldest' : 'newest';
+      var sortedItems = items.map(function (article, index) {
+        var publishedAt = Date.parse(article.publication_date || '');
+        return { article: article, index: index, publishedAt: Number.isFinite(publishedAt) ? publishedAt : null };
+      }).sort(function (left, right) {
+        if (left.publishedAt === null && right.publishedAt !== null) return 1;
+        if (left.publishedAt !== null && right.publishedAt === null) return -1;
+        if (left.publishedAt !== null && right.publishedAt !== null && left.publishedAt !== right.publishedAt) {
+          return sortMode === 'oldest' ? left.publishedAt - right.publishedAt : right.publishedAt - left.publishedAt;
+        }
+        return left.index - right.index;
+      }).map(function (item) { return item.article; });
       var pageSize = 15;
-      var pageCount = Math.max(1, Math.ceil(items.length / pageSize));
+      var pageCount = Math.max(1, Math.ceil(sortedItems.length / pageSize));
       var currentPage = Math.max(1, Math.min(pageCount, Number(state.trackerArticlePages[key]) || 1));
       state.trackerArticlePages[key] = currentPage;
       var startIndex = (currentPage - 1) * pageSize;
-      var pageItems = items.slice(startIndex, startIndex + pageSize);
-      var pager = pageCount > 1 ? '<nav class="tracker-article-pager" aria-label="' + label + '分页"><button type="button" data-tracker-page="' + key + '" data-tracker-page-delta="-1"' + (currentPage <= 1 ? ' disabled' : '') + '>上一页</button><span>第 ' + currentPage + ' / ' + pageCount + ' 页 · ' + (startIndex + 1) + '–' + Math.min(startIndex + pageSize, items.length) + ' / ' + items.length + ' 篇</span><label>跳至 <input type="number" data-tracker-page-input="' + key + '" min="1" max="' + pageCount + '" step="1" value="' + currentPage + '" aria-label="跳转到' + label + '页码，最大 ' + pageCount + ' 页"> 页</label><button type="button" data-tracker-page-jump="' + key + '">跳转</button><button type="button" data-tracker-page="' + key + '" data-tracker-page-delta="1"' + (currentPage >= pageCount ? ' disabled' : '') + '>下一页</button></nav>' : '';
-      return '<section class="tracker-article-group" data-tracker-group-section="' + key + '"><button type="button" class="tracker-article-group-toggle" data-tracker-group-toggle="' + key + '" aria-expanded="' + !collapsed + '"><span>' + label + '</span><b>' + items.length + '</b><span class="tracker-group-chevron" aria-hidden="true">' + (collapsed ? '▸' : '▾') + '</span></button><div class="tracker-article-group-items"' + (collapsed ? ' hidden' : '') + '>' + pageItems.map(renderArticleCard).join('') + pager + '</div></section>';
+      var pageItems = sortedItems.slice(startIndex, startIndex + pageSize);
+      var pager = pageCount > 1 ? '<nav class="tracker-article-pager" aria-label="' + label + '分页"><button type="button" data-tracker-page="' + key + '" data-tracker-page-delta="-1"' + (currentPage <= 1 ? ' disabled' : '') + '>上一页</button><span>第 ' + currentPage + ' / ' + pageCount + ' 页 · ' + (startIndex + 1) + '–' + Math.min(startIndex + pageSize, sortedItems.length) + ' / ' + sortedItems.length + ' 篇</span><label>跳至 <input type="number" data-tracker-page-input="' + key + '" min="1" max="' + pageCount + '" step="1" value="' + currentPage + '" aria-label="跳转到' + label + '页码，最大 ' + pageCount + ' 页"> 页</label><button type="button" data-tracker-page-jump="' + key + '">跳转</button><button type="button" data-tracker-page="' + key + '" data-tracker-page-delta="1"' + (currentPage >= pageCount ? ' disabled' : '') + '>下一页</button></nav>' : '';
+      return '<section class="tracker-article-group" data-tracker-group-section="' + key + '"><div class="tracker-article-group-header"><button type="button" class="tracker-article-group-toggle" data-tracker-group-toggle="' + key + '" aria-expanded="' + !collapsed + '"><span>' + label + '</span><b>' + sortedItems.length + '</b><span class="tracker-group-chevron" aria-hidden="true">' + (collapsed ? '▸' : '▾') + '</span></button><label class="tracker-article-sort">排序<select data-tracker-sort="' + key + '" aria-label="' + label + '排序"><option value="newest"' + (sortMode === 'newest' ? ' selected' : '') + '>最新优先</option><option value="oldest"' + (sortMode === 'oldest' ? ' selected' : '') + '>最早优先</option></select></label></div><div class="tracker-article-group-items"' + (collapsed ? ' hidden' : '') + '>' + pageItems.map(renderArticleCard).join('') + pager + '</div></section>';
     }
     if (visible.length) {
       var unreadArticles = visible.filter(function (article) { return article.is_read !== true; });
@@ -6239,6 +6252,7 @@
       this.value = selectedCategory;
     });
     $('#trackerArticles').addEventListener('click', function (event) { var jumpButton = event.target.closest('[data-tracker-page-jump]'); if (jumpButton) { var jumpGroup = jumpButton.dataset.trackerPageJump; if (jumpGroup === 'unread' || jumpGroup === 'read') { var pageInput = jumpButton.closest('.tracker-article-pager').querySelector('[data-tracker-page-input]'); var requestedPage = pageInput ? Number(pageInput.value) : 1; var matchedArticles = trackerVisibleArticles().filter(function (article) { return jumpGroup === 'read' ? article.is_read === true : article.is_read !== true; }); var maximumPage = Math.max(1, Math.ceil(matchedArticles.length / 15)); state.trackerArticlePages[jumpGroup] = Math.max(1, Math.min(maximumPage, Number.isFinite(requestedPage) ? Math.floor(requestedPage) : 1)); renderJournalTracker(); var jumpSection = $('#trackerArticles').querySelector('[data-tracker-group-section="' + jumpGroup + '"]'); if (jumpSection) jumpSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } return; } var pageButton = event.target.closest('[data-tracker-page]'); if (pageButton) { var pageGroup = pageButton.dataset.trackerPage; if (pageGroup === 'unread' || pageGroup === 'read') { state.trackerArticlePages[pageGroup] = Math.max(1, (Number(state.trackerArticlePages[pageGroup]) || 1) + Number(pageButton.dataset.trackerPageDelta || 0)); renderJournalTracker(); var groupSection = $('#trackerArticles').querySelector('[data-tracker-group-section="' + pageGroup + '"]'); if (groupSection) groupSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } return; } var groupButton = event.target.closest('[data-tracker-group-toggle]'); if (groupButton) { var group = groupButton.dataset.trackerGroupToggle; state.trackerCollapsedGroups[group] = !state.trackerCollapsedGroups[group]; try { localStorage.setItem('academic-workbench-tracker-collapsed-v1', JSON.stringify(state.trackerCollapsedGroups)); } catch (_) {} renderJournalTracker(); return; } var rankButton = event.target.closest('[data-tracker-journal-rank]'); if (rankButton) { queryTrackerJournalRank(rankButton.dataset.trackerJournalRank, rankButton); return; } if (event.target.closest('[data-tracker-open-detail]')) { openTrackerArticleDetail(event.target.closest('[data-tracker-open-detail]').dataset.trackerOpenDetail); return; } handleTrackerArticleAction(event); });
+    $('#trackerArticles').addEventListener('change', function (event) { var sortSelect = event.target.closest('[data-tracker-sort]'); if (!sortSelect) return; var sortGroup = sortSelect.dataset.trackerSort; if (sortGroup !== 'unread' && sortGroup !== 'read') return; state.trackerArticleSorts[sortGroup] = sortSelect.value === 'oldest' ? 'oldest' : 'newest'; state.trackerArticlePages[sortGroup] = 1; renderJournalTracker(); });
     $('#trackerArticles').addEventListener('keydown', function (event) { if (event.key !== 'Enter' || !event.target.closest('[data-tracker-page-input]')) return; event.preventDefault(); var pager = event.target.closest('.tracker-article-pager'); var jumpButton = pager && pager.querySelector('[data-tracker-page-jump]'); if (jumpButton) jumpButton.click(); });
     $('#trackerArticleDetail').addEventListener('click', function (event) { if (event.target.closest('[data-tracker-back-to-list]')) { closeTrackerArticleDetail(); return; } var rankButton = event.target.closest('[data-tracker-journal-rank]'); if (rankButton) { queryTrackerJournalRank(rankButton.dataset.trackerJournalRank, rankButton); return; } handleTrackerArticleAction(event); });
     $('#trackerEasyScholarSetup').addEventListener('click', openTrackerEasyScholarSettings);
