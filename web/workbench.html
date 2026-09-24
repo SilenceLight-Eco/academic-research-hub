@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>学术工作台</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='%230F766E' stroke='%230F766E' stroke-width='2'/><circle cx='16' cy='16' r='5' fill='%230F766E'/></svg>">
-  <link rel="stylesheet" href="style.css?v=20260924-82">
+  <link rel="stylesheet" href="style.css?v=20260924-83">
   <style>.sidebar-nav .retired-content{display:none!important}</style>
 </head>
 <body>
@@ -401,7 +401,7 @@
               <div class="tracker-journal-input-row"><input id="trackerJournalQuery" type="search" placeholder="输入期刊名称" autocomplete="off"><button id="trackerDirectAdd" type="button">直接添加</button><button type="submit">查找</button></div>
               <input id="trackerJournalIssn" type="text" inputmode="text" placeholder="ISSN（可选，如 1000-0000）" aria-label="期刊 ISSN，可选">
               <input id="trackerFeedUrl" type="url" placeholder="期刊官网 RSS / Atom 地址（未收录中文期刊请填写）" aria-label="期刊官网 RSS 或 Atom 地址">
-              <select id="trackerAddCategory" aria-label="添加期刊时选择分类"><option value="__default__">新期刊归入未分类；已有期刊保持原分类</option></select>
+              <div class="tracker-add-category-field"><label for="trackerAddCategory">新期刊分类</label><select id="trackerAddCategory" aria-label="添加期刊时选择分类"><option value="__default__">不指定：新期刊归入未分类，已有订阅保持原分类</option></select><small>点击“追踪”或“直接添加”时，都会使用此分类。</small></div>
               <p>名称必填，ISSN 可选。可搜索 Crossref 期刊目录及论文记录；中文期刊无目录结果时可按刊名追踪。若 Crossref 尚无该刊文章，请填写官网 RSS / Atom 地址。成功期刊每 24 小时检查一次，失败期刊会按退避间隔自动重试。</p>
             </form>
             <div id="trackerSearchResults" class="tracker-search-results" hidden></div>
@@ -1410,6 +1410,6 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
   <script src="static-api.js?v=20260924-78"></script>
-  <script src="app.js?v=20260924-103"></script>
+  <script src="app.js?v=20260924-104"></script>
 </body>
 </html>

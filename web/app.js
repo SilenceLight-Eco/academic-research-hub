@@ -5847,7 +5847,7 @@
     var addCategoryValue = state.trackerAddCategory === undefined ? '__default__' : state.trackerAddCategory;
     var addCategoryOptions = journalCategories.filter(function (category) { return category !== '未分类'; });
     if (addCategoryValue && addCategoryValue !== '__default__' && addCategoryOptions.indexOf(addCategoryValue) < 0) addCategoryOptions.push(addCategoryValue);
-    addCategorySelect.innerHTML = '<option value="__default__">新期刊归入未分类；已有期刊保持原分类</option><option value="">未分类（手动指定）</option>' + addCategoryOptions.sort(function (left, right) { return left.localeCompare(right, 'zh-CN'); }).map(function (category) {
+    addCategorySelect.innerHTML = '<option value="__default__">不指定：新期刊归入未分类，已有订阅保持原分类</option><option value="">未分类（显式指定）</option>' + addCategoryOptions.sort(function (left, right) { return left.localeCompare(right, 'zh-CN'); }).map(function (category) {
       return '<option value="' + escapeHtml(category) + '">' + escapeHtml(category) + '</option>';
     }).join('') + '<option value="__new_category__">＋新建分类…</option>';
     addCategorySelect.value = addCategoryValue;

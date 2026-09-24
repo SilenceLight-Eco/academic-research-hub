@@ -6715,8 +6715,11 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .tracker-subscription button { position:absolute; top:9px; right:7px; width:24px; height:24px; padding:0; border:0; background:transparent; color:var(--text-muted); font-size:16px; }
 .tracker-subscription button:hover { background:rgba(190,68,68,.1); color:#bc4444; }
 .tracker-add-form>input { display:block; width:100%; box-sizing:border-box; margin-top:8px; padding:8px 10px; border:1px solid var(--hairline); border-radius:7px; outline:0; background:var(--glass-strong); color:var(--text); font:11px "Noto Sans SC",sans-serif; }
-.tracker-add-form>#trackerAddCategory { display:block; width:100%; box-sizing:border-box; margin-top:8px; padding:8px 10px; border:1px solid var(--hairline); border-radius:7px; outline:0; background:var(--glass-strong); color:var(--text-secondary); font:11px "Noto Sans SC",sans-serif; }
-.tracker-add-form>#trackerAddCategory:focus { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-dim); }
+.tracker-add-category-field { margin-top:10px; }
+.tracker-add-category-field>label { display:block; margin-bottom:5px; color:var(--text-secondary); font:600 10px "Noto Sans SC",sans-serif; }
+.tracker-add-category-field>select { display:block; width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid var(--hairline); border-radius:7px; outline:0; background:var(--glass-strong); color:var(--text-secondary); font:11px "Noto Sans SC",sans-serif; }
+.tracker-add-category-field>select:focus { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-dim); }
+.tracker-add-category-field>small { display:block; margin-top:4px; color:var(--text-muted); font-size:9px; line-height:1.45; }
 .tracker-add-form>input:focus { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-dim); }
 .tracker-feed-config { display:flex; gap:5px; margin-top:7px; }
 .tracker-feed-config input { min-width:0; width:100%; padding:5px 6px; border:1px solid var(--hairline); border-radius:6px; background:var(--glass-strong); color:var(--text); font:9px "Noto Sans SC",sans-serif; }
