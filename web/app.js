@@ -82,6 +82,7 @@
     trackerJournalCategoryCollapsed: {},
     trackerCustomCategories: [],
     trackerCategoryOrder: [],
+    trackerCategoryColors: {},
     trackerCategoryManageMode: false,
     trackerSelectedJournalIds: {},
   };
@@ -90,6 +91,36 @@
   var trackerDisplayPreferencesKey = 'academic-workbench-tracker-display-v1';
   var trackerCategoryCatalogKey = 'academic-workbench-journal-categories-v1';
   var trackerCategoryOrderKey = 'academic-workbench-journal-category-order-v1';
+  var trackerCategoryColorsKey = 'academic-workbench-journal-category-colors-v1';
+  function restoreTrackerCategoryColors() {
+    try {
+      var saved = JSON.parse(localStorage.getItem(trackerCategoryColorsKey) || '{}');
+      var colors = {};
+      if (saved && typeof saved === 'object' && !Array.isArray(saved)) Object.keys(saved).forEach(function (category) {
+        var name = cleanTrackerCategoryName(category);
+        var color = String(saved[category] || '').trim();
+        if (name && name !== '未分类' && /^#[0-9a-f]{6}$/i.test(color)) colors[name] = color.toLowerCase();
+      });
+      state.trackerCategoryColors = colors;
+    } catch (_) { state.trackerCategoryColors = {}; }
+  }
+  function saveTrackerCategoryColors() {
+    var colors = {};
+    Object.keys(state.trackerCategoryColors || {}).forEach(function (category) {
+      var name = cleanTrackerCategoryName(category);
+      var color = String(state.trackerCategoryColors[category] || '').trim();
+      if (name && name !== '未分类' && /^#[0-9a-f]{6}$/i.test(color)) colors[name] = color.toLowerCase();
+    });
+    state.trackerCategoryColors = colors;
+    try { localStorage.setItem(trackerCategoryColorsKey, JSON.stringify(colors)); } catch (_) {}
+  }
+  function setTrackerCategoryColor(category, color) {
+    var name = cleanTrackerCategoryName(category);
+    if (!name || name === '未分类' || !/^#[0-9a-f]{6}$/i.test(String(color || ''))) return;
+    state.trackerCategoryColors[name] = String(color).toLowerCase();
+    saveTrackerCategoryColors();
+  }
+  restoreTrackerCategoryColors();
   function restoreTrackerCategoryCatalog() {
     try {
       var saved = JSON.parse(localStorage.getItem(trackerCategoryCatalogKey) || '[]');
@@ -168,6 +199,11 @@
       saveTrackerCategoryCatalog();
       state.trackerCategoryOrder = Array.from(new Set(previousOrder.map(function (name) { return name === action.from ? action.to : name; })));
       saveTrackerCategoryOrder();
+      if (state.trackerCategoryColors[action.from]) {
+        if (!state.trackerCategoryColors[action.to]) state.trackerCategoryColors[action.to] = state.trackerCategoryColors[action.from];
+        delete state.trackerCategoryColors[action.from];
+        saveTrackerCategoryColors();
+      }
       if (state.trackerAddCategory === action.from) state.trackerAddCategory = action.to;
       if (state.trackerJournalCategoryFilter === action.from) state.trackerJournalCategoryFilter = action.to;
       if (Object.prototype.hasOwnProperty.call(state.trackerJournalCategoryCollapsed, action.from)) {
@@ -182,6 +218,8 @@
       saveTrackerCategoryCatalog();
       state.trackerCategoryOrder = previousOrder.filter(function (name) { return name !== action.category; });
       saveTrackerCategoryOrder();
+      delete state.trackerCategoryColors[action.category];
+      saveTrackerCategoryColors();
       if (state.trackerAddCategory === action.category) state.trackerAddCategory = '__default__';
       if (state.trackerJournalCategoryFilter === action.category) state.trackerJournalCategoryFilter = 'all';
       delete state.trackerJournalCategoryCollapsed[action.category];
@@ -338,7 +376,7 @@
   var registering = false;
   var syncTimer = null;
   var academicEditorKind = '';
-  var researchHubKeys = ['research-hub-crossref-email', 'research-hub-crossref-citations-v1', 'research-hub-stages-v1', 'research-hub-fields-v1', 'research-hub-cards-v1', 'research-hub-theme', 'research-hub-unassigned-data-code-v1', 'academic-workbench-tracker-display-v1', 'academic-workbench-journal-categories-v1', 'academic-workbench-journal-category-order-v1'];
+  var researchHubKeys = ['research-hub-crossref-email', 'research-hub-crossref-citations-v1', 'research-hub-stages-v1', 'research-hub-fields-v1', 'research-hub-cards-v1', 'research-hub-theme', 'research-hub-unassigned-data-code-v1', 'academic-workbench-tracker-display-v1', 'academic-workbench-journal-categories-v1', 'academic-workbench-journal-category-order-v1', 'academic-workbench-journal-category-colors-v1'];
   var autoSaveSlots = {};
   var autoSaveChain = Promise.resolve();
   var autoSaveRunning = 0;
@@ -503,12 +541,13 @@
     var trackerPreferencesChanged = false;
     var trackerCategoriesChanged = false;
     var trackerCategoryOrderChanged = false;
+    var trackerCategoryColorsChanged = false;
     Object.keys(values || {}).forEach(function (key) {
       if (researchHubKeys.indexOf(key) < 0) return;
       var current = localStorage.getItem(key);
       var next = values[key];
       if (next === null || next === undefined) {
-        if ((key === trackerDisplayPreferencesKey || key === trackerCategoryCatalogKey || key === trackerCategoryOrderKey) && current !== null) return;
+        if ((key === trackerDisplayPreferencesKey || key === trackerCategoryCatalogKey || key === trackerCategoryOrderKey || key === trackerCategoryColorsKey) && current !== null) return;
         if (current !== null) { localStorage.removeItem(key); changed = true; }
       } else if (current !== String(next)) {
         localStorage.setItem(key, next);
@@ -517,6 +556,7 @@
       if (key === trackerDisplayPreferencesKey && next != null) trackerPreferencesChanged = true;
       if (key === trackerCategoryCatalogKey && next != null) trackerCategoriesChanged = true;
       if (key === trackerCategoryOrderKey && next != null) trackerCategoryOrderChanged = true;
+      if (key === trackerCategoryColorsKey && next != null) trackerCategoryColorsChanged = true;
     });
     if (trackerPreferencesChanged) {
       restoreTrackerDisplayPreferences();
@@ -528,6 +568,10 @@
     }
     if (trackerCategoryOrderChanged) {
       restoreTrackerCategoryOrder();
+      if (state.journalTrackerLoaded) renderJournalTracker();
+    }
+    if (trackerCategoryColorsChanged) {
+      restoreTrackerCategoryColors();
       if (state.journalTrackerLoaded) renderJournalTracker();
     }
     var frame = $('.research-hub-frame');
@@ -5841,9 +5885,12 @@
       var grouped = subscriptions.filter(function (item) { return (String(item.category || '').trim() || '未分类') === category; });
       var isCollapsed = Boolean(state.trackerJournalCategoryCollapsed[category]);
       var categoryIndex = journalCategories.indexOf(category);
-      var categoryActions = state.trackerCategoryManageMode ? '<div class="tracker-journal-category-actions"><button type="button" data-tracker-category-move="-1" data-tracker-category-name="' + escapeHtml(category) + '" aria-label="上移分类 ' + escapeHtml(category) + '" title="上移"' + (categoryIndex <= 0 ? ' disabled' : '') + '>↑</button><button type="button" data-tracker-category-move="1" data-tracker-category-name="' + escapeHtml(category) + '" aria-label="下移分类 ' + escapeHtml(category) + '" title="下移"' + (categoryIndex >= journalCategories.length - 1 ? ' disabled' : '') + '>↓</button>' + (category !== '未分类' ? '<button type="button" data-tracker-category-rename="' + escapeHtml(category) + '">重命名</button><button type="button" data-tracker-category-delete="' + escapeHtml(category) + '">删除</button>' : '') + '</div>' : '';
+      var categoryColor = state.trackerCategoryColors[category] || '';
+      var colorPicker = state.trackerCategoryManageMode && category !== '未分类' ? '<label class="tracker-category-color-picker" title="设置分类颜色"><span>色</span><input type="color" data-tracker-category-color="' + escapeHtml(category) + '" value="' + (categoryColor || '#346b64') + '" aria-label="设置 ' + escapeHtml(category) + ' 的颜色"></label>' : '';
+      var categoryActions = state.trackerCategoryManageMode ? '<div class="tracker-journal-category-actions">' + colorPicker + '<button type="button" data-tracker-category-move="-1" data-tracker-category-name="' + escapeHtml(category) + '" aria-label="上移分类 ' + escapeHtml(category) + '" title="上移"' + (categoryIndex <= 0 ? ' disabled' : '') + '>↑</button><button type="button" data-tracker-category-move="1" data-tracker-category-name="' + escapeHtml(category) + '" aria-label="下移分类 ' + escapeHtml(category) + '" title="下移"' + (categoryIndex >= journalCategories.length - 1 ? ' disabled' : '') + '>↓</button>' + (category !== '未分类' ? '<button type="button" data-tracker-category-rename="' + escapeHtml(category) + '">重命名</button><button type="button" data-tracker-category-delete="' + escapeHtml(category) + '">删除</button>' : '') + '</div>' : '';
       var dragHandle = journalCategories.length > 1 ? '<button type="button" class="tracker-category-drag-handle" draggable="true" data-tracker-category-drag="' + escapeHtml(category) + '" aria-label="拖动排序：' + escapeHtml(category) + '" title="拖动调整分类顺序">⠿</button>' : '';
-      return '<section class="tracker-journal-category" data-tracker-category-name="' + escapeHtml(category) + '"><div class="tracker-journal-category-heading">' + dragHandle + '<button type="button" class="tracker-journal-category-toggle" data-tracker-category-toggle="' + escapeHtml(category) + '" aria-expanded="' + !isCollapsed + '"><span>' + escapeHtml(category) + '</span><b>' + grouped.length + '</b><span aria-hidden="true">' + (isCollapsed ? '▸' : '▾') + '</span></button>' + categoryActions + '</div><div class="tracker-journal-category-items"' + (isCollapsed ? ' hidden' : '') + '>' + (grouped.length ? grouped.map(renderTrackerSubscription).join('') : '<div class="tracker-category-empty">此分类暂无期刊；添加期刊时可选择此分类。</div>') + '</div></section>';
+      var colorDot = '<i class="tracker-category-color-dot"' + (categoryColor ? ' style="--tracker-category-color:' + categoryColor + '"' : '') + ' aria-hidden="true"></i>';
+      return '<section class="tracker-journal-category" data-tracker-category-name="' + escapeHtml(category) + '"><div class="tracker-journal-category-heading">' + dragHandle + '<button type="button" class="tracker-journal-category-toggle" data-tracker-category-toggle="' + escapeHtml(category) + '" aria-expanded="' + !isCollapsed + '">' + colorDot + '<span>' + escapeHtml(category) + '</span><b>' + grouped.length + '</b><span aria-hidden="true">' + (isCollapsed ? '▸' : '▾') + '</span></button>' + categoryActions + '</div><div class="tracker-journal-category-items"' + (isCollapsed ? ' hidden' : '') + '>' + (grouped.length ? grouped.map(renderTrackerSubscription).join('') : '<div class="tracker-category-empty">此分类暂无期刊；添加期刊时可选择此分类。</div>') + '</div></section>';
     }).join('') : '<div class="tracker-empty"><b>还没有追踪期刊</b><span>输入期刊名称搜索；添加后可在每本期刊下选择或新建分类。</span></div>');
 
     var select = $('#trackerJournalFilter');
@@ -6451,6 +6498,12 @@
       $$('.tracker-journal-category.is-dragging, .tracker-journal-category.is-drop-target').forEach(function (section) { section.classList.remove('is-dragging', 'is-drop-target'); });
     });
     $('#trackerSubscriptions').addEventListener('change', function (event) {
+      var colorPicker = event.target.closest('[data-tracker-category-color]');
+      if (colorPicker) {
+        setTrackerCategoryColor(colorPicker.dataset.trackerCategoryColor, colorPicker.value);
+        renderJournalTracker();
+        return;
+      }
       var checkbox = event.target.closest('[data-tracker-bulk-select]');
       if (!checkbox) return;
       if (checkbox.checked) state.trackerSelectedJournalIds[checkbox.dataset.trackerBulkSelect] = true;
