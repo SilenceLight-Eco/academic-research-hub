@@ -6774,6 +6774,8 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .tracker-read-badge.is-read { background:var(--glass-strong); color:var(--text-muted); }
 .tracker-article h4 { margin:0; color:var(--text); font:600 16px/1.55 "Noto Serif SC",serif; }
 .tracker-article-title { padding:0; border:0; background:transparent; color:inherit; cursor:pointer; text-align:left; font:inherit; line-height:inherit; }
+.tracker-title-translation { margin:4px 0 0; color:var(--text-muted); font-size:11px; line-height:1.6; }
+.tracker-title-translation.is-error { color:var(--text-muted); font-style:italic; }
 .tracker-article-title:hover { color:var(--accent); text-decoration:underline; text-decoration-thickness:1px; text-underline-offset:4px; }
 .tracker-article-title:focus-visible,.tracker-detail-back:focus-visible { outline:2px solid var(--accent); outline-offset:3px; border-radius:3px; }
 .tracker-article-authors { margin:7px 0 0; color:var(--text-secondary); font-size:11px; line-height:1.6; }
