@@ -6034,11 +6034,37 @@
     }).catch(function (error) { setTrackerStatus((error && error.message) || '期刊查找失败', true); }).then(function () { formButton.disabled = false; formButton.textContent = '查找'; });
   }
 
+  function normalizeTrackerJournalTitle(value) {
+    return String(value || '').normalize('NFKC').toLocaleLowerCase().replace(/[\s\p{P}\p{S}]+/gu, '');
+  }
+
+  function trackerJournalAlreadyTracked(journal) {
+    var issns = String(journal && journal.issn || '').split(/[;,，；/\s]+/).map(function (value) {
+      return value.replace(/[^0-9x]/gi, '').toUpperCase();
+    }).filter(Boolean);
+    var title = normalizeTrackerJournalTitle(journal && (journal.title || journal.journal_title));
+    return (state.journalTracker.subscriptions || []).some(function (subscription) {
+      var trackedIssns = String(subscription.issn || '').split(/[;,，；/\s]+/).map(function (value) {
+        return value.replace(/[^0-9x]/gi, '').toUpperCase();
+      }).filter(Boolean);
+      if (issns.length && trackedIssns.some(function (issn) { return issns.indexOf(issn) >= 0; })) return true;
+      var trackedTitle = normalizeTrackerJournalTitle(subscription.journal_title || subscription.title);
+      return Boolean(title && trackedTitle && title === trackedTitle);
+    });
+  }
+
   function renderTrackerJournalCandidates(journals, query) {
     var container = $('#trackerSearchResults');
     container.hidden = false;
     if (journals.length) {
-      container.innerHTML = journals.map(function (journal) { var fullTitle = journal.title || journal.issn; return '<div class="tracker-search-result"><div><b title="' + escapeHtml(fullTitle) + '" aria-label="期刊全名：' + escapeHtml(fullTitle) + '">' + escapeHtml(fullTitle) + '</b><span>' + escapeHtml(journal.issn) + (journal.publisher ? ' · ' + escapeHtml(journal.publisher) : '') + '</span></div><button type="button" data-tracker-add="' + escapeHtml(journal.issn) + '" aria-label="追踪 ' + escapeHtml(fullTitle) + '">追踪</button></div>'; }).join('');
+      container.innerHTML = journals.map(function (journal) {
+        var fullTitle = journal.title || journal.issn;
+        var alreadyTracked = trackerJournalAlreadyTracked(journal);
+        var action = alreadyTracked
+          ? '<span class="tracker-already-tracked" role="status">已追踪</span>'
+          : '<button type="button" data-tracker-add="' + escapeHtml(journal.issn) + '" aria-label="追踪 ' + escapeHtml(fullTitle) + '">追踪</button>';
+        return '<div class="tracker-search-result"><div><b title="' + escapeHtml(fullTitle) + '" aria-label="期刊全名：' + escapeHtml(fullTitle) + '">' + escapeHtml(fullTitle) + '</b><span>' + escapeHtml(journal.issn) + (journal.publisher ? ' · ' + escapeHtml(journal.publisher) : '') + '</span></div>' + action + '</div>';
+      }).join('');
     } else if (query && /\p{Script=Han}/u.test(query)) {
       container.innerHTML = '<div class="tracker-search-result"><div><b title="' + escapeHtml(query) + '" aria-label="期刊全名：' + escapeHtml(query) + '">' + escapeHtml(query) + '</b><span>未找到期刊目录记录；可尝试按刊名检索 Crossref 文章，或填写官网 RSS / Atom。</span></div><button type="button" data-tracker-add-title="1" aria-label="按刊名追踪 ' + escapeHtml(query) + '">按刊名追踪</button></div>';
     } else {

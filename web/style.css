@@ -6646,6 +6646,7 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .tracker-search-result b { color:var(--text-secondary); font-size:11px; font-weight:600; }
 .tracker-search-result span { margin-top:3px; color:var(--text-muted); font-size:9px; }
 .tracker-search-result button { padding:5px 7px; color:var(--accent); }
+.tracker-search-result .tracker-already-tracked { padding:5px 8px; border:1px solid color-mix(in srgb,var(--accent) 28%,transparent); border-radius:999px; background:var(--accent-dim); color:var(--accent); font-size:10px; font-weight:600; white-space:nowrap; }
 .tracker-subscription-title { display:flex; align-items:center; justify-content:space-between; margin:20px 3px 8px; color:var(--text-muted); font-size:10px; letter-spacing:.08em; }
 .tracker-subscription-title b { min-width:19px; padding:2px 6px; border-radius:999px; background:var(--accent-dim); color:var(--accent); text-align:center; }
 .tracker-subscription-heading-actions { display:flex; align-items:center; gap:6px; }
