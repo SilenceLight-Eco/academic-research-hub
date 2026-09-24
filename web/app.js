@@ -62,7 +62,7 @@
     referenceTrashOpen: false,
     referenceQuery: '',
     referenceTypeFilter: 'all',
-    journalTracker: { subscriptions: [], articles: [] },
+    journalTracker: { subscriptions: [], articles: [], refreshLogs: [] },
     journalTrackerLoaded: false,
     journalTrackerLoading: false,
     journalTrackerRefreshingAll: false,
@@ -5342,6 +5342,7 @@
     state.journalTracker = {
       subscriptions: Array.isArray(result && result.subscriptions) ? result.subscriptions : [],
       articles: Array.isArray(result && result.articles) ? result.articles : [],
+      refreshLogs: Array.isArray(result && result.refreshLogs) ? result.refreshLogs : [],
     };
     state.journalTrackerLoaded = true;
     renderJournalTracker();
@@ -5572,6 +5573,26 @@
     $('#trackerSubscriptionCount').textContent = subscriptions.length;
     var checks = subscriptions.map(function (item) { return item.last_checked_at; }).filter(Boolean).sort().reverse();
     $('#trackerLastCheck').textContent = checks.length ? trackerDateLabel(checks[0], true) : '尚未检查';
+    var refreshLogs = state.journalTracker.refreshLogs || [];
+    var failingSubscriptions = subscriptions.filter(function (item) { return item.enabled !== false && Boolean(item.last_error); });
+    var runHistory = $('#trackerRunHistory');
+    runHistory.hidden = !refreshLogs.length && !failingSubscriptions.length;
+    if (!runHistory.hidden) {
+      var latestLog = refreshLogs[0];
+      var recentFailures = failingSubscriptions.slice(0, 4).map(function (item) {
+        return '<li><b>' + escapeHtml(item.journal_title || item.issn) + '</b><span title="' + escapeHtml(item.last_error || '') + '">' + escapeHtml(item.last_error || '抓取失败') + '</span></li>';
+      }).join('');
+      var sourceLabels = { scheduled: '后台定时', automatic: '自动检查', manual: '手动检查', category: '分类检查', retry: '失败重试' };
+      var logRows = refreshLogs.slice(0, 8).map(function (log) {
+        var journal = subscriptionById[String(log.subscription_id)] || {};
+        var logTitle = journal.journal_title || journal.issn || '已移除的期刊';
+        var outcome = log.ok ? (log.error ? '完成·有提示' : '成功') : '失败';
+        var outcomeClass = log.ok ? (log.error ? 'is-warning' : 'is-success') : 'is-error';
+        var detail = log.error ? '<small title="' + escapeHtml(log.error) + '">' + escapeHtml(log.error) + '</small>' : '';
+        return '<li><time>' + escapeHtml(trackerDateLabel(log.checked_at, true)) + '</time><span class="tracker-run-log-title" title="' + escapeHtml(logTitle) + '">' + escapeHtml(logTitle) + '</span><span class="tracker-run-source">' + escapeHtml(sourceLabels[log.source] || '检查') + '</span><b class="' + outcomeClass + '">' + outcome + '</b><span class="tracker-run-count">+' + Number(log.article_count || 0) + ' 篇</span>' + detail + '</li>';
+      }).join('');
+      runHistory.innerHTML = '<div class="tracker-run-banner' + (failingSubscriptions.length ? ' has-failures' : '') + '"><div class="tracker-run-banner-title"><span class="tracker-run-indicator"></span><div><b>' + (failingSubscriptions.length ? '后台更新需要关注' : '后台更新运行正常') + '</b><span>' + (failingSubscriptions.length ? failingSubscriptions.length + ' 本期刊存在抓取问题，将按退避间隔自动重试。' : latestLog ? '最近检查：' + escapeHtml(trackerDateLabel(latestLog.checked_at, true)) + '；关闭网页后仍会定时检查。' : '关闭网页后仍会定时检查。') + '</span></div></div>' + (recentFailures ? '<ul class="tracker-run-failures">' + recentFailures + '</ul>' : '') + (logRows ? '<details class="tracker-run-details"><summary>最近检查记录（' + refreshLogs.length + '）</summary><ol>' + logRows + '</ol></details>' : '') + '</div>';
+    }
     var unreadCount = articles.filter(function (article) { return article.is_read !== true; }).length;
     var unreadLabel = $('#trackerUnreadCount');
     if (unreadLabel) { unreadLabel.textContent = unreadCount + ' 篇未读'; unreadLabel.hidden = unreadCount === 0; }

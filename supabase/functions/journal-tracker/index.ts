@@ -41,6 +41,7 @@ type Subscription = {
 };
 
 type CrossrefWork = Record<string, unknown>;
+type RefreshResult = { id: string; ok: boolean; processed?: number; error?: string; warning?: string; checked_at?: string };
 
 function serviceHeaders(extra: Record<string, string> = {}) {
   return {
@@ -581,11 +582,43 @@ async function purgeExpiredReadArticles(userId?: string) {
   return Array.isArray(removed) ? removed.length : 0;
 }
 
+async function purgeExpiredRefreshLogs() {
+  const cutoff = new Date(Date.now() - 30 * 86400_000).toISOString();
+  await rest(`journal_tracker_refresh_logs?checked_at=lt.${encodeURIComponent(cutoff)}`, {
+    method: "DELETE",
+    headers: { Prefer: "return=minimal" },
+  });
+}
+
+async function recordRefreshLogs(subscriptions: Subscription[], results: RefreshResult[], source: string) {
+  const byId = new Map(subscriptions.map((subscription) => [subscription.id, subscription]));
+  const rows = results.flatMap((result) => {
+    const subscription = byId.get(result.id);
+    if (!subscription || !result.checked_at) return [];
+    return [{
+      user_id: subscription.user_id,
+      subscription_id: subscription.id,
+      checked_at: result.checked_at,
+      source,
+      ok: result.ok,
+      article_count: Math.max(0, Number(result.processed) || 0),
+      error: result.error || result.warning || null,
+    }];
+  });
+  if (!rows.length) return;
+  await rest("journal_tracker_refresh_logs", {
+    method: "POST",
+    headers: { Prefer: "return=minimal" },
+    body: JSON.stringify(rows),
+  });
+}
+
 async function listForUser(userId: string) {
   await purgeExpiredReadArticles(userId);
   const subscriptions = await listSubscriptions(userId);
   const articles = await rest(`journal_articles?user_id=eq.${encodeURIComponent(userId)}&select=*&order=publication_date.desc.nullslast,discovered_at.desc&limit=300`);
-  return { subscriptions, articles: Array.isArray(articles) ? articles : [] };
+  const logs = await rest(`journal_tracker_refresh_logs?user_id=eq.${encodeURIComponent(userId)}&select=*&order=checked_at.desc&limit=20`);
+  return { subscriptions, articles: Array.isArray(articles) ? articles : [], refreshLogs: Array.isArray(logs) ? logs : [] };
 }
 
 async function refreshSubscription(subscription: Subscription) {
@@ -718,7 +751,7 @@ async function refreshSubscription(subscription: Subscription) {
       headers: { Prefer: "return=minimal" },
       body: JSON.stringify({ last_checked_at: startedAt.toISOString(), last_success_at: startedAt.toISOString(), last_error: fallbackNotice || null, updated_at: startedAt.toISOString() }),
     });
-    return { id: subscription.id, ok: true, processed: rows.length, warning: fallbackNotice || undefined };
+    return { id: subscription.id, ok: true, processed: rows.length, warning: fallbackNotice || undefined, checked_at: startedAt.toISOString() };
   } catch (error) {
     const message = error instanceof Error ? error.message : "抓取失败";
     await rest(`journal_subscriptions?id=eq.${encodeURIComponent(subscription.id)}`, {
@@ -726,7 +759,7 @@ async function refreshSubscription(subscription: Subscription) {
       headers: { Prefer: "return=minimal" },
       body: JSON.stringify({ last_checked_at: startedAt.toISOString(), last_error: message.slice(0, 500), updated_at: startedAt.toISOString() }),
     }).catch(() => null);
-    return { id: subscription.id, ok: false, error: message };
+    return { id: subscription.id, ok: false, error: message, checked_at: startedAt.toISOString() };
   }
 }
 
@@ -863,9 +896,11 @@ Deno.serve(async (request: Request) => {
       const configured = Deno.env.get("JOURNAL_TRACKER_CRON_SECRET") || "";
       if (!configured || request.headers.get("x-cron-secret") !== configured) return json(request, { ok: false, error: "定时任务凭证无效" }, 401);
       const cleaned = await purgeExpiredReadArticles();
+      await purgeExpiredRefreshLogs();
       const subscriptions = (await listSubscriptions()).filter((item) => subscriptionRefreshDue(item)).slice(0, 100);
-      const results = [];
+      const results: RefreshResult[] = [];
       for (const subscription of subscriptions) results.push(await refreshSubscription(subscription));
+      await recordRefreshLogs(subscriptions, results, "scheduled");
       return json(request, { ok: true, checked: results.length, cleanedReadArticles: cleaned, results });
     }
 
@@ -1089,8 +1124,9 @@ Deno.serve(async (request: Request) => {
         item.enabled && ((String(item.category || "").trim() || "未分类") === category)
       );
       if (!subscriptions.length) return json(request, { ok: false, error: "该分类没有启用中的期刊" }, 404);
-      const results = [];
+      const results: RefreshResult[] = [];
       for (const subscription of subscriptions) results.push(await refreshSubscription(subscription));
+      await recordRefreshLogs(subscriptions, results, "category");
       return json(request, { ok: true, category, results, ...(await listForUser(userId)) });
     }
     if (action === "retry-failed") {
@@ -1105,21 +1141,24 @@ Deno.serve(async (request: Request) => {
         (!journalId || item.id === journalId) &&
         (category === "all" || ((String(item.category || "").trim() || "未分类") === category))
       );
-      const results = [];
+      const results: RefreshResult[] = [];
       for (const subscription of subscriptions) results.push(await refreshSubscription(subscription));
+      await recordRefreshLogs(subscriptions, results, "retry");
       return json(request, { ok: true, category, journalId: journalId || null, results, ...(await listForUser(userId)) });
     }
     if (action === "refresh-due") {
       const subscriptions = (await listSubscriptions(userId)).filter((item) => subscriptionRefreshDue(item)).slice(0, 100);
-      const results = [];
+      const results: RefreshResult[] = [];
       for (const subscription of subscriptions) results.push(await refreshSubscription(subscription));
+      await recordRefreshLogs(subscriptions, results, "automatic");
       return json(request, { ok: true, results, ...(await listForUser(userId)) });
     }
     if (action === "refresh") {
       const requestedId = String(body.id || "");
       const subscriptions = (await listSubscriptions(userId)).filter((item) => item.enabled && (!requestedId || item.id === requestedId));
-      const results = [];
+      const results: RefreshResult[] = [];
       for (const subscription of subscriptions) results.push(await refreshSubscription(subscription));
+      await recordRefreshLogs(subscriptions, results, "manual");
       return json(request, { ok: true, results, ...(await listForUser(userId)) });
     }
     return json(request, { ok: true, ...(await listForUser(userId)) });
