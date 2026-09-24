@@ -74,7 +74,7 @@
     trackerPublicationRange: 'all',
     trackerPublicationFrom: '',
     trackerPublicationTo: '',
-    trackerAddCategory: '__default__',
+    trackerAddCategory: '',
     journalTrackerReadFilter: 'all',
     trackerCollapsedGroups: { unread: false, read: true },
     trackerArticlePages: { unread: 1, read: 1 },
@@ -220,7 +220,7 @@
       saveTrackerCategoryOrder();
       delete state.trackerCategoryColors[action.category];
       saveTrackerCategoryColors();
-      if (state.trackerAddCategory === action.category) state.trackerAddCategory = '__default__';
+      if (state.trackerAddCategory === action.category) state.trackerAddCategory = '';
       if (state.trackerJournalCategoryFilter === action.category) state.trackerJournalCategoryFilter = 'all';
       delete state.trackerJournalCategoryCollapsed[action.category];
       try { localStorage.setItem('academic-workbench-journal-categories-collapsed-v1', JSON.stringify(state.trackerJournalCategoryCollapsed)); } catch (_) {}
@@ -5850,10 +5850,10 @@
     $('#trackerRefresh').disabled = trackerRefreshBusy;
     $('#trackerRefresh').textContent = state.journalTrackerRefreshingAll ? '正在检查…' : '立即检查更新';
     var addCategorySelect = $('#trackerAddCategory');
-    var addCategoryValue = state.trackerAddCategory === undefined ? '__default__' : state.trackerAddCategory;
+    var addCategoryValue = state.trackerAddCategory === undefined ? '' : state.trackerAddCategory;
     var addCategoryOptions = journalCategories.filter(function (category) { return category !== '未分类'; });
     if (addCategoryValue && addCategoryValue !== '__default__' && addCategoryOptions.indexOf(addCategoryValue) < 0) addCategoryOptions.push(addCategoryValue);
-    addCategorySelect.innerHTML = '<option value="__default__">不指定：新期刊归入未分类，已有订阅保持原分类</option><option value="">未分类（显式指定）</option>' + addCategoryOptions.sort(function (left, right) { return left.localeCompare(right, 'zh-CN'); }).map(function (category) {
+    addCategorySelect.innerHTML = '<option value="">未分类</option>' + addCategoryOptions.sort(function (left, right) { return left.localeCompare(right, 'zh-CN'); }).map(function (category) {
       return '<option value="' + escapeHtml(category) + '">' + escapeHtml(category) + '</option>';
     }).join('') + '<option value="__new_category__">＋新建分类…</option>';
     addCategorySelect.value = addCategoryValue;
@@ -6034,8 +6034,8 @@
       $('#trackerJournalQuery').value = '';
       $('#trackerJournalIssn').value = '';
       $('#trackerFeedUrl').value = '';
-      state.trackerAddCategory = '__default__';
-      $('#trackerAddCategory').value = '__default__';
+      state.trackerAddCategory = '';
+      $('#trackerAddCategory').value = '';
       setTrackerStatus(result.warning ? '订阅已保存，但首次检查未找到文章：' + result.warning : '', false);
       toast(result.warning ? '订阅已保存；可为该期刊补充官网 RSS' : '期刊已加入追踪，正在按设置自动更新');
     }).catch(function (error) {
@@ -6062,8 +6062,8 @@
       $('#trackerJournalQuery').value = '';
       $('#trackerJournalIssn').value = '';
       $('#trackerFeedUrl').value = '';
-      state.trackerAddCategory = '__default__';
-      $('#trackerAddCategory').value = '__default__';
+      state.trackerAddCategory = '';
+      $('#trackerAddCategory').value = '';
       setTrackerStatus(result.warning ? '订阅已保存，但首次检查未找到文章：' + result.warning : '', false);
       toast(result.warning ? '订阅已保存；可为该期刊补充官网 RSS' : '期刊已加入每日追踪');
     }).catch(function (error) {
@@ -6548,11 +6548,11 @@
       var createdCategory = false;
       if (selectedCategory === '__new_category__') {
         var proposed = window.prompt('输入新的期刊分类名称（最多 60 个字符）：');
-        if (proposed === null) { state.trackerAddCategory = '__default__'; this.value = '__default__'; return; }
+        if (proposed === null) { state.trackerAddCategory = ''; this.value = ''; return; }
         selectedCategory = cleanTrackerCategoryName(proposed);
         if (!selectedCategory || selectedCategory === '未分类' || selectedCategory === '__default__' || selectedCategory === '__new_category__') {
-          state.trackerAddCategory = '__default__';
-          this.value = '__default__';
+          state.trackerAddCategory = '';
+          this.value = '';
           toast('请输入有效的分类名称');
           return;
         }
