@@ -6662,10 +6662,16 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .tracker-journal-category-toggle { display:flex; align-items:center; gap:8px; width:100%; padding:7px 8px; border:1px solid var(--hairline-soft); border-radius:7px; background:var(--glass); color:var(--text-secondary); cursor:pointer; text-align:left; font:600 11px "Noto Sans SC",sans-serif; }
 .tracker-journal-category-toggle:hover { border-color:var(--hairline); background:var(--glass-strong); }
 .tracker-journal-category-heading>.tracker-journal-category-toggle { flex:1; min-width:0; }
+.tracker-category-drag-handle { flex:0 0 24px; width:24px; height:29px; padding:0; border:1px solid var(--hairline-soft); border-radius:7px; background:var(--glass); color:var(--text-muted); cursor:grab; font:16px/1 sans-serif; touch-action:none; }
+.tracker-category-drag-handle:hover { border-color:var(--accent); color:var(--accent); }
+.tracker-category-drag-handle:active { cursor:grabbing; }
+.tracker-journal-category.is-dragging { opacity:.42; }
+.tracker-journal-category.is-drop-target>.tracker-journal-category-heading>.tracker-journal-category-toggle { border-color:var(--accent); background:var(--accent-dim); }
 .tracker-journal-category-actions { display:flex; gap:3px; }
 .tracker-journal-category-actions button { padding:5px 6px; border:1px solid var(--hairline-soft); border-radius:6px; background:var(--glass); color:var(--text-muted); font:9px "Noto Sans SC",sans-serif; cursor:pointer; white-space:nowrap; }
+.tracker-journal-category-actions button:disabled { opacity:.4; cursor:not-allowed; }
 .tracker-journal-category-actions button:hover { border-color:var(--accent); color:var(--accent); }
-.tracker-journal-category-actions button:last-child:hover { border-color:#c66; color:#b44; }
+.tracker-journal-category-actions button[data-tracker-category-delete]:hover { border-color:#c66; color:#b44; }
 .tracker-journal-category-toggle b { min-width:18px; margin-left:auto; padding:2px 6px; border-radius:99px; background:var(--accent-dim); color:var(--accent); text-align:center; font:600 9px var(--font-mono); }
 .tracker-journal-category-items { padding-top:4px; }
 .tracker-category-empty { margin:3px 0; padding:9px 10px; border:1px dashed var(--hairline-soft); border-radius:7px; color:var(--text-muted); font-size:10px; line-height:1.5; }

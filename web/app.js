@@ -81,6 +81,7 @@
     trackerArticleSorts: { unread: 'newest', read: 'newest' },
     trackerJournalCategoryCollapsed: {},
     trackerCustomCategories: [],
+    trackerCategoryOrder: [],
     trackerCategoryManageMode: false,
     trackerSelectedJournalIds: {},
   };
@@ -88,6 +89,7 @@
   try { state.trackerJournalCategoryCollapsed = JSON.parse(localStorage.getItem('academic-workbench-journal-categories-collapsed-v1') || '{}'); } catch (_) {}
   var trackerDisplayPreferencesKey = 'academic-workbench-tracker-display-v1';
   var trackerCategoryCatalogKey = 'academic-workbench-journal-categories-v1';
+  var trackerCategoryOrderKey = 'academic-workbench-journal-category-order-v1';
   function restoreTrackerCategoryCatalog() {
     try {
       var saved = JSON.parse(localStorage.getItem(trackerCategoryCatalogKey) || '[]');
@@ -102,16 +104,70 @@
     var name = cleanTrackerCategoryName(category);
     if (!name || name === '未分类' || name === '__default__' || name === '__new_category__') return;
     if ((state.trackerCustomCategories || []).indexOf(name) < 0) {
+      var currentOrder = orderedTrackerCategoryNames(trackerCategoryNames());
       state.trackerCustomCategories.push(name);
+      state.trackerCategoryOrder = currentOrder.concat(name);
       saveTrackerCategoryCatalog();
+      saveTrackerCategoryOrder();
     }
+  }
+  function trackerCategoryNames() {
+    var subscriptions = state.journalTracker && Array.isArray(state.journalTracker.subscriptions) ? state.journalTracker.subscriptions : [];
+    return Array.from(new Set(subscriptions.map(function (item) { return String(item.category || '').trim() || '未分类'; }).concat(state.trackerCustomCategories || [])));
+  }
+  function orderedTrackerCategoryNames(names) {
+    var uniqueNames = Array.from(new Set(names || []));
+    var saved = (state.trackerCategoryOrder || []).filter(function (name) { return uniqueNames.indexOf(name) >= 0; });
+    var remaining = uniqueNames.filter(function (name) { return saved.indexOf(name) < 0; }).sort(function (left, right) {
+      if (left === '未分类') return -1;
+      if (right === '未分类') return 1;
+      return left.localeCompare(right, 'zh-CN');
+    });
+    return saved.concat(remaining);
+  }
+  function restoreTrackerCategoryOrder() {
+    try {
+      var saved = JSON.parse(localStorage.getItem(trackerCategoryOrderKey) || '[]');
+      state.trackerCategoryOrder = Array.isArray(saved) ? Array.from(new Set(saved.map(cleanTrackerCategoryName).filter(Boolean))) : [];
+    } catch (_) { state.trackerCategoryOrder = []; }
+  }
+  function saveTrackerCategoryOrder() {
+    state.trackerCategoryOrder = Array.from(new Set((state.trackerCategoryOrder || []).map(cleanTrackerCategoryName).filter(Boolean)));
+    try { localStorage.setItem(trackerCategoryOrderKey, JSON.stringify(state.trackerCategoryOrder)); } catch (_) {}
+  }
+  function moveTrackerCategory(category, delta) {
+    var order = orderedTrackerCategoryNames(trackerCategoryNames());
+    var from = order.indexOf(category);
+    var to = from + Number(delta || 0);
+    if (from < 0 || to < 0 || to >= order.length || from === to) return;
+    order.splice(from, 1);
+    order.splice(to, 0, category);
+    state.trackerCategoryOrder = order;
+    saveTrackerCategoryOrder();
+    renderJournalTracker();
+  }
+  function dropTrackerCategoryBefore(source, target, after) {
+    var order = orderedTrackerCategoryNames(trackerCategoryNames());
+    var from = order.indexOf(source);
+    var targetIndex = order.indexOf(target);
+    if (from < 0 || targetIndex < 0 || source === target) return;
+    order.splice(from, 1);
+    if (from < targetIndex) targetIndex -= 1;
+    var insertionIndex = Math.max(0, Math.min(order.length, targetIndex + (after ? 1 : 0)));
+    order.splice(insertionIndex, 0, source);
+    state.trackerCategoryOrder = order;
+    saveTrackerCategoryOrder();
+    renderJournalTracker();
   }
   function updateTrackerCategoryCatalog(action) {
     if (!action) return;
     if (action.action === 'rename-category') {
+      var previousOrder = orderedTrackerCategoryNames(trackerCategoryNames());
       state.trackerCustomCategories = (state.trackerCustomCategories || []).filter(function (name) { return name !== action.from; });
       if (action.to && action.to !== '未分类') state.trackerCustomCategories.push(action.to);
       saveTrackerCategoryCatalog();
+      state.trackerCategoryOrder = Array.from(new Set(previousOrder.map(function (name) { return name === action.from ? action.to : name; })));
+      saveTrackerCategoryOrder();
       if (state.trackerAddCategory === action.from) state.trackerAddCategory = action.to;
       if (state.trackerJournalCategoryFilter === action.from) state.trackerJournalCategoryFilter = action.to;
       if (Object.prototype.hasOwnProperty.call(state.trackerJournalCategoryCollapsed, action.from)) {
@@ -121,8 +177,11 @@
       }
       saveTrackerDisplayPreferences();
     } else if (action.action === 'delete-category') {
+      var previousOrder = orderedTrackerCategoryNames(trackerCategoryNames());
       state.trackerCustomCategories = (state.trackerCustomCategories || []).filter(function (name) { return name !== action.category; });
       saveTrackerCategoryCatalog();
+      state.trackerCategoryOrder = previousOrder.filter(function (name) { return name !== action.category; });
+      saveTrackerCategoryOrder();
       if (state.trackerAddCategory === action.category) state.trackerAddCategory = '__default__';
       if (state.trackerJournalCategoryFilter === action.category) state.trackerJournalCategoryFilter = 'all';
       delete state.trackerJournalCategoryCollapsed[action.category];
@@ -133,6 +192,7 @@
     }
   }
   restoreTrackerCategoryCatalog();
+  restoreTrackerCategoryOrder();
   function restoreTrackerDisplayPreferences() {
     try {
       var saved = JSON.parse(localStorage.getItem(trackerDisplayPreferencesKey) || '{}');
@@ -278,7 +338,7 @@
   var registering = false;
   var syncTimer = null;
   var academicEditorKind = '';
-  var researchHubKeys = ['research-hub-crossref-email', 'research-hub-crossref-citations-v1', 'research-hub-stages-v1', 'research-hub-fields-v1', 'research-hub-cards-v1', 'research-hub-theme', 'research-hub-unassigned-data-code-v1', 'academic-workbench-tracker-display-v1', 'academic-workbench-journal-categories-v1'];
+  var researchHubKeys = ['research-hub-crossref-email', 'research-hub-crossref-citations-v1', 'research-hub-stages-v1', 'research-hub-fields-v1', 'research-hub-cards-v1', 'research-hub-theme', 'research-hub-unassigned-data-code-v1', 'academic-workbench-tracker-display-v1', 'academic-workbench-journal-categories-v1', 'academic-workbench-journal-category-order-v1'];
   var autoSaveSlots = {};
   var autoSaveChain = Promise.resolve();
   var autoSaveRunning = 0;
@@ -442,12 +502,13 @@
     var changed = false;
     var trackerPreferencesChanged = false;
     var trackerCategoriesChanged = false;
+    var trackerCategoryOrderChanged = false;
     Object.keys(values || {}).forEach(function (key) {
       if (researchHubKeys.indexOf(key) < 0) return;
       var current = localStorage.getItem(key);
       var next = values[key];
       if (next === null || next === undefined) {
-        if ((key === trackerDisplayPreferencesKey || key === trackerCategoryCatalogKey) && current !== null) return;
+        if ((key === trackerDisplayPreferencesKey || key === trackerCategoryCatalogKey || key === trackerCategoryOrderKey) && current !== null) return;
         if (current !== null) { localStorage.removeItem(key); changed = true; }
       } else if (current !== String(next)) {
         localStorage.setItem(key, next);
@@ -455,6 +516,7 @@
       }
       if (key === trackerDisplayPreferencesKey && next != null) trackerPreferencesChanged = true;
       if (key === trackerCategoryCatalogKey && next != null) trackerCategoriesChanged = true;
+      if (key === trackerCategoryOrderKey && next != null) trackerCategoryOrderChanged = true;
     });
     if (trackerPreferencesChanged) {
       restoreTrackerDisplayPreferences();
@@ -462,6 +524,10 @@
     }
     if (trackerCategoriesChanged) {
       restoreTrackerCategoryCatalog();
+      if (state.journalTrackerLoaded) renderJournalTracker();
+    }
+    if (trackerCategoryOrderChanged) {
+      restoreTrackerCategoryOrder();
       if (state.journalTrackerLoaded) renderJournalTracker();
     }
     var frame = $('.research-hub-frame');
@@ -5706,8 +5772,7 @@
     if (unreadLabel) { unreadLabel.textContent = unreadCount + ' 篇未读'; unreadLabel.hidden = unreadCount === 0; }
     var markAllReadButton = $('#trackerMarkAllRead');
 
-    var journalCategories = Array.from(new Set(subscriptions.map(function (item) { return String(item.category || '').trim() || '未分类'; }).concat(state.trackerCustomCategories || [])))
-      .sort(function (left, right) { if (left === '未分类') return -1; if (right === '未分类') return 1; return left.localeCompare(right, 'zh-CN'); });
+    var journalCategories = orderedTrackerCategoryNames(Array.from(new Set(subscriptions.map(function (item) { return String(item.category || '').trim() || '未分类'; }).concat(state.trackerCustomCategories || []))));
     var categoryRefreshButton = $('#trackerRefreshCategory');
     var refreshCategory = state.trackerJournalCategoryFilter;
     var refreshSubscriptions = subscriptions.filter(function (item) { return (String(item.category || '').trim() || '未分类') === refreshCategory && item.enabled !== false; });
@@ -5772,11 +5837,13 @@
         '<div class="tracker-feed-config"><input type="url" data-tracker-feed-input="' + escapeHtml(item.id) + '" value="' + escapeHtml(item.feed_url || '') + '" placeholder="官网 RSS / Atom 地址" aria-label="' + escapeHtml(item.journal_title || item.issn) + ' RSS 地址"><button type="button" data-tracker-feed-save="' + escapeHtml(item.id) + '">保存 RSS</button></div>' +
         '<button type="button" data-tracker-remove="' + escapeHtml(item.id) + '" title="停止追踪" aria-label="停止追踪 ' + escapeHtml(item.journal_title || item.issn) + '">×</button></div>';
     }
-    $('#trackerSubscriptions').innerHTML = '<div class="tracker-category-toolbar">' + (state.trackerCategoryManageMode ? '勾选期刊后可批量移动；分类名称可重命名或删除。' : '可按分类整理和折叠追踪期刊。') + '</div>' + bulkTools + (journalCategories.length ? journalCategories.map(function (category) {
+    $('#trackerSubscriptions').innerHTML = '<div class="tracker-category-toolbar">' + (state.trackerCategoryManageMode ? '勾选期刊后可批量移动；使用 ↑↓ 排序，或重命名、删除分类。' : '拖动分类左侧把手排序；可按分类整理和折叠期刊。') + '</div>' + bulkTools + (journalCategories.length ? journalCategories.map(function (category) {
       var grouped = subscriptions.filter(function (item) { return (String(item.category || '').trim() || '未分类') === category; });
       var isCollapsed = Boolean(state.trackerJournalCategoryCollapsed[category]);
-      var categoryActions = state.trackerCategoryManageMode && category !== '未分类' ? '<div class="tracker-journal-category-actions"><button type="button" data-tracker-category-rename="' + escapeHtml(category) + '">重命名</button><button type="button" data-tracker-category-delete="' + escapeHtml(category) + '">删除</button></div>' : '';
-      return '<section class="tracker-journal-category"><div class="tracker-journal-category-heading"><button type="button" class="tracker-journal-category-toggle" data-tracker-category-toggle="' + escapeHtml(category) + '" aria-expanded="' + !isCollapsed + '"><span>' + escapeHtml(category) + '</span><b>' + grouped.length + '</b><span aria-hidden="true">' + (isCollapsed ? '▸' : '▾') + '</span></button>' + categoryActions + '</div><div class="tracker-journal-category-items"' + (isCollapsed ? ' hidden' : '') + '>' + (grouped.length ? grouped.map(renderTrackerSubscription).join('') : '<div class="tracker-category-empty">此分类暂无期刊；添加期刊时可选择此分类。</div>') + '</div></section>';
+      var categoryIndex = journalCategories.indexOf(category);
+      var categoryActions = state.trackerCategoryManageMode ? '<div class="tracker-journal-category-actions"><button type="button" data-tracker-category-move="-1" data-tracker-category-name="' + escapeHtml(category) + '" aria-label="上移分类 ' + escapeHtml(category) + '" title="上移"' + (categoryIndex <= 0 ? ' disabled' : '') + '>↑</button><button type="button" data-tracker-category-move="1" data-tracker-category-name="' + escapeHtml(category) + '" aria-label="下移分类 ' + escapeHtml(category) + '" title="下移"' + (categoryIndex >= journalCategories.length - 1 ? ' disabled' : '') + '>↓</button>' + (category !== '未分类' ? '<button type="button" data-tracker-category-rename="' + escapeHtml(category) + '">重命名</button><button type="button" data-tracker-category-delete="' + escapeHtml(category) + '">删除</button>' : '') + '</div>' : '';
+      var dragHandle = journalCategories.length > 1 ? '<button type="button" class="tracker-category-drag-handle" draggable="true" data-tracker-category-drag="' + escapeHtml(category) + '" aria-label="拖动排序：' + escapeHtml(category) + '" title="拖动调整分类顺序">⠿</button>' : '';
+      return '<section class="tracker-journal-category" data-tracker-category-name="' + escapeHtml(category) + '"><div class="tracker-journal-category-heading">' + dragHandle + '<button type="button" class="tracker-journal-category-toggle" data-tracker-category-toggle="' + escapeHtml(category) + '" aria-expanded="' + !isCollapsed + '"><span>' + escapeHtml(category) + '</span><b>' + grouped.length + '</b><span aria-hidden="true">' + (isCollapsed ? '▸' : '▾') + '</span></button>' + categoryActions + '</div><div class="tracker-journal-category-items"' + (isCollapsed ? ' hidden' : '') + '>' + (grouped.length ? grouped.map(renderTrackerSubscription).join('') : '<div class="tracker-category-empty">此分类暂无期刊；添加期刊时可选择此分类。</div>') + '</div></section>';
     }).join('') : '<div class="tracker-empty"><b>还没有追踪期刊</b><span>输入期刊名称搜索；添加后可在每本期刊下选择或新建分类。</span></div>');
 
     var select = $('#trackerJournalFilter');
@@ -6344,12 +6411,44 @@
     $('#trackerSearchResults').addEventListener('click', function (event) { if (event.target.closest('[data-tracker-add-title]')) { addTrackerJournalDirect(); return; } var button = event.target.closest('[data-tracker-add]'); if (button) addTrackerJournal(button.dataset.trackerAdd, button); });
     $('#trackerCategoryManageToggle').addEventListener('click', function () { state.trackerCategoryManageMode = !state.trackerCategoryManageMode; if (!state.trackerCategoryManageMode) state.trackerSelectedJournalIds = {}; renderJournalTracker(); });
     $('#trackerSubscriptions').addEventListener('click', function (event) {
+      var moveButton = event.target.closest('[data-tracker-category-move]');
+      if (moveButton) { moveTrackerCategory(moveButton.dataset.trackerCategoryName, Number(moveButton.dataset.trackerCategoryMove)); return; }
       var renameButton = event.target.closest('[data-tracker-category-rename]');
       if (renameButton) { renameTrackerCategory(renameButton.dataset.trackerCategoryRename); return; }
       var deleteButton = event.target.closest('[data-tracker-category-delete]');
       if (deleteButton) { deleteTrackerCategory(deleteButton.dataset.trackerCategoryDelete); return; }
       if (event.target.closest('[data-tracker-bulk-apply]')) { applyTrackerBulkCategory(); return; }
       if (event.target.closest('[data-tracker-bulk-clear]')) { state.trackerSelectedJournalIds = {}; renderJournalTracker(); }
+    });
+    $('#trackerSubscriptions').addEventListener('dragstart', function (event) {
+      var handle = event.target.closest('[data-tracker-category-drag]');
+      if (!handle || !event.dataTransfer) return;
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', handle.dataset.trackerCategoryDrag);
+      var section = handle.closest('[data-tracker-category-name]');
+      if (section) section.classList.add('is-dragging');
+    });
+    $('#trackerSubscriptions').addEventListener('dragover', function (event) {
+      var section = event.target.closest('[data-tracker-category-name]');
+      if (!section) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+      section.classList.add('is-drop-target');
+    });
+    $('#trackerSubscriptions').addEventListener('dragleave', function (event) {
+      var section = event.target.closest('[data-tracker-category-name]');
+      if (section && !section.contains(event.relatedTarget)) section.classList.remove('is-drop-target');
+    });
+    $('#trackerSubscriptions').addEventListener('drop', function (event) {
+      var section = event.target.closest('[data-tracker-category-name]');
+      if (!section || !event.dataTransfer) return;
+      event.preventDefault();
+      var source = event.dataTransfer.getData('text/plain');
+      var bounds = section.getBoundingClientRect();
+      dropTrackerCategoryBefore(source, section.dataset.trackerCategoryName, event.clientY > bounds.top + bounds.height / 2);
+    });
+    $('#trackerSubscriptions').addEventListener('dragend', function () {
+      $$('.tracker-journal-category.is-dragging, .tracker-journal-category.is-drop-target').forEach(function (section) { section.classList.remove('is-dragging', 'is-drop-target'); });
     });
     $('#trackerSubscriptions').addEventListener('change', function (event) {
       var checkbox = event.target.closest('[data-tracker-bulk-select]');
