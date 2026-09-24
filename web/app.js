@@ -5698,7 +5698,17 @@
     var category = cleanTrackerCategoryName(subscription && subscription.category) || '未分类';
     var color = state.trackerCategoryColors[category];
     if (!color) return '';
-    return '<span class="tracker-article-category" style="--tracker-category-color:' + color + '"><i aria-hidden="true"></i>' + escapeHtml(category) + '</span>';
+    return '<button type="button" class="tracker-article-category" data-tracker-category-filter="' + escapeHtml(category) + '" title="按分类筛选：' + escapeHtml(category) + '"><i aria-hidden="true"></i>' + escapeHtml(category) + '</button>';
+  }
+  function filterTrackerArticlesByCategory(category) {
+    state.trackerJournalCategoryFilter = cleanTrackerCategoryName(category) || '未分类';
+    state.journalTrackerFilter = 'all';
+    state.trackerArticlePages = { unread: 1, read: 1 };
+    saveTrackerDisplayPreferences();
+    if (trackerArticleDetailId) closeTrackerArticleDetail();
+    renderJournalTracker();
+    var articleList = $('#trackerArticles');
+    if (articleList) articleList.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
   function renderTrackerArticleDetail() {
     var detail = $('#trackerArticleDetail');
@@ -6565,6 +6575,8 @@
       } else this.value = selectedCategory;
     });
     $('#trackerArticles').addEventListener('click', function (event) {
+      var categoryButton = event.target.closest('[data-tracker-category-filter]');
+      if (categoryButton) { filterTrackerArticlesByCategory(categoryButton.dataset.trackerCategoryFilter); return; }
       var jumpButton = event.target.closest('[data-tracker-page-jump]');
       if (jumpButton) {
         var jumpGroup = jumpButton.dataset.trackerPageJump;
@@ -6618,7 +6630,14 @@
       renderJournalTracker();
     });
     $('#trackerArticles').addEventListener('keydown', function (event) { if (event.key !== 'Enter' || !event.target.closest('[data-tracker-page-input]')) return; event.preventDefault(); var pager = event.target.closest('.tracker-article-pager'); var jumpButton = pager && pager.querySelector('[data-tracker-page-jump]'); if (jumpButton) jumpButton.click(); });
-    $('#trackerArticleDetail').addEventListener('click', function (event) { if (event.target.closest('[data-tracker-back-to-list]')) { closeTrackerArticleDetail(); return; } var rankButton = event.target.closest('[data-tracker-journal-rank]'); if (rankButton) { queryTrackerJournalRank(rankButton.dataset.trackerJournalRank, rankButton); return; } handleTrackerArticleAction(event); });
+    $('#trackerArticleDetail').addEventListener('click', function (event) {
+      var categoryButton = event.target.closest('[data-tracker-category-filter]');
+      if (categoryButton) { filterTrackerArticlesByCategory(categoryButton.dataset.trackerCategoryFilter); return; }
+      if (event.target.closest('[data-tracker-back-to-list]')) { closeTrackerArticleDetail(); return; }
+      var rankButton = event.target.closest('[data-tracker-journal-rank]');
+      if (rankButton) { queryTrackerJournalRank(rankButton.dataset.trackerJournalRank, rankButton); return; }
+      handleTrackerArticleAction(event);
+    });
     $('#trackerEasyScholarSetup').addEventListener('click', openTrackerEasyScholarSettings);
     $('#trackerEasyScholarCancel').addEventListener('click', closeTrackerEasyScholarSettings);
     $('#trackerEasyScholarOverlay').addEventListener('click', function (event) { if (event.target === this) closeTrackerEasyScholarSettings(); });
