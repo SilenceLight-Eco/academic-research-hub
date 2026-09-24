@@ -588,10 +588,26 @@
     } }) }).catch(function () {}).then(function () { syncDataInFlight = false; });
   }
 
+  function pullCloudData() {
+    if (!account || document.hidden || syncDataInFlight || hasPendingAutoSave() || hasUnsavedChanges()) return Promise.resolve();
+    return Promise.all([apiWriteChain.catch(function () {}), autoSaveChain.catch(function () {})]).then(function () {
+      if (!account || document.hidden || hasPendingAutoSave() || hasUnsavedChanges()) return;
+      var writesAtReadStart = apiWriteChain;
+      return api('/api/sync').then(function (sync) {
+        if (!sync || !sync.data || !account || document.hidden || writesAtReadStart !== apiWriteChain || hasPendingAutoSave() || hasUnsavedChanges()) return;
+        applySyncData(sync.data);
+      });
+    }).catch(function () {});
+  }
+
+  function syncAndPullCloudData() {
+    return syncData().then(pullCloudData);
+  }
+
   function applySyncData(data) {
     if (!data) return;
-    if (Array.isArray(data.todos)) { state.todos = data.todos; renderTodos(); renderDashboardTodos(); updateTodoBadge(); }
-    if (Array.isArray(data.journal)) { state.journal = data.journal; renderJournal(); renderDashboardJournal(); }
+    if (Array.isArray(data.todos) && JSON.stringify(data.todos) !== JSON.stringify(state.todos)) { state.todos = data.todos; renderTodos(); renderDashboardTodos(); updateTodoBadge(); }
+    if (Array.isArray(data.journal) && JSON.stringify(data.journal) !== JSON.stringify(state.journal)) { state.journal = data.journal; renderJournal(); renderDashboardJournal(); }
     applyResearchHubSnapshot(data.researchHub);
   }
 
@@ -603,7 +619,7 @@
     if (menuEmail) menuEmail.textContent = account ? account.email : '';
     if (!account && $('#accountMenu')) $('#accountMenu').hidden = true;
     if (syncTimer) clearInterval(syncTimer);
-    syncTimer = account ? setInterval(syncData, 60000) : null;
+    syncTimer = account ? setInterval(syncAndPullCloudData, 60000) : null;
   }
 
   function checkAccount() {
@@ -8859,7 +8875,7 @@
       // 专注计时用的是时间戳，回前台立刻校准一次（后台标签页会被降频，
       // 也可能在后台期间已经到点）
       if (!document.hidden && focusIsActive()) { focusTick(); focusRenderAll(); }
-      if (!document.hidden && account) syncData();
+      if (!document.hidden && account) syncAndPullCloudData();
     });
     // The static browser edition restores Supabase's persisted session first.
     // A noncritical data-loading error must never make the header look logged out.
