@@ -68,7 +68,6 @@
     journalTrackerRefreshingAll: false,
     journalTrackerRefreshingCategory: '',
     journalTrackerRetryingFailed: false,
-    journalTrackerAutoRefreshAt: 0,
     journalTrackerQuery: '',
     journalTrackerFilter: 'all',
     trackerJournalCategoryFilter: 'all',
@@ -86,9 +85,6 @@
   };
   try { state.trackerCollapsedGroups = Object.assign(state.trackerCollapsedGroups, JSON.parse(localStorage.getItem('academic-workbench-tracker-collapsed-v1') || '{}')); } catch (_) {}
   try { state.trackerJournalCategoryCollapsed = JSON.parse(localStorage.getItem('academic-workbench-journal-categories-collapsed-v1') || '{}'); } catch (_) {}
-  var journalTrackerAutoRefreshStorageKey = 'academic-workbench-journal-tracker-last-auto-refresh-v2';
-  try { state.journalTrackerAutoRefreshAt = Number(localStorage.getItem(journalTrackerAutoRefreshStorageKey)) || 0; } catch (_) {}
-
   const PANEL_TITLES = {
     'research-hub': '论文管线',
     'academic-records': '学术履历',
@@ -145,24 +141,27 @@
 
   var apiWriteChain = Promise.resolve();
   var activeWorkspaceConflict = null;
-  var cloudReloadScheduled = false;
+  var cloudRefreshScheduled = false;
   var pendingExitFlush = false;
   var exitFlushStarted = false;
 
-  function scheduleCloudWorkspaceReload() {
-    if (cloudReloadScheduled) return;
-    cloudReloadScheduled = true;
-    function reloadWhenSaved() {
+  function scheduleCloudWorkspaceRefresh() {
+    if (cloudRefreshScheduled) return;
+    cloudRefreshScheduled = true;
+    function refreshWhenSaved() {
       flushAllAutoSaves();
       Promise.all([apiWriteChain.catch(function () {}), autoSaveChain.catch(function () {})]).then(function () {
-        if (hasPendingAutoSave()) { setTimeout(reloadWhenSaved, 80); return; }
-        window.location.reload();
+        if (hasPendingAutoSave()) { setTimeout(refreshWhenSaved, 80); return; }
+        api('/api/sync').then(function (sync) {
+          if (sync && sync.data) applySyncData(sync.data);
+          if (state.panel === 'dashboard') return loadAll();
+        }).catch(function () {}).then(function () { cloudRefreshScheduled = false; });
       });
     }
-    setTimeout(reloadWhenSaved, 120);
+    setTimeout(refreshWhenSaved, 120);
   }
 
-  window.addEventListener('academic-workspace-auto-merged', scheduleCloudWorkspaceReload);
+  window.addEventListener('academic-workspace-auto-merged', scheduleCloudWorkspaceRefresh);
 
   function api(url, options) {
     function request() {
@@ -171,9 +170,9 @@
       return fetch(url, requestOptions)
         .then(function (r) { return r.json(); })
         .then(function (data) {
-          if (window.__academicCloudReloadRequired) {
-            window.__academicCloudReloadRequired = false;
-            scheduleCloudWorkspaceReload();
+          if (window.__academicCloudRefreshRequired) {
+            window.__academicCloudRefreshRequired = false;
+            scheduleCloudWorkspaceRefresh();
             return data;
           }
           if (data && data.workspaceConflict) showWorkspaceConflict(data.workspaceConflict);
@@ -843,7 +842,7 @@
     if (panel === 'prompt-library') loadPromptLibrary();
     if (panel === 'research-projects') loadResearchProjects();
     if (panel === 'references') loadReferenceLibrary();
-    if (panel === 'journal-tracker') loadJournalTracker();
+    if (panel === 'journal-tracker') loadJournalTracker(true);
     if (panel === 'focus') focusRenderAll();   // 专注面板：进度/统计/记录实时刷新
     refreshUnreadBadges();   // 进入即视为已读，红点立刻消
     positionNavInk(true);
@@ -5353,23 +5352,18 @@
     renderJournalTracker();
   }
 
-  function autoRefreshStaleJournalTracker() {
-    var subscriptions = state.journalTracker.subscriptions || [];
-    var now = Date.now();
-    var due = subscriptions.filter(function (item) { return isTrackerSubscriptionDue(item, now); });
-    if (!due.length || state.journalTrackerRefreshingAll || state.journalTrackerRefreshingCategory || state.journalTrackerRetryingFailed || now - state.journalTrackerAutoRefreshAt < 5 * 60 * 1000) return;
-    state.journalTrackerAutoRefreshAt = now;
-    try { localStorage.setItem(journalTrackerAutoRefreshStorageKey, String(now)); } catch (_) {}
-    setTrackerStatus('有 ' + due.length + ' 本期刊到达自动检查时间，正在更新…', false);
-    journalTrackerRequest({ action: 'refresh-due' }).then(function (result) {
+  function loadJournalTracker(force) {
+    if (state.journalTrackerLoading) return Promise.resolve();
+    if (state.journalTrackerLoaded && !force) { renderJournalTracker(); return Promise.resolve(); }
+    state.journalTrackerLoading = true;
+    setTrackerStatus('正在载入期刊订阅与最新文章…', false);
+    return journalTrackerRequest({ action: 'list' }).then(function (result) {
       applyJournalTrackerData(result);
-      var results = Array.isArray(result.results) ? result.results : [];
-      if (!results.length) { setTrackerStatus('', false); return; }
-      var failed = results.filter(function (item) { return !item.ok; }).length;
-      setTrackerStatus(failed ? failed + ' 本期刊暂时更新失败；系统会按退避间隔自动重试。' : '到期的期刊订阅已自动更新。', Boolean(failed));
+      setTrackerStatus('', false);
     }).catch(function (error) {
-      setTrackerStatus((error && error.message) || '期刊自动更新失败，请稍后手动重试。', true);
-    });
+      setTrackerStatus((error && error.message) || '文献追踪载入失败', true);
+      renderJournalTracker();
+    }).then(function () { state.journalTrackerLoading = false; });
   }
 
   function trackerRetryDelayMs(item, now) {
@@ -5381,27 +5375,6 @@
     if (failureAge < 6 * 60 * 60 * 1000) return 30 * 60 * 1000;
     if (failureAge < 24 * 60 * 60 * 1000) return 2 * 60 * 60 * 1000;
     return 6 * 60 * 60 * 1000;
-  }
-
-  function isTrackerSubscriptionDue(item, now) {
-    if (!item || item.enabled === false) return false;
-    var checkedAt = Date.parse(item.last_checked_at || '');
-    return !checkedAt || (now || Date.now()) - checkedAt >= trackerRetryDelayMs(item, now);
-  }
-
-  function loadJournalTracker(force) {
-    if (state.journalTrackerLoading) return Promise.resolve();
-    if (state.journalTrackerLoaded && !force) { renderJournalTracker(); autoRefreshStaleJournalTracker(); return Promise.resolve(); }
-    state.journalTrackerLoading = true;
-    setTrackerStatus('正在载入期刊订阅与最新文章…', false);
-    return journalTrackerRequest({ action: 'list' }).then(function (result) {
-      applyJournalTrackerData(result);
-      setTrackerStatus('', false);
-      autoRefreshStaleJournalTracker();
-    }).catch(function (error) {
-      setTrackerStatus((error && error.message) || '文献追踪载入失败', true);
-      renderJournalTracker();
-    }).then(function () { state.journalTrackerLoading = false; });
   }
 
   function trackerDateLabel(value, withTime) {
@@ -8520,11 +8493,7 @@
       // 也可能在后台期间已经到点）
       if (!document.hidden && focusIsActive()) { focusTick(); focusRenderAll(); }
       if (!document.hidden && account) syncData();
-      if (!document.hidden && state.panel === 'journal-tracker' && state.journalTrackerLoaded) autoRefreshStaleJournalTracker();
     });
-    window.setInterval(function () {
-      if (!document.hidden && state.panel === 'journal-tracker' && state.journalTrackerLoaded) autoRefreshStaleJournalTracker();
-    }, 5 * 60 * 1000);
     // The static browser edition restores Supabase's persisted session first.
     // A noncritical data-loading error must never make the header look logged out.
     Promise.resolve(window.__academicAuthReady).catch(function () {}).then(function () {

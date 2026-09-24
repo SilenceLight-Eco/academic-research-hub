@@ -209,8 +209,8 @@
     workspaceWriteChain = queued.then(function () {}, function () {});
     return queued;
   }
-  function notifyCloudReload() {
-    window.__academicCloudReloadRequired = true;
+  function notifyCloudMerge() {
+    window.__academicCloudRefreshRequired = true;
     window.dispatchEvent(new CustomEvent('academic-workspace-auto-merged'));
   }
   async function commitWorkspace(user, generation, payload, basePayload, baseRevision, forceConflictOverride, localModifiedAt, attempt) {
@@ -261,12 +261,12 @@
       workspace = copyPayload(latestPayload);
       workspaceBasePayload = copyPayload(latestPayload);
       if (samePayload(merged, latestPayload) || attempt >= 4) {
-        notifyCloudReload();
+        notifyCloudMerge();
         return;
       }
       await commitWorkspace(user, generation, merged, copyPayload(latestPayload), latestRevision, false, localModifiedAt, attempt + 1);
       if (generation !== workspaceSessionGeneration) return;
-      notifyCloudReload();
+      notifyCloudMerge();
       return;
     }
     workspaceRevision = result.data.updated_at || updatedAt;
