@@ -5789,9 +5789,15 @@
     var task = trackerTitleTranslationQueue.shift();
     trackerTitleTranslationRunning = true;
     var params = new URLSearchParams({ q: task.title, langpair: 'en|zh-CN', mt: '1' });
+    var emailPromise = typeof window.__academicGetCurrentUserEmail === 'function'
+      ? window.__academicGetCurrentUserEmail().catch(function () { return ''; })
+      : Promise.resolve('');
     var controller = new AbortController();
     var timeout = window.setTimeout(function () { controller.abort(); }, 12000);
-    fetch('https://api.mymemory.translated.net/get?' + params.toString(), { method: 'GET', mode: 'cors', credentials: 'omit', signal: controller.signal })
+    emailPromise.then(function (email) {
+      if (email) params.set('de', email);
+      return fetch('https://api.mymemory.translated.net/get?' + params.toString(), { method: 'GET', mode: 'cors', credentials: 'omit', signal: controller.signal });
+    })
       .then(function (response) {
         if (!response.ok) throw new Error('translation request failed');
         return response.json();

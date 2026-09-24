@@ -7,6 +7,15 @@
   var client = window.supabase.createClient(url, key, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
   // Exposed so the workbench waits until the saved session has been restored.
   window.__academicAuthReady = client.auth.getSession();
+  // MyMemory uses this contact email to apply its higher daily usage limit.
+  // Return an empty string when signed out so callers can use anonymous access.
+  window.__academicGetCurrentUserEmail = async function () {
+    await window.__academicAuthReady;
+    var result = await client.auth.getSession();
+    return result && result.data && result.data.session && result.data.session.user
+      ? String(result.data.session.user.email || '')
+      : '';
+  };
   window.__academicJournalTracker = async function (payload) {
     var sessionResult = await client.auth.getSession();
     var session = sessionResult && sessionResult.data && sessionResult.data.session;
