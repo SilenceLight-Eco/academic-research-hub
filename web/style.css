@@ -7002,3 +7002,28 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .file-status { min-height:18px; color:var(--text-muted); font-size:12px; overflow-wrap:anywhere; }
 .file-status.is-error { color:#bc4444; }
 @media (max-width:560px) { .file-card { padding:20px; }.file-row { align-items:flex-start; flex-direction:column; }.file-row-actions { width:100%; }.file-row-actions button { flex:1; } }
+
+/* 研究项目与现有工作台记录的双向关联 */
+.project-links { margin-top:18px; padding-top:14px; border-top:1px solid var(--hairline-soft); }
+.project-links h3 { margin:0 0 9px; color:var(--text-secondary); font-size:13px; }
+.project-link-picker { display:flex; flex-wrap:wrap; gap:8px; }
+.project-link-picker select { min-width:0; padding:8px; border:1px solid var(--hairline); border-radius:7px; background:var(--glass); color:var(--text); font:12px "Noto Sans SC",sans-serif; }
+#projectLinkType { flex:0 1 125px; }
+#projectLinkTarget { flex:1 1 180px; }
+.project-link-picker button { padding:8px 12px; border:1px solid var(--accent); border-radius:7px; background:var(--accent-dim); color:var(--accent); cursor:pointer; font:12px "Noto Sans SC",sans-serif; }
+.project-link-picker :disabled { opacity:.5; cursor:not-allowed; }
+.project-link-list { display:grid; gap:7px; margin-top:11px; }
+.project-link-row { display:flex; min-width:0; align-items:center; gap:7px; padding:7px 9px; border:1px solid var(--hairline-soft); border-radius:7px; background:var(--glass); font-size:11px; }
+.project-link-row > span { flex:none; color:var(--text-muted); }
+.project-link-row > button:not(.project-link-remove) { min-width:0; flex:1; overflow:hidden; border:0; background:transparent; color:var(--accent); cursor:pointer; text-align:left; text-overflow:ellipsis; white-space:nowrap; }
+.project-link-row em { flex:1; color:var(--text-muted); font-style:normal; }
+.project-link-row small { flex:none; color:var(--text-muted); }
+.project-link-remove { flex:none; border:0; background:transparent; color:var(--text-muted); cursor:pointer; font-size:17px; }
+.project-link-remove:hover { color:#bc4444; }
+.project-link-empty { margin:2px 0; color:var(--text-muted); font-size:11px; }
+.project-summary-link { display:flex; width:100%; min-width:0; gap:7px; align-items:center; margin:5px 0; padding:7px; overflow:hidden; border:1px solid var(--hairline-soft); border-radius:6px; background:var(--glass); color:var(--accent); cursor:pointer; font:11px "Noto Sans SC",sans-serif; text-align:left; text-overflow:ellipsis; white-space:nowrap; }
+.project-summary-link small { flex:none; color:var(--text-muted); }
+.project-backlinks { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-top:15px; padding:10px; border:1px solid var(--hairline-soft); border-radius:8px; background:var(--glass); font-size:11px; }
+.project-backlinks[hidden] { display:none; }
+.project-backlinks span { color:var(--text-muted); }
+.project-backlinks button { max-width:100%; overflow:hidden; padding:5px 8px; border:1px solid var(--accent); border-radius:6px; background:var(--accent-dim); color:var(--accent); cursor:pointer; font:inherit; text-overflow:ellipsis; white-space:nowrap; }
