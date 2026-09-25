@@ -7047,6 +7047,7 @@
     $('#projectNew').addEventListener('click', newResearchProject);
     $('#projectSave').addEventListener('click', saveResearchProject);
     $('#projectExport').addEventListener('click', exportResearchProject);
+    $('#projectYearExport').addEventListener('click', exportAnnualResearchReport);
     $('#projectDelete').addEventListener('click', trashResearchProject);
     $('#projectTrash').addEventListener('click', function () { state.projectTrashOpen = !state.projectTrashOpen; renderResearchProjects(); });
     $('#projectList').addEventListener('click', function (e) { var restore = e.target.closest('[data-project-restore]'); if (restore) { restoreResearchProject(restore.dataset.projectRestore); return; } var purge = e.target.closest('[data-project-purge]'); if (purge) { purgeResearchProject(purge.dataset.projectPurge); return; } var category = e.target.closest('[data-project-category]'); if (category) { state.projectCategoryFilter = category.dataset.projectCategory; var first = (state.researchProjects.projects || []).filter(function (item) { return state.projectCategoryFilter === 'all' || ((item.category || '通用').trim() || '通用') === state.projectCategoryFilter; })[0]; state.projectId = first ? first.id : null; renderResearchProjects(); return; } var project = e.target.closest('[data-project-id]'); if (!project) return; state.projectId = Number(project.dataset.projectId); renderResearchProjects(); });
@@ -8246,6 +8247,105 @@
     var safeTitle = title.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').replace(/[. ]+$/g, '').slice(0, 80) || '研究项目';
     downloadTextFile('\ufeff' + lines.join('\n').replace(/\n{3,}/g, '\n\n') + '\n', safeTitle + '-项目档案-' + new Date().toISOString().slice(0, 10) + '.md');
     toast('项目档案已导出为 Markdown');
+  }
+  function reportYearFrom(value) {
+    var match = String(value == null ? '' : value).match(/(?:19|20)\d{2}/);
+    return match ? Number(match[0]) : null;
+  }
+  function projectIntersectsReportYear(project, year) {
+    var startYear = reportYearFrom(project.start);
+    var endYear = reportYearFrom(project.end);
+    if (!startYear && !endYear) return reportYearFrom(project.updated) === year || (!project.updated && year === new Date().getFullYear());
+    return (!startYear || startYear <= year) && (!endYear || endYear >= year);
+  }
+  function exportAnnualResearchReport() {
+    var year = Number($('#projectReportYear').value);
+    if (!Number.isInteger(year) || year < 1900 || year > 2100) { toast('请输入 1900 至 2100 之间的年份'); return; }
+    var active = activeResearchProject();
+    var projects = ((state.researchProjects || {}).projects || []).map(function (project) {
+      if (!active || String(project.id) !== String(active.id) || state.projectTrashOpen) return project;
+      return Object.assign({}, project, {
+        title: $('#projectTitle').value, category: $('#projectCategory').value, status: $('#projectStatus').value,
+        progress: $('#projectProgress').value, start: $('#projectStart').value, end: $('#projectEnd').value,
+        goal: $('#projectGoal').value, members: $('#projectMembers').value, milestones: $('#projectMilestones').value,
+        resources: $('#projectResources').value
+      });
+    });
+    var yearlyProjects = projects.filter(function (project) { return projectIntersectsReportYear(project, year); });
+    var papers = projectPaperTargets();
+    var published = papers.filter(function (paper) { return paper.kind === 'published' && reportYearFrom(paper.item.year) === year; });
+    var activePaperUpdates = papers.filter(function (paper) {
+      if (paper.kind === 'published') return false;
+      var item = paper.item || {};
+      var activityYear = paper.kind === 'submitted' ? reportYearFrom(item.submissionDate || item.lastUpdate || item.updated) : reportYearFrom(item.lastUpdated || item.updated);
+      return activityYear === year;
+    });
+    var records = (state.overview && state.overview.academic_records) || {};
+    var yearlyRecords = {};
+    ['funding', 'awards', 'conferences'].forEach(function (kind) {
+      yearlyRecords[kind] = (Array.isArray(records[kind]) ? records[kind] : []).filter(function (item) {
+        var details = item.details || {};
+        return reportYearFrom(kind === 'conferences' && details.time ? details.time : item.date) === year;
+      });
+    });
+    var lines = [
+      '# ' + year + ' 年度科研进展报告', '',
+      '生成时间：' + new Date().toLocaleString('zh-CN'), '',
+      '## 年度概览', '',
+      '- 纳入项目：' + yearlyProjects.length + ' 项',
+      '- 本年发表论文：' + published.length + ' 篇',
+      '- 本年在研／在投稿件动态：' + activePaperUpdates.length + ' 篇',
+      '- 本年登记基金：' + yearlyRecords.funding.length + ' 项',
+      '- 本年登记获奖：' + yearlyRecords.awards.length + ' 项',
+      '- 本年会议记录：' + yearlyRecords.conferences.length + ' 场', '',
+      '## 研究项目'
+    ];
+    if (!yearlyProjects.length) lines.push('', '（该年度没有符合日期范围的项目记录。）');
+    yearlyProjects.forEach(function (project) {
+      var progress = Math.max(0, Math.min(100, Number(project.progress) || 0));
+      lines.push('', '### ' + (project.title || '未命名项目'));
+      appendProjectExportField(lines, '分类', project.category);
+      appendProjectExportField(lines, '状态', project.status);
+      appendProjectExportField(lines, '进度', progress + '%');
+      appendProjectExportField(lines, '项目周期', [project.start, project.end].filter(Boolean).join(' 至 ') || '未设置');
+      appendProjectExportField(lines, '成员与分工', project.members);
+      if (project.goal) lines.push('', '**研究目标**', '', String(project.goal).trim());
+      var milestones = String(project.milestones || '').split(/\r?\n/).map(function (value) { return value.trim(); }).filter(Boolean);
+      if (milestones.length) lines.push('', '**关键里程碑**', '', milestones.map(function (value) { return '- ' + value; }).join('\n'));
+      var links = projectLinksFor(project);
+      if (links.length) {
+        var linkTitles = links.map(function (link) {
+          var target = projectLinkTargets(link.type).find(function (entry) { return entry.id === link.id; });
+          return target ? projectLinkTypes[link.type] + '：' + target.title : '';
+        }).filter(Boolean);
+        if (linkTitles.length) lines.push('', '**关联记录**', '', linkTitles.map(function (value) { return '- ' + value; }).join('\n'));
+      }
+    });
+    lines.push('', '## 论文动态');
+    if (!published.length && !activePaperUpdates.length) lines.push('', '（没有识别到本年度发表或更新的论文记录。）');
+    published.concat(activePaperUpdates).forEach(function (paper) {
+      var item = paper.item || {};
+      lines.push('', '### ' + (item.title || '未命名论文'));
+      appendProjectExportField(lines, '阶段', paper.kind === 'published' ? '已发表' : paper.kind === 'submitted' ? '在投' : '在研');
+      appendProjectExportField(lines, '作者', item.authors);
+      appendProjectExportField(lines, '期刊', item.journal || item.currentJournal || item.targetJournal);
+      appendProjectExportField(lines, 'DOI', item.doi);
+      if (paper.kind !== 'published') appendProjectExportField(lines, '下一步', item.nextAction);
+    });
+    [['funding', '基金项目'], ['awards', '学术获奖'], ['conferences', '学术会议']].forEach(function (group) {
+      lines.push('', '## ' + group[1]);
+      if (!yearlyRecords[group[0]].length) { lines.push('', '（无本年度记录。）'); return; }
+      yearlyRecords[group[0]].forEach(function (item) {
+        lines.push('', '### ' + (item.title || '未命名记录'));
+        if (group[0] === 'conferences') {
+          appendProjectExportField(lines, '会议时间', (item.details || {}).time);
+          appendProjectExportField(lines, '会议地点', (item.details || {}).location);
+          appendProjectExportField(lines, '报告论文', (item.details || {}).paper);
+        } else appendProjectExportField(lines, '补充说明', item.meta);
+      });
+    });
+    downloadTextFile('\ufeff' + lines.join('\n').replace(/\n{3,}/g, '\n\n') + '\n', year + '-年度科研进展报告.md');
+    toast(year + ' 年度科研报告已导出');
   }
   function newResearchProject() { api('/api/research-projects', { method: 'POST', body: JSON.stringify({ action: 'create' }) }).then(function (res) { if (!res.ok) { toast(res.error || '新建失败'); return; } state.researchProjects = res.researchProjects; state.projectTrashOpen = false; state.projectCategoryFilter = 'all'; state.projectId = res.researchProjects.projects[0].id; renderResearchProjects(); $('#projectTitle').focus(); }); }
   function readResearchProjectPayload() { return { action: 'save', id: state.projectId, title: $('#projectTitle').value, category: $('#projectCategory').value, status: $('#projectStatus').value, progress: $('#projectProgress').value, start: $('#projectStart').value, end: $('#projectEnd').value, goal: $('#projectGoal').value, members: $('#projectMembers').value, milestones: $('#projectMilestones').value, resources: $('#projectResources').value, links: normalizedProjectLinks((activeResearchProject() || {}).links) }; }
@@ -9544,6 +9644,7 @@
     ensureNavInk();
     positionNavInk(false);
     initTopbarStuck();
+    $('#projectReportYear').value = String(new Date().getFullYear());
     initCmdk();
     window.addEventListener('beforeunload', handleBeforeUnload);
     window.addEventListener('pageshow', function () { pendingExitFlush = false; exitFlushStarted = false; });

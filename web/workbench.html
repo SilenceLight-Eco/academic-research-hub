@@ -8,7 +8,7 @@
   <link rel="apple-touch-icon" href="icon-180.png">
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#174e4a">
-  <link rel="stylesheet" href="style.css?v=20260925-103">
+  <link rel="stylesheet" href="style.css?v=20260925-104">
   <style>.sidebar-nav .retired-content{display:none!important}</style>
 </head>
 <body>
@@ -365,7 +365,7 @@
       </section>
 
       <section class="panel" id="panel-research-projects">
-        <div class="project-head"><div><div class="card-dot"></div><div class="card-label">研究项目</div><p>把研究目标、关键节点与协作信息集中到一个项目中枢。</p></div><div class="project-actions"><button type="button" id="projectTrash">回收站</button><button type="button" data-file-context="project">附件</button><button type="button" id="projectExport" disabled>导出项目档案</button><button type="button" id="projectNew">+ 新建项目</button><button type="button" id="projectSave">立即保存</button></div></div>
+        <div class="project-head"><div><div class="card-dot"></div><div class="card-label">研究项目</div><p>把研究目标、关键节点与协作信息集中到一个项目中枢。</p></div><div class="project-actions"><button type="button" id="projectTrash">回收站</button><button type="button" data-file-context="project">附件</button><button type="button" id="projectExport" disabled>导出项目档案</button><label class="project-report-year">年度<input id="projectReportYear" type="number" min="1900" max="2100" value="2026" aria-label="年度科研报告年份"></label><button type="button" id="projectYearExport">导出年度报告</button><button type="button" id="projectNew">+ 新建项目</button><button type="button" id="projectSave">立即保存</button></div></div>
         <div class="project-workspace">
           <aside class="project-list" id="projectList"></aside>
           <section class="project-editor"><div class="project-title-row"><input id="projectTitle" placeholder="项目名称" aria-label="项目名称"><button id="projectDelete" type="button" title="移入回收站">×</button></div><div class="project-meta"><label>项目分类<input id="projectCategory" placeholder="例如：博士论文"></label><label>项目状态<select id="projectStatus"><option>规划中</option><option>进行中</option><option>已完成</option><option>暂停</option></select></label><label>完成进度<input id="projectProgress" type="number" min="0" max="100" value="0"><span>%</span></label><label>开始日期<input id="projectStart" type="date"></label><label>预计完成<input id="projectEnd" type="date"></label></div><label class="project-field">研究目标<textarea id="projectGoal" placeholder="这个项目要回答什么问题、实现什么目标？"></textarea></label><label class="project-field">成员与分工<input id="projectMembers" placeholder="例如：本人（研究设计）；合作者 A（数据处理）"></label><div class="project-split"><label class="project-field">关键里程碑<textarea id="projectMilestones" placeholder="每行一个，例如：\n完成文献综述\n提交开题报告\n形成初稿"></textarea></label><label class="project-field">文字备注与外部链接<textarea id="projectResources" placeholder="保留原有资源说明或外部网址；每行一个。"></textarea></label></div><div class="project-links"><h3>关联工作台记录</h3><div class="project-link-picker"><select id="projectLinkType" aria-label="选择关联类型"><option value="paper">论文管线</option><option value="reference">文献与引用</option><option value="variable">变量库</option><option value="knowledge">知识库</option><option value="note">公众号笔记</option></select><select id="projectLinkTarget" aria-label="选择关联记录"></select><button type="button" id="projectLinkAdd">关联</button></div><div id="projectLinkList" class="project-link-list"></div></div></section>
@@ -1444,7 +1444,7 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
   <script src="static-api.js?v=20260925-85"></script>
-  <script src="app.js?v=20260925-130"></script>
+  <script src="app.js?v=20260925-131"></script>
   <script src="attachments.js?v=20260925-1"></script>
 </body>
 </html>

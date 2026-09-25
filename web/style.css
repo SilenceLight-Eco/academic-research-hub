@@ -7027,3 +7027,5 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .project-backlinks[hidden] { display:none; }
 .project-backlinks span { color:var(--text-muted); }
 .project-backlinks button { max-width:100%; overflow:hidden; padding:5px 8px; border:1px solid var(--accent); border-radius:6px; background:var(--accent-dim); color:var(--accent); cursor:pointer; font:inherit; text-overflow:ellipsis; white-space:nowrap; }
+.project-report-year { display:inline-flex; align-items:center; gap:5px; padding:0 4px; color:var(--text-muted); font-size:11px; }
+.project-report-year input { width:62px; padding:6px 5px; border:1px solid var(--hairline); border-radius:6px; outline:0; background:var(--glass-strong); color:var(--text); font:12px "Noto Sans SC",sans-serif; }
