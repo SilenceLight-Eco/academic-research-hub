@@ -6209,6 +6209,13 @@
     badge.hidden = !unreadCount || state.panel === 'journal-tracker';
   }
 
+  function scrollTrackerArticleGroupToTop(group) {
+    var articleList = $('#trackerArticles');
+    var section = articleList && articleList.querySelector('[data-tracker-group-section="' + group + '"]');
+    if (!section) return;
+    articleList.scrollTop += section.getBoundingClientRect().top - articleList.getBoundingClientRect().top;
+  }
+
   function searchTrackerJournals(event) {
     event.preventDefault();
     var query = $('#trackerJournalQuery').value.trim();
@@ -6226,12 +6233,12 @@
     return String(value || '').normalize('NFKC').toLocaleLowerCase().replace(/[\s\p{P}\p{S}]+/gu, '');
   }
 
-  function trackerJournalAlreadyTracked(journal) {
+  function trackerJournalSubscription(journal) {
     var issns = String(journal && journal.issn || '').split(/[;,，；/\s]+/).map(function (value) {
       return value.replace(/[^0-9x]/gi, '').toUpperCase();
     }).filter(Boolean);
     var title = normalizeTrackerJournalTitle(journal && (journal.title || journal.journal_title));
-    return (state.journalTracker.subscriptions || []).some(function (subscription) {
+    return (state.journalTracker.subscriptions || []).find(function (subscription) {
       var trackedIssns = String(subscription.issn || '').split(/[;,，；/\s]+/).map(function (value) {
         return value.replace(/[^0-9x]/gi, '').toUpperCase();
       }).filter(Boolean);
@@ -6241,15 +6248,17 @@
     });
   }
 
+  var trackerJournalSearchCandidates = [];
   function renderTrackerJournalCandidates(journals, query) {
     var container = $('#trackerSearchResults');
+    trackerJournalSearchCandidates = journals;
     container.hidden = false;
     if (journals.length) {
       container.innerHTML = journals.map(function (journal) {
         var fullTitle = journal.title || journal.issn;
-        var alreadyTracked = trackerJournalAlreadyTracked(journal);
-        var action = alreadyTracked
-          ? '<span class="tracker-already-tracked" role="status">已追踪</span>'
+        var subscription = trackerJournalSubscription(journal);
+        var action = subscription
+          ? '<button type="button" class="tracker-untrack" data-tracker-remove="' + escapeHtml(subscription.id) + '" aria-label="取消追踪 ' + escapeHtml(fullTitle) + '">取消追踪</button>'
           : '<button type="button" data-tracker-add="' + escapeHtml(journal.issn) + '" aria-label="追踪 ' + escapeHtml(fullTitle) + '">追踪</button>';
         return '<div class="tracker-search-result"><div><b title="' + escapeHtml(fullTitle) + '" aria-label="期刊全名：' + escapeHtml(fullTitle) + '">' + escapeHtml(fullTitle) + '</b><span>' + escapeHtml(journal.issn) + (journal.publisher ? ' · ' + escapeHtml(journal.publisher) : '') + '</span></div>' + action + '</div>';
       }).join('');
@@ -6364,7 +6373,11 @@
   function removeTrackerJournal(id) {
     var subscription = (state.journalTracker.subscriptions || []).filter(function (item) { return String(item.id) === String(id); })[0];
     if (!subscription || !confirm('停止追踪“' + (subscription.journal_title || subscription.issn) + '”？已抓取的该期刊文章也会删除。')) return;
-    journalTrackerRequest({ action: 'remove', id: id }).then(function (result) { applyJournalTrackerData(result); toast('已停止追踪该期刊'); }).catch(function (error) { toast((error && error.message) || '删除失败'); });
+    journalTrackerRequest({ action: 'remove', id: id }).then(function (result) {
+      applyJournalTrackerData(result);
+      if (!$('#trackerSearchResults').hidden) renderTrackerJournalCandidates(trackerJournalSearchCandidates);
+      toast('已停止追踪该期刊');
+    }).catch(function (error) { toast((error && error.message) || '删除失败'); });
   }
 
   function refreshJournalTracker() {
@@ -6680,7 +6693,12 @@
     $('#trackerRefreshCategory').addEventListener('click', refreshTrackerCategory);
     $('#trackerRetryFailed').addEventListener('click', retryFailedTrackerJournals);
     $('#trackerMarkAllRead').addEventListener('click', function () { markAllTrackedArticlesRead(this); });
-    $('#trackerSearchResults').addEventListener('click', function (event) { var button = event.target.closest('[data-tracker-add]'); if (button) addTrackerJournal(button.dataset.trackerAdd, button); });
+    $('#trackerSearchResults').addEventListener('click', function (event) {
+      var removeButton = event.target.closest('[data-tracker-remove]');
+      if (removeButton) { removeTrackerJournal(removeButton.dataset.trackerRemove); return; }
+      var addButton = event.target.closest('[data-tracker-add]');
+      if (addButton) addTrackerJournal(addButton.dataset.trackerAdd, addButton);
+    });
     $('#trackerCategoryManageToggle').addEventListener('click', function () { state.trackerCategoryManageMode = !state.trackerCategoryManageMode; if (!state.trackerCategoryManageMode) state.trackerSelectedJournalIds = {}; renderJournalTracker(); });
     $('#trackerSubscriptions').addEventListener('click', function (event) {
       var moveButton = event.target.closest('[data-tracker-category-move]');
@@ -6796,8 +6814,7 @@
           state.trackerArticlePages[jumpGroup] = Math.max(1, Math.min(maximumPage, Number.isFinite(requestedPage) ? Math.floor(requestedPage) : 1));
           saveTrackerDisplayPreferences();
           renderJournalTracker();
-          var jumpSection = $('#trackerArticles').querySelector('[data-tracker-group-section="' + jumpGroup + '"]');
-          if (jumpSection) jumpSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          scrollTrackerArticleGroupToTop(jumpGroup);
         }
         return;
       }
@@ -6808,8 +6825,7 @@
           state.trackerArticlePages[pageGroup] = Math.max(1, (Number(state.trackerArticlePages[pageGroup]) || 1) + Number(pageButton.dataset.trackerPageDelta || 0));
           saveTrackerDisplayPreferences();
           renderJournalTracker();
-          var groupSection = $('#trackerArticles').querySelector('[data-tracker-group-section="' + pageGroup + '"]');
-          if (groupSection) groupSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          scrollTrackerArticleGroupToTop(pageGroup);
         }
         return;
       }
