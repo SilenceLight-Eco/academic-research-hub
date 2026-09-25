@@ -6525,6 +6525,13 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .prompt-actions #promptNew,.prompt-actions #promptCopy { border-color:var(--accent); background:var(--accent-dim); color:var(--accent); font-weight:600; }
 .prompt-workspace { display:grid; grid-template-columns:minmax(190px,225px) minmax(320px,1.1fr) minmax(260px,.82fr); height:min(76vh,850px); min-height:610px; overflow:hidden; border:1px solid var(--hairline-soft); border-radius:var(--radius-lg); background:var(--glass-strong); }
 .prompt-list { min-width:0; min-height:0; overflow:auto; padding:12px; border-right:1px solid var(--hairline-soft); background:var(--glass); }
+.prompt-category-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:0 0 8px; color:var(--text-muted); font-size:10px; font-weight:650; letter-spacing:.06em; }
+.prompt-category-heading button { padding:4px 7px; border:1px solid var(--hairline-soft); border-radius:999px; background:var(--glass-strong); color:var(--accent); cursor:pointer; font:10px "Noto Sans SC",sans-serif; letter-spacing:0; }
+.prompt-category-heading button:hover { border-color:var(--accent); background:var(--accent-dim); }
+.prompt-category-form { display:grid; grid-template-columns:minmax(0,1fr) auto auto; gap:5px; margin:0 0 9px; }
+.prompt-category-form input { min-width:0; width:100%; box-sizing:border-box; padding:6px 7px; border:1px solid var(--hairline); border-radius:5px; outline:0; background:var(--glass-strong); color:var(--text); font:11px "Noto Sans SC",sans-serif; }
+.prompt-category-form button { padding:5px 6px; border:1px solid var(--hairline-soft); border-radius:5px; background:var(--glass-strong); color:var(--text-secondary); cursor:pointer; font:10px "Noto Sans SC",sans-serif; }
+.prompt-category-form button[type="submit"] { border-color:var(--accent); background:var(--accent-dim); color:var(--accent); }
 .prompt-category-list { display:flex; flex-wrap:wrap; align-content:flex-start; gap:5px; margin-bottom:10px; padding-bottom:12px; border-bottom:1px solid var(--hairline-soft); }
 .prompt-category { display:inline-flex; align-items:center; justify-content:space-between; gap:8px; max-width:100%; padding:6px 8px; border:1px solid transparent; border-radius:999px; background:transparent; color:var(--text-secondary); cursor:pointer; font:11px "Noto Sans SC",sans-serif; text-align:left; transition:background .15s ease,border-color .15s ease,color .15s ease; }
 .prompt-category span { color:var(--text-muted); font-size:10px; }
@@ -6544,9 +6551,10 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .prompt-editor-top button { width:27px; height:27px; border:0; border-radius:6px; background:transparent; color:var(--text-muted); cursor:pointer; font-size:18px; }
 .prompt-editor-top button:hover { background:rgba(190,68,68,.1); color:#bc4444; }
 .prompt-meta { display:grid; grid-template-columns:1fr 1fr; gap:9px; padding:12px 0; }
-.prompt-meta input { width:100%; min-width:0; box-sizing:border-box; padding:7px 8px; border:1px solid var(--hairline-soft); border-radius:6px; outline:0; background:var(--glass); color:var(--text-secondary); font:11px "Noto Sans SC",sans-serif; }
+.prompt-meta label { display:grid; min-width:0; gap:4px; color:var(--text-muted); font-size:9px; }
+.prompt-meta input,.prompt-meta select { width:100%; min-width:0; box-sizing:border-box; padding:7px 8px; border:1px solid var(--hairline-soft); border-radius:6px; outline:0; background:var(--glass); color:var(--text-secondary); font:11px "Noto Sans SC",sans-serif; }
 .prompt-editor textarea { flex:1; min-height:0; width:100%; box-sizing:border-box; resize:none; padding:13px; border:1px solid var(--hairline-soft); border-radius:8px; outline:0; background:var(--glass); color:var(--text); font:13px/1.85 var(--font-mono); }
-.prompt-editor textarea:focus,.prompt-meta input:focus { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-dim); }
+.prompt-editor textarea:focus,.prompt-meta input:focus,.prompt-meta select:focus { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-dim); }
 .prompt-editor-tip { padding:9px 2px 0; color:var(--text-muted); font-size:10px; line-height:1.6; }
 .prompt-editor-tip code { padding:2px 5px; border-radius:4px; background:var(--accent-dim); color:var(--accent); font-family:var(--font-mono); }
 .prompt-use { display:flex; min-width:0; min-height:0; flex-direction:column; gap:12px; overflow:auto; padding:16px; background:linear-gradient(160deg,var(--accent-dim),transparent 38%),var(--glass); }

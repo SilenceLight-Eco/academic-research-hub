@@ -8,7 +8,7 @@
   <link rel="apple-touch-icon" href="icon-180.png">
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#174e4a">
-  <link rel="stylesheet" href="style.css?v=20260925-108">
+  <link rel="stylesheet" href="style.css?v=20260925-109">
   <style>.sidebar-nav .retired-content{display:none!important}</style>
 </head>
 <body>
@@ -359,7 +359,7 @@
         <div class="prompt-head"><div><div class="card-dot"></div><div class="card-label">提示词库</div><p>保存模板，填写变量，然后复制到任意 AI 对话。</p></div><div class="prompt-actions"><button type="button" id="promptTrash">回收站</button><button type="button" id="promptNew">+ 新建提示词</button><button type="button" id="promptHistory">版本记录</button><button type="button" id="promptSave">立即保存</button><button type="button" id="promptCopy">复制结果</button></div></div>
         <div class="prompt-workspace">
           <aside class="prompt-list" id="promptList"></aside>
-          <section class="prompt-editor"><div class="prompt-editor-top"><input id="promptTitle" placeholder="提示词标题" aria-label="提示词标题"><button id="promptDelete" type="button" title="移入回收站">×</button></div><div class="prompt-meta"><input id="promptCategory" placeholder="分类，例如：论文写作" aria-label="分类"><input id="promptTags" placeholder="标签，用逗号分隔" aria-label="标签"></div><textarea id="promptBody" placeholder="你是一位 {{ role }}。\n请围绕 {{ topic }} 给出清晰、可执行的建议。"></textarea><div class="prompt-editor-tip">使用 <code>{{ variable }}</code> 创建可填写变量。</div></section>
+          <section class="prompt-editor"><div class="prompt-editor-top"><input id="promptTitle" placeholder="提示词标题" aria-label="提示词标题"><button id="promptDelete" type="button" title="移入回收站">×</button></div><div class="prompt-meta"><label class="prompt-category-field"><span>所属分类</span><select id="promptCategory" aria-label="所属分类"></select></label><label class="prompt-tags-field"><span>标签</span><input id="promptTags" placeholder="用逗号分隔"></label></div><textarea id="promptBody" placeholder="你是一位 {{ role }}。\n请围绕 {{ topic }} 给出清晰、可执行的建议。"></textarea><div class="prompt-editor-tip">使用 <code>{{ variable }}</code> 创建可填写变量。</div></section>
           <section class="prompt-use"><div class="prompt-use-label">填写变量后复制</div><div class="prompt-variables" id="promptVariables"></div><pre class="prompt-result" id="promptResult"></pre></section>
         </div>
       </section>
@@ -1443,8 +1443,8 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-  <script src="static-api.js?v=20260925-85"></script>
-  <script src="app.js?v=20260925-135"></script>
+  <script src="static-api.js?v=20260925-86"></script>
+  <script src="app.js?v=20260925-137"></script>
   <script src="attachments.js?v=20260925-1"></script>
 </body>
 </html>
