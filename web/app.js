@@ -9164,9 +9164,10 @@
     if (!markdownSource) return '';
     var raw = markdownSource.replace(/```([\s\S]*?)```/g, function (_, code) { var token = '@@KB_CODE_' + codeBlocks.length + '@@'; codeBlocks.push('<pre><code>' + escapeHtml(code.trim()) + '</code></pre>'); return token; });
     raw = extractKnowledgeColorTokens(raw, colorSpans);
-    var text = escapeHtml(raw);
-    var lines = text.split('\n'); var html = []; var listType = ''; var listHtmlIndex = -1; var listLastLine = -1;
+    var lines = raw.split('\n');
+    var html = []; var listType = ''; var listHtmlIndex = -1; var listLastLine = -1;
     var paragraphLines = []; var paragraphLastLine = -1; var quoteLines = []; var quoteLastLine = -1;
+    function inline(value) { return markdownInline(escapeHtml(value)); }
     var firstContentLine = lines.findIndex(function (line) { return line !== ''; });
     var lastContentLine = -1;
     lines.forEach(function (line, index) { if (line !== '') lastContentLine = index; });
@@ -9190,13 +9191,13 @@
     function flushParagraph() {
       if (!paragraphLines.length) return;
       closeList();
-      html.push('<p' + gapAttribute(paragraphLastLine) + '>' + paragraphLines.map(markdownInline).join('<br>') + '</p>');
+      html.push('<p' + gapAttribute(paragraphLastLine) + '>' + paragraphLines.map(inline).join('<br>') + '</p>');
       paragraphLines = []; paragraphLastLine = -1;
     }
     function flushQuote() {
       if (!quoteLines.length) return;
       closeList();
-      html.push('<blockquote' + gapAttribute(quoteLastLine) + '>' + quoteLines.map(function (line) { return markdownInline(line.replace(/^>\s?/, '')); }).join('<br>') + '</blockquote>');
+      html.push('<blockquote' + gapAttribute(quoteLastLine) + '>' + quoteLines.map(function (line) { return inline(line.replace(/^>\s?/, '')); }).join('<br>') + '</blockquote>');
       quoteLines = []; quoteLastLine = -1;
     }
     function flushTextBlocks() { flushParagraph(); flushQuote(); closeList(); }
@@ -9214,10 +9215,10 @@
         return;
       }
       // 新旧文档都支持：# 标题 和 #标题 在编辑器中都会显示为标题。
-      if (/^####\s*\S/.test(line)) { flushTextBlocks(); html.push('<h4' + gapAttribute(index) + '>' + markdownInline(line.replace(/^####\s*/, '')) + '</h4>'); return; }
-      if (/^###\s*\S/.test(line)) { flushTextBlocks(); html.push('<h3' + gapAttribute(index) + '>' + markdownInline(line.replace(/^###\s*/, '')) + '</h3>'); return; }
-      if (/^##\s*\S/.test(line)) { flushTextBlocks(); html.push('<h2' + gapAttribute(index) + '>' + markdownInline(line.replace(/^##\s*/, '')) + '</h2>'); return; }
-      if (/^#\s*\S/.test(line)) { flushTextBlocks(); html.push('<h1' + gapAttribute(index) + '>' + markdownInline(line.replace(/^#\s*/, '')) + '</h1>'); return; }
+      if (/^####\s*\S/.test(line)) { flushTextBlocks(); html.push('<h4' + gapAttribute(index) + '>' + inline(line.replace(/^####\s*/, '')) + '</h4>'); return; }
+      if (/^###\s*\S/.test(line)) { flushTextBlocks(); html.push('<h3' + gapAttribute(index) + '>' + inline(line.replace(/^###\s*/, '')) + '</h3>'); return; }
+      if (/^##\s*\S/.test(line)) { flushTextBlocks(); html.push('<h2' + gapAttribute(index) + '>' + inline(line.replace(/^##\s*/, '')) + '</h2>'); return; }
+      if (/^#\s*\S/.test(line)) { flushTextBlocks(); html.push('<h1' + gapAttribute(index) + '>' + inline(line.replace(/^#\s*/, '')) + '</h1>'); return; }
       if (/^---+\s*$/.test(line)) { flushTextBlocks(); html.push('<hr' + gapAttribute(index) + '>'); return; }
       if (/^>\s?/.test(line)) { flushParagraph(); closeList(); quoteLines.push(line); quoteLastLine = index; return; }
       flushQuote();
@@ -9226,7 +9227,7 @@
       if (orderedItem || unorderedItem) {
         flushParagraph();
         openList(orderedItem ? 'ol' : 'ul', index);
-        html.push('<li>' + markdownInline(line.replace(orderedItem || unorderedItem, '')) + '</li>');
+        html.push('<li>' + inline(line.replace(orderedItem || unorderedItem, '')) + '</li>');
         return;
       }
       closeList(); paragraphLines.push(line); paragraphLastLine = index;
