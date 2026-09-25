@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>学术工作台</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='%230F766E' stroke='%230F766E' stroke-width='2'/><circle cx='16' cy='16' r='5' fill='%230F766E'/></svg>">
-  <link rel="stylesheet" href="style.css?v=20260925-97">
+  <link rel="stylesheet" href="style.css?v=20260925-98">
   <style>.sidebar-nav .retired-content{display:none!important}</style>
 </head>
 <body>
@@ -374,13 +374,13 @@
         <div class="variable-head"><div><div class="card-dot"></div><div class="card-label">变量库</div><p>按研究角色整理变量定义、计量方式、数据来源与关联研究，支持自动同步。</p></div><div class="variable-actions"><button type="button" id="variableTrash">回收站</button><button type="button" id="variableNew">+ 新建变量</button><button type="button" id="variableSave">立即保存</button></div></div>
         <div class="variable-workspace">
           <aside class="variable-list-pane"><label class="variable-search"><span>检索变量</span><input id="variableSearch" type="search" placeholder="名称、定义、来源或参考文献"></label><div id="variableCategories" class="variable-category-list"></div><div id="variableList" class="variable-list"></div></aside>
-          <section class="variable-editor">
-            <div class="variable-title-row"><input id="variableName" placeholder="变量名称" aria-label="变量名称"><button id="variableDelete" type="button" title="移入回收站">×</button></div>
+          <section class="variable-editor" id="variableEditor">
+            <div class="variable-title-row"><input id="variableName" placeholder="变量名称（双击新建）" aria-label="变量名称；双击新建同角色变量" title="双击此处新建同角色变量"><button id="variableDelete" type="button" title="移入回收站">×</button></div>
             <div class="variable-role-heading"><span>研究角色（可多选）</span><div id="variableRoleOptions" class="variable-role-options"></div></div>
-            <div class="variable-meta"><div class="variable-reference-field"><label for="variablePaper">参考文献</label><div class="variable-reference-row"><input id="variablePaper" list="variableReferenceOptions" placeholder="选择或填写作者、年份、DOI、文献标题"><datalist id="variableReferenceOptions"></datalist><button id="variableReferenceNew" type="button" title="新建参考文献并加入文献库">＋新建</button></div></div></div>
-            <label class="variable-field">概念定义<textarea id="variableDefinition" placeholder="变量的理论含义与研究语境"></textarea></label>
-            <div class="variable-split"><label class="variable-field">操作化与计算方式<textarea id="variableMeasure" placeholder="指标构造、计算公式、赋值规则或处理方式"></textarea></label><label class="variable-field">数据来源与口径<textarea id="variableSource" placeholder="数据来源、样本范围、频率及口径说明"></textarea></label></div>
-            <label class="variable-field">备注与文献依据<textarea id="variableNotes" placeholder="参考文献、替代指标、识别注意事项等"></textarea></label>
+            <div class="variable-meta"><div class="variable-reference-field"><label for="variablePaper">参考文献</label><div class="variable-reference-row"><input id="variablePaper" list="variableReferenceOptions" placeholder="选择或填写作者、年份、DOI、文献标题；双击新建同角色变量" title="双击此处新建同角色变量"><datalist id="variableReferenceOptions"></datalist><button id="variableReferenceNew" type="button" title="新建参考文献并加入文献库">＋新建</button></div></div></div>
+            <label class="variable-field">概念定义<textarea id="variableDefinition" placeholder="变量的理论含义与研究语境；双击新建同角色变量" title="双击此处新建同角色变量"></textarea></label>
+            <div class="variable-split"><label class="variable-field">操作化与计算方式<textarea id="variableMeasure" placeholder="指标构造、计算公式、赋值规则或处理方式；双击新建同角色变量" title="双击此处新建同角色变量"></textarea></label><label class="variable-field">数据来源与口径<textarea id="variableSource" placeholder="数据来源、样本范围、频率及口径说明；双击新建同角色变量" title="双击此处新建同角色变量"></textarea></label></div>
+            <label class="variable-field">备注与文献依据<textarea id="variableNotes" placeholder="参考文献、替代指标、识别注意事项等；双击新建同角色变量" title="双击此处新建同角色变量"></textarea></label>
             <div class="variable-save-status" id="variableSaveStatus" aria-live="polite">选择或新建变量后编辑，修改会自动保存。</div>
           </section>
         </div>
@@ -1428,6 +1428,6 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
   <script src="static-api.js?v=20260925-83"></script>
-  <script src="app.js?v=20260925-122"></script>
+  <script src="app.js?v=20260925-123"></script>
 </body>
 </html>
