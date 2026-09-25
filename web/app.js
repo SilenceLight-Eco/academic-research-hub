@@ -7046,6 +7046,7 @@
     $('#promptList').addEventListener('click', function (e) { var restore = e.target.closest('[data-prompt-restore]'); if (restore) { restorePrompt(restore.dataset.promptRestore); return; } var purge = e.target.closest('[data-prompt-purge]'); if (purge) { purgePrompt(purge.dataset.promptPurge); return; } var category = e.target.closest('[data-prompt-category]'); if (category) { state.promptCategoryFilter = category.dataset.promptCategory; var first = (state.promptLibrary.prompts || []).filter(function (item) { return state.promptCategoryFilter === 'all' || (item.category || '通用') === state.promptCategoryFilter; })[0]; state.promptId = first ? first.id : null; renderPromptLibrary(); return; } var prompt = e.target.closest('[data-prompt-id]'); if (!prompt) return; state.promptId = Number(prompt.dataset.promptId); renderPromptLibrary(); });
     $('#projectNew').addEventListener('click', newResearchProject);
     $('#projectSave').addEventListener('click', saveResearchProject);
+    $('#projectExport').addEventListener('click', exportResearchProject);
     $('#projectDelete').addEventListener('click', trashResearchProject);
     $('#projectTrash').addEventListener('click', function () { state.projectTrashOpen = !state.projectTrashOpen; renderResearchProjects(); });
     $('#projectList').addEventListener('click', function (e) { var restore = e.target.closest('[data-project-restore]'); if (restore) { restoreResearchProject(restore.dataset.projectRestore); return; } var purge = e.target.closest('[data-project-purge]'); if (purge) { purgeResearchProject(purge.dataset.projectPurge); return; } var category = e.target.closest('[data-project-category]'); if (category) { state.projectCategoryFilter = category.dataset.projectCategory; var first = (state.researchProjects.projects || []).filter(function (item) { return state.projectCategoryFilter === 'all' || ((item.category || '通用').trim() || '通用') === state.projectCategoryFilter; })[0]; state.projectId = first ? first.id : null; renderResearchProjects(); return; } var project = e.target.closest('[data-project-id]'); if (!project) return; state.projectId = Number(project.dataset.projectId); renderResearchProjects(); });
@@ -8052,7 +8053,7 @@
     [['research', '在研'], ['submitted', '在投'], ['published', '已发表']].forEach(function (kind) {
       Object.keys(((cards[kind[0]] || {}).added) || {}).forEach(function (key) {
         var paper = Object.assign({}, cards[kind[0]].added[key], fields[key] || {});
-        results.push({ id: key, kind: kind[0], title: kind[1] + ' · ' + (paper.title || paper.doi || '未命名论文') });
+        results.push({ id: key, kind: kind[0], title: kind[1] + ' · ' + (paper.title || paper.doi || '未命名论文'), item: paper });
       });
     });
     return results;
@@ -8137,13 +8138,13 @@
   function renderResearchProjects() {
     var collection = state.researchProjects || { projects: [], trash: [] }, projects = collection.projects || [], trash = collection.trash || [], list = $('#projectList');
     $('#projectTrash').textContent = state.projectTrashOpen ? '返回项目' : '回收站' + (trash.length ? ' (' + trash.length + ')' : '');
-    if (state.projectTrashOpen) { list.innerHTML = recycleBinToolbar('project', '研究项目', trash.length) + (trash.length ? trash.map(function (entry) { return '<div class="project-trash-row"><div><b>' + escapeHtml((entry.item || {}).title || '未命名项目') + '</b><span>' + escapeHtml(entry.deletedAt || '') + '</span></div><div><button type="button" data-project-restore="' + entry.id + '">恢复</button><button type="button" data-project-purge="' + entry.id + '">彻底删除</button></div></div>'; }).join('') : '<div class="project-list-empty">回收站为空</div>'); projectFields().forEach(function (id) { $('#' + id).value = ''; $('#' + id).disabled = true; }); $('#projectDelete').hidden = true; $('#projectSummary').innerHTML = '<div class="project-summary-empty">可在左侧恢复误删项目。</div>'; renderProjectLinkControls(null); return; }
+    if (state.projectTrashOpen) { list.innerHTML = recycleBinToolbar('project', '研究项目', trash.length) + (trash.length ? trash.map(function (entry) { return '<div class="project-trash-row"><div><b>' + escapeHtml((entry.item || {}).title || '未命名项目') + '</b><span>' + escapeHtml(entry.deletedAt || '') + '</span></div><div><button type="button" data-project-restore="' + entry.id + '">恢复</button><button type="button" data-project-purge="' + entry.id + '">彻底删除</button></div></div>'; }).join('') : '<div class="project-list-empty">回收站为空</div>'); projectFields().forEach(function (id) { $('#' + id).value = ''; $('#' + id).disabled = true; }); $('#projectDelete').hidden = true; $('#projectExport').disabled = true; $('#projectSummary').innerHTML = '<div class="project-summary-empty">可在左侧恢复误删项目。</div>'; renderProjectLinkControls(null); return; }
     var categories = Array.from(new Set(projects.map(function (project) { return (project.category || '通用').trim() || '通用'; }))).sort();
     var visible = state.projectCategoryFilter === 'all' ? projects : projects.filter(function (project) { return ((project.category || '通用').trim() || '通用') === state.projectCategoryFilter; });
     if (!visible.some(function (project) { return Number(project.id) === Number(state.projectId); })) state.projectId = visible[0] ? visible[0].id : null;
     var active = activeResearchProject();
     list.innerHTML = projects.length ? '<div class="project-category-list"><button type="button" class="project-category' + (state.projectCategoryFilter === 'all' ? ' is-active' : '') + '" data-project-category="all">全部 <span>' + projects.length + '</span></button>' + categories.map(function (category) { return '<button type="button" class="project-category' + (state.projectCategoryFilter === category ? ' is-active' : '') + '" data-project-category="' + escapeHtml(category) + '">' + escapeHtml(category) + '<span>' + projects.filter(function (project) { return ((project.category || '通用').trim() || '通用') === category; }).length + '</span></button>'; }).join('') + '</div><div class="project-list-label">我的项目 <span>' + visible.length + '</span></div>' + (visible.length ? visible.map(function (project) { return '<button type="button" class="project-list-item' + (Number(project.id) === Number(state.projectId) ? ' is-active' : '') + '" data-project-id="' + project.id + '"><b>' + escapeHtml(project.title || '未命名项目') + '</b><span>' + escapeHtml(project.category || '通用') + ' · ' + escapeHtml(project.status || '规划中') + ' · ' + Math.max(0, Math.min(100, Number(project.progress) || 0)) + '%</span></button>'; }).join('') : '<div class="project-list-empty">此分类暂无项目</div>') : '<div class="project-list-empty">还没有研究项目<br>点击右上角新建</div>';
-    projectFields().forEach(function (id) { $('#' + id).disabled = !active; }); $('#projectDelete').hidden = !active;
+    projectFields().forEach(function (id) { $('#' + id).disabled = !active; }); $('#projectDelete').hidden = !active; $('#projectExport').disabled = !active;
     $('#projectTitle').value = active ? active.title || '' : ''; $('#projectCategory').value = active ? active.category || '通用' : ''; $('#projectStatus').value = active ? active.status || '规划中' : '规划中'; $('#projectProgress').value = active ? Math.max(0, Math.min(100, Number(active.progress) || 0)) : 0; $('#projectStart').value = active ? active.start || '' : ''; $('#projectEnd').value = active ? active.end || '' : ''; $('#projectGoal').value = active ? active.goal || '' : ''; $('#projectMembers').value = active ? active.members || '' : ''; $('#projectMilestones').value = active ? active.milestones || '' : ''; $('#projectResources').value = active ? active.resources || '' : '';
     renderProjectLinkControls(active);
     renderProjectSummary();
@@ -8159,6 +8160,92 @@
       var target = projectLinkTargets(link.type).find(function (entry) { return entry.id === link.id; });
       return target ? '<button class="project-summary-link" type="button" data-project-link-open="' + escapeHtml(link.type) + '" data-link-id="' + escapeHtml(link.id) + '"><small>' + escapeHtml(projectLinkTypes[link.type]) + '</small>' + escapeHtml(target.title) + ' ↗</button>' : '';
     }).join('') : '<p>暂无关联记录</p>') + '</section><section><h3>文字备注与外部链接</h3>' + (resources.length ? '<ul>' + resources.map(function (item) { return '<li>' + escapeHtml(item) + '</li>'; }).join('') + '</ul>' : '<p>尚未设置</p>') + '</section>';
+  }
+  function projectExportText(value) {
+    if (Array.isArray(value)) return value.map(projectExportText).filter(Boolean).join('、');
+    if (value && typeof value === 'object') return JSON.stringify(value);
+    return String(value == null ? '' : value).trim();
+  }
+  function appendProjectExportField(lines, label, value) {
+    var text = projectExportText(value);
+    if (text) lines.push('- **' + label + '：** ' + text);
+  }
+  function exportResearchProject() {
+    var project = activeResearchProject();
+    if (!project || state.projectTrashOpen) { toast('请先选择一个研究项目'); return; }
+    var title = $('#projectTitle').value.trim() || project.title || '未命名项目';
+    var progress = Math.max(0, Math.min(100, Number($('#projectProgress').value) || 0));
+    var lines = ['# ' + title + '｜项目档案', '', '导出时间：' + new Date().toLocaleString('zh-CN'), '', '## 项目信息'];
+    appendProjectExportField(lines, '分类', $('#projectCategory').value || project.category);
+    appendProjectExportField(lines, '状态', $('#projectStatus').value || project.status);
+    appendProjectExportField(lines, '完成进度', progress + '%');
+    appendProjectExportField(lines, '起止日期', [$('#projectStart').value || project.start, $('#projectEnd').value || project.end].filter(Boolean).join(' 至 '));
+    appendProjectExportField(lines, '成员与分工', $('#projectMembers').value || project.members);
+    lines.push('', '## 研究目标', '', $('#projectGoal').value.trim() || project.goal || '（未填写）', '', '## 关键里程碑');
+    var milestones = ($('#projectMilestones').value || project.milestones || '').split(/\r?\n/).map(function (item) { return item.trim(); }).filter(Boolean);
+    lines.push.apply(lines, milestones.length ? milestones.map(function (item) { return '- ' + item; }) : ['（未填写）']);
+    lines.push('', '## 关联工作台记录');
+    var links = projectLinksFor(project);
+    var groups = { paper: [], reference: [], variable: [], knowledge: [], note: [] };
+    links.forEach(function (link) {
+      var target = projectLinkTargets(link.type).find(function (entry) { return entry.id === link.id; });
+      if (target && groups[link.type]) groups[link.type].push(target);
+    });
+    var papers = groups.paper;
+    lines.push('', '### 论文管线');
+    if (!papers.length) lines.push('（暂无关联论文）');
+    papers.forEach(function (target) {
+      var paper = target.item || {};
+      lines.push('', '#### ' + (paper.title || paper.doi || '未命名论文'));
+      appendProjectExportField(lines, '阶段', target.title.split(' · ')[0]);
+      appendProjectExportField(lines, '作者', paper.authors);
+      appendProjectExportField(lines, '期刊', paper.journal || paper.currentJournal || paper.targetJournal);
+      appendProjectExportField(lines, '年份', paper.year);
+      appendProjectExportField(lines, 'DOI', paper.doi);
+      appendProjectExportField(lines, '摘要', paper.abstract);
+      appendProjectExportField(lines, '关键词', paper.keywords);
+    });
+    lines.push('', '### 文献与引用');
+    if (!groups.reference.length) lines.push('（暂无关联文献）');
+    groups.reference.forEach(function (target) {
+      var item = target.item || {};
+      lines.push('', '- **' + (item.title || '未命名文献') + '**');
+      appendProjectExportField(lines, '作者', item.authors);
+      appendProjectExportField(lines, '年份', item.year);
+      appendProjectExportField(lines, '来源', item.source);
+      appendProjectExportField(lines, 'DOI', item.doi);
+      appendProjectExportField(lines, '链接', item.url);
+      appendProjectExportField(lines, '备注', item.notes);
+    });
+    lines.push('', '### 变量库');
+    if (!groups.variable.length) lines.push('（暂无关联变量）');
+    groups.variable.forEach(function (target) {
+      var item = target.item || {};
+      lines.push('', '- **' + (item.name || '未命名变量') + '**');
+      appendProjectExportField(lines, '研究角色', item.role);
+      appendProjectExportField(lines, '变量标识', item.symbol);
+      appendProjectExportField(lines, '定义', item.definition);
+      appendProjectExportField(lines, '测量方式', item.measure);
+      appendProjectExportField(lines, '数据来源', item.source);
+      appendProjectExportField(lines, '参考文献', item.paper);
+    });
+    [['knowledge', '知识库文档'], ['note', '公众号笔记']].forEach(function (group) {
+      lines.push('', '### ' + group[1]);
+      if (!groups[group[0]].length) { lines.push('（暂无关联内容）'); return; }
+      groups[group[0]].forEach(function (target) {
+        var item = target.item || {};
+        lines.push('', '#### ' + (item.title || '未命名记录'), '');
+        appendProjectExportField(lines, '最近更新', item.updated);
+        var content = group[0] === 'knowledge' ? item.content : item.markdown;
+        if (content) lines.push('', String(content).trim());
+      });
+    });
+    var resources = ($('#projectResources').value || project.resources || '').split(/\r?\n/).map(function (item) { return item.trim(); }).filter(Boolean);
+    lines.push('', '## 文字备注与外部链接', '');
+    lines.push.apply(lines, resources.length ? resources.map(function (item) { return '- ' + item; }) : ['（未填写）']);
+    var safeTitle = title.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').replace(/[. ]+$/g, '').slice(0, 80) || '研究项目';
+    downloadTextFile('\ufeff' + lines.join('\n').replace(/\n{3,}/g, '\n\n') + '\n', safeTitle + '-项目档案-' + new Date().toISOString().slice(0, 10) + '.md');
+    toast('项目档案已导出为 Markdown');
   }
   function newResearchProject() { api('/api/research-projects', { method: 'POST', body: JSON.stringify({ action: 'create' }) }).then(function (res) { if (!res.ok) { toast(res.error || '新建失败'); return; } state.researchProjects = res.researchProjects; state.projectTrashOpen = false; state.projectCategoryFilter = 'all'; state.projectId = res.researchProjects.projects[0].id; renderResearchProjects(); $('#projectTitle').focus(); }); }
   function readResearchProjectPayload() { return { action: 'save', id: state.projectId, title: $('#projectTitle').value, category: $('#projectCategory').value, status: $('#projectStatus').value, progress: $('#projectProgress').value, start: $('#projectStart').value, end: $('#projectEnd').value, goal: $('#projectGoal').value, members: $('#projectMembers').value, milestones: $('#projectMilestones').value, resources: $('#projectResources').value, links: normalizedProjectLinks((activeResearchProject() || {}).links) }; }
