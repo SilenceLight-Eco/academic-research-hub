@@ -97,6 +97,17 @@
   var trackerCategoryCatalogKey = 'academic-workbench-journal-categories-v1';
   var trackerCategoryOrderKey = 'academic-workbench-journal-category-order-v1';
   var trackerCategoryColorsKey = 'academic-workbench-journal-category-colors-v1';
+  var trackerAddCategoryPreferenceKey = 'academic-workbench-tracker-add-category-v1';
+  function rememberTrackerAddCategory(category) {
+    var name = cleanTrackerCategoryName(category);
+    if (!name || name === '未分类' || name === '__default__' || name === '__new_category__') name = '';
+    state.trackerAddCategory = name;
+    try {
+      if (name) localStorage.setItem(trackerAddCategoryPreferenceKey, name);
+      else localStorage.removeItem(trackerAddCategoryPreferenceKey);
+    } catch (_) {}
+  }
+  try { state.trackerAddCategory = cleanTrackerCategoryName(localStorage.getItem(trackerAddCategoryPreferenceKey) || ''); } catch (_) {}
   function restoreTrackerCategoryColors() {
     try {
       var saved = JSON.parse(localStorage.getItem(trackerCategoryColorsKey) || '{}');
@@ -209,7 +220,7 @@
         delete state.trackerCategoryColors[action.from];
         saveTrackerCategoryColors();
       }
-      if (state.trackerAddCategory === action.from) state.trackerAddCategory = action.to;
+      if (state.trackerAddCategory === action.from) rememberTrackerAddCategory(action.to);
       if (state.trackerJournalCategoryFilter === action.from) state.trackerJournalCategoryFilter = action.to;
       if (Object.prototype.hasOwnProperty.call(state.trackerJournalCategoryCollapsed, action.from)) {
         state.trackerJournalCategoryCollapsed[action.to] = state.trackerJournalCategoryCollapsed[action.from];
@@ -225,7 +236,7 @@
       saveTrackerCategoryOrder();
       delete state.trackerCategoryColors[action.category];
       saveTrackerCategoryColors();
-      if (state.trackerAddCategory === action.category) state.trackerAddCategory = '';
+      if (state.trackerAddCategory === action.category) rememberTrackerAddCategory('');
       if (state.trackerJournalCategoryFilter === action.category) state.trackerJournalCategoryFilter = 'all';
       delete state.trackerJournalCategoryCollapsed[action.category];
       try { localStorage.setItem('academic-workbench-journal-categories-collapsed-v1', JSON.stringify(state.trackerJournalCategoryCollapsed)); } catch (_) {}
@@ -6034,10 +6045,13 @@
     $('#trackerRefresh').textContent = state.journalTrackerRefreshingAll ? '正在检查…' : '立即检查更新';
     var addCategorySelect = $('#trackerAddCategory');
     var addCategoryValue = state.trackerAddCategory === undefined ? '' : state.trackerAddCategory;
-    if (addCategoryValue === '未分类') { addCategoryValue = ''; state.trackerAddCategory = ''; }
+    if (addCategoryValue === '未分类' || addCategoryValue === '__default__' || addCategoryValue === '__new_category__') addCategoryValue = '';
     var addCategoryOptions = journalCategories.filter(function (category) { return category !== '未分类'; });
-    if (addCategoryValue && addCategoryValue !== '__default__' && addCategoryOptions.indexOf(addCategoryValue) < 0) addCategoryOptions.push(addCategoryValue);
-    addCategorySelect.innerHTML = '<option value="" disabled>请选择或新建分类</option>' + addCategoryOptions.sort(function (left, right) { return left.localeCompare(right, 'zh-CN'); }).map(function (category) {
+    if (addCategoryOptions.length || state.journalTrackerLoaded) {
+      if (addCategoryOptions.indexOf(addCategoryValue) < 0) addCategoryValue = addCategoryOptions[0] || '';
+      if (state.trackerAddCategory !== addCategoryValue) rememberTrackerAddCategory(addCategoryValue);
+    }
+    addCategorySelect.innerHTML = '<option value="" disabled>请选择或新建分类</option>' + addCategoryOptions.map(function (category) {
       return '<option value="' + escapeHtml(category) + '">' + escapeHtml(category) + '</option>';
     }).join('') + '<option value="__new_category__">＋新建分类…</option>';
     addCategorySelect.value = addCategoryValue && addCategoryOptions.indexOf(addCategoryValue) >= 0 ? addCategoryValue : '';
@@ -6246,8 +6260,6 @@
       applyJournalTrackerData(result);
       $('#trackerSearchResults').hidden = true;
       $('#trackerJournalQuery').value = '';
-      state.trackerAddCategory = '';
-      $('#trackerAddCategory').value = '';
       setTrackerStatus(result.warning ? '订阅已保存，但首次检查未找到文章：' + result.warning : '', false);
       toast(result.warning ? '订阅已保存；可为该期刊补充官网 RSS' : '期刊已加入每日追踪');
     }).catch(function (error) {
@@ -6309,7 +6321,7 @@
     var hasAssignedJournals = (state.journalTracker.subscriptions || []).some(function (item) { return cleanTrackerCategoryName(item.category) === category; });
     if (!hasAssignedJournals) {
       updateTrackerCategoryCatalog({ action: 'rename-category', from: category, to: nextName });
-      if (state.trackerAddCategory === category) state.trackerAddCategory = nextName;
+      if (state.trackerAddCategory === category) rememberTrackerAddCategory(nextName);
       if (state.trackerJournalCategoryFilter === category) state.trackerJournalCategoryFilter = nextName;
       saveTrackerDisplayPreferences();
       renderJournalTracker();
@@ -6731,17 +6743,16 @@
       var createdCategory = false;
       if (selectedCategory === '__new_category__') {
         var proposed = window.prompt('输入新的期刊分类名称（最多 60 个字符）：');
-        if (proposed === null) { state.trackerAddCategory = ''; this.value = ''; return; }
+        if (proposed === null) { this.value = state.trackerAddCategory || ''; return; }
         selectedCategory = cleanTrackerCategoryName(proposed);
         if (!selectedCategory || selectedCategory === '未分类' || selectedCategory === '__default__' || selectedCategory === '__new_category__') {
-          state.trackerAddCategory = '';
-          this.value = '';
+          this.value = state.trackerAddCategory || '';
           toast('请输入有效的分类名称');
           return;
         }
         createdCategory = true;
       }
-      state.trackerAddCategory = selectedCategory;
+      rememberTrackerAddCategory(selectedCategory);
       if (createdCategory) {
         rememberTrackerCategory(selectedCategory);
         renderJournalTracker();
