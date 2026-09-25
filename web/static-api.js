@@ -462,6 +462,31 @@
       var dataRevision = workspaceRevision;
       activeWritePayload = data;
       activeWriteRevision = dataRevision;
+      if (path === '/api/prompt-library' && (body.action === 'rename-category' || body.action === 'delete-category')) {
+        var promptLibrary = data.promptLibrary || (data.promptLibrary = { prompts: [], trash: [], categories: ['通用'] });
+        promptLibrary.prompts = Array.isArray(promptLibrary.prompts) ? promptLibrary.prompts : [];
+        promptLibrary.trash = Array.isArray(promptLibrary.trash) ? promptLibrary.trash : [];
+        promptLibrary.categories = Array.isArray(promptLibrary.categories) ? promptLibrary.categories : [];
+        var oldCategory = String(body.category || '').trim();
+        var managedCategory = oldCategory === '通用' ? '通用' : oldCategory;
+        var categoryExists = managedCategory && (promptLibrary.categories.indexOf(managedCategory) >= 0 || promptLibrary.prompts.some(function (prompt) { return String(prompt.category || '通用').trim() === managedCategory; }));
+        if (!managedCategory || managedCategory === '通用') return response({ ok: false, error: '“通用”是默认文件夹，不能重命名或删除' }, 400);
+        if (!categoryExists) return response({ ok: false, error: '找不到该文件夹，可能已被移除' }, 404);
+        var nextCategory = String(body.newCategory || '').trim().slice(0, 40);
+        if (body.action === 'rename-category') {
+          if (!nextCategory) return response({ ok: false, error: '文件夹名称不能为空' }, 400);
+          if (promptLibrary.categories.some(function (item) { return String(item).toLocaleLowerCase() === nextCategory.toLocaleLowerCase() && String(item) !== managedCategory; }) || promptLibrary.prompts.some(function (prompt) { return String(prompt.category || '通用').toLocaleLowerCase() === nextCategory.toLocaleLowerCase() && String(prompt.category || '通用') !== managedCategory; })) return response({ ok: false, error: '已存在同名文件夹' }, 409);
+        }
+        var currentPrompt = body.currentPrompt;
+        if (currentPrompt && currentPrompt.id != null) promptLibrary.prompts.forEach(function (prompt) { if (String(prompt.id) === String(currentPrompt.id)) { prompt.title = String(currentPrompt.title || '未命名提示词').trim(); prompt.category = String(currentPrompt.category || '通用').trim() || '通用'; prompt.tags = String(currentPrompt.tags || '').trim(); prompt.body = String(currentPrompt.body || ''); prompt.updated = nowText(); } });
+        var destinationCategory = body.action === 'delete-category' ? '通用' : nextCategory;
+        promptLibrary.prompts.forEach(function (prompt) { if (String(prompt.category || '通用').trim() === managedCategory) prompt.category = destinationCategory; });
+        promptLibrary.trash.forEach(function (entry) { if (entry.item && String(entry.item.category || '通用').trim() === managedCategory) entry.item.category = destinationCategory; });
+        promptLibrary.categories = promptLibrary.categories.map(function (item) { return String(item) === managedCategory ? destinationCategory : String(item); }).filter(function (item, index, all) { return item && all.indexOf(item) === index; });
+        if (promptLibrary.categories.indexOf('通用') < 0) promptLibrary.categories.unshift('通用');
+        await saveWorkspace(data, dataRevision);
+        return response({ ok: true, promptLibrary: promptLibrary });
+      }
       if (path === '/api/backup') { if (!await getUser()) return response({ error: '请先登录后使用数据备份' }, 401); if (method === 'GET') return response({ ok: true, data: data }); var backup = body.backup; if (!backup || backup.format !== 'academic-research-hub-backup' || backup.version !== 1 || !backup.data || typeof backup.data !== 'object' || Array.isArray(backup.data)) return response({ ok: false, error: '备份文件格式无效或版本不受支持' }, 400); if (JSON.stringify(backup.data).length > 20000000) return response({ ok: false, error: '备份文件超过 20 MB' }, 413); workspace = JSON.parse(JSON.stringify(backup.data)); activeWritePayload = workspace; applyBrowser(workspace); await saveWorkspace(workspace, dataRevision, body.overrideConflict === true); return response({ ok: true, restoredAt: nowText() }); }
       if (path === '/api/note-studio' && body.action === 'save') { var historyNotes = data.noteStudio && data.noteStudio.notes || []; var historyNote = historyNotes.filter(function (item) { return String(item.id) === String(body.id); })[0]; if (historyNote) archiveVersion(historyNote, ['title', 'markdown', 'style'], { title: String(body.title || '未命名笔记').trim(), markdown: String(body.markdown || ''), style: ['paper', 'ink', 'mint'].indexOf(body.style) >= 0 ? body.style : 'paper' }); }
       if (path === '/api/prompt-library' && body.action === 'save') { var historyPrompts = data.promptLibrary && data.promptLibrary.prompts || []; var historyPrompt = historyPrompts.filter(function (item) { return String(item.id) === String(body.id); })[0]; if (historyPrompt) archiveVersion(historyPrompt, ['title', 'category', 'tags', 'body'], { title: String(body.title || '未命名提示词').trim(), category: String(body.category || '通用').trim(), tags: String(body.tags || '').trim(), body: String(body.body || '') }); }
