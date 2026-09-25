@@ -6034,12 +6034,13 @@
     $('#trackerRefresh').textContent = state.journalTrackerRefreshingAll ? '正在检查…' : '立即检查更新';
     var addCategorySelect = $('#trackerAddCategory');
     var addCategoryValue = state.trackerAddCategory === undefined ? '' : state.trackerAddCategory;
+    if (addCategoryValue === '未分类') { addCategoryValue = ''; state.trackerAddCategory = ''; }
     var addCategoryOptions = journalCategories.filter(function (category) { return category !== '未分类'; });
     if (addCategoryValue && addCategoryValue !== '__default__' && addCategoryOptions.indexOf(addCategoryValue) < 0) addCategoryOptions.push(addCategoryValue);
-    addCategorySelect.innerHTML = '<option value="">未分类</option>' + addCategoryOptions.sort(function (left, right) { return left.localeCompare(right, 'zh-CN'); }).map(function (category) {
+    addCategorySelect.innerHTML = '<option value="" disabled>请选择或新建分类</option>' + addCategoryOptions.sort(function (left, right) { return left.localeCompare(right, 'zh-CN'); }).map(function (category) {
       return '<option value="' + escapeHtml(category) + '">' + escapeHtml(category) + '</option>';
     }).join('') + '<option value="__new_category__">＋新建分类…</option>';
-    addCategorySelect.value = addCategoryValue;
+    addCategorySelect.value = addCategoryValue && addCategoryOptions.indexOf(addCategoryValue) >= 0 ? addCategoryValue : '';
     var categoryManageButton = $('#trackerCategoryManageToggle');
     categoryManageButton.textContent = state.trackerCategoryManageMode ? '完成' : '管理分类';
     categoryManageButton.setAttribute('aria-pressed', String(Boolean(state.trackerCategoryManageMode)));
@@ -6235,8 +6236,12 @@
     if (button) { button.disabled = true; button.textContent = '添加中…'; }
     setTrackerStatus('正在创建订阅并抓取近期文章，首次更新可能需要十几秒…', false);
     var category = $('#trackerAddCategory').value;
-    var addPayload = { action: 'add', issn: issn };
-    if (category && category !== '__default__' && category !== '__new_category__') addPayload.category = category;
+    if (!category || category === '__default__' || category === '__new_category__' || category === '未分类') {
+      if (button) { button.disabled = false; button.textContent = '追踪'; }
+      setTrackerStatus('请先为新期刊选择分类，或新建分类。', true);
+      return;
+    }
+    var addPayload = { action: 'add', issn: issn, category: category };
     journalTrackerRequest(addPayload).then(function (result) {
       applyJournalTrackerData(result);
       $('#trackerSearchResults').hidden = true;

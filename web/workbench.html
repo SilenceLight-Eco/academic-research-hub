@@ -419,7 +419,7 @@
             <form id="trackerSearchForm" class="tracker-add-form">
               <label for="trackerJournalQuery">查找期刊</label>
               <div class="tracker-journal-input-row"><input id="trackerJournalQuery" type="search" placeholder="输入期刊名称或 ISSN" autocomplete="off"><button type="submit">查找</button></div>
-              <div class="tracker-add-category-field"><label for="trackerAddCategory">新期刊分类</label><select id="trackerAddCategory" aria-label="添加期刊时选择分类"><option value="">未分类</option></select></div>
+              <div class="tracker-add-category-field"><label for="trackerAddCategory">新期刊分类</label><select id="trackerAddCategory" aria-label="添加期刊时选择分类"><option value="" disabled selected>请选择或新建分类</option></select></div>
               <p>通过期刊目录查找，找到后点击结果中的“追踪”。未找到时可尝试完整刊名或 ISSN；订阅后可在期刊卡片中设置官网 RSS / Atom。成功期刊每 24 小时检查一次，失败期刊会按退避间隔自动重试。</p>
             </form>
             <div id="trackerSearchResults" class="tracker-search-results" hidden></div>
@@ -1428,6 +1428,6 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
   <script src="static-api.js?v=20260925-82"></script>
-  <script src="app.js?v=20260925-118"></script>
+  <script src="app.js?v=20260925-119"></script>
 </body>
 </html>
