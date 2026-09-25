@@ -91,6 +91,18 @@
     trackerCategoryManageMode: false,
     trackerSelectedJournalIds: {},
   };
+  window.__academicAttachmentContext = function (kind) {
+    if (kind === 'knowledge' && state.kbDocId && !state.kbTrashOpen) {
+      return { id: String(state.kbDocId), title: ($('#kbDocTitle') || {}).value || '知识库文档' };
+    }
+    if (kind === 'project' && state.projectId && !state.projectTrashOpen) {
+      return { id: String(state.projectId), title: ($('#projectTitle') || {}).value || '研究项目' };
+    }
+    if (kind === 'reference' && state.referenceId && !state.referenceTrashOpen) {
+      return { id: String(state.referenceId), title: ($('#refTitle') || {}).value || '文献' };
+    }
+    return null;
+  };
   try { state.trackerCollapsedGroups = Object.assign(state.trackerCollapsedGroups, JSON.parse(localStorage.getItem('academic-workbench-tracker-collapsed-v1') || '{}')); } catch (_) {}
   try { state.trackerJournalCategoryCollapsed = JSON.parse(localStorage.getItem('academic-workbench-journal-categories-collapsed-v1') || '{}'); } catch (_) {}
   var trackerDisplayPreferencesKey = 'academic-workbench-tracker-display-v1';
@@ -8389,6 +8401,7 @@
     $('#kbEditor').innerHTML = active ? '<div class="kb-editor-tabs"><button type="button" class="' + (mode === 'edit' ? 'is-active' : '') + '" data-kb-mode="edit">编辑</button><button type="button" class="' + (mode === 'preview' ? 'is-active' : '') + '" data-kb-mode="preview">预览</button><span>Markdown</span></div><input id="kbDocTitle" class="kb-doc-title" value="' + escapeHtml(draft.title || '') + '" placeholder="文档标题"><select id="kbDocFolder"><option value="">未分类</option>' + folders.map(function (folder) { return '<option value="' + folder.id + '"' + (String(folder.id) === String(draft.folderId) ? ' selected' : '') + '>' + escapeHtml(folder.title) + '</option>'; }).join('') + '</select>' + (mode === 'preview' ? '<article class="kb-markdown-preview">' + renderKnowledgeMarkdown(draft.content || '') + '</article>' : '<textarea id="kbDocContent" class="kb-doc-content" placeholder="# 标题\n\n使用 Markdown 记录你的想法、文献笔记和研究材料…">' + escapeHtml(draft.content || '') + '</textarea>') + '<div class="kb-editor-foot"><span>Markdown · 最近更新：' + escapeHtml(active.updated || '尚未保存') + '</span><button id="kbSaveDoc" type="button">立即保存</button></div>' : '<div class="kb-editor-empty">' + (folderId === 'all' ? '选择左侧文档，或新建一篇文档开始记录。' : '此文件夹还没有文档，可在此文件夹中新建文档。') + '</div>';
     var editorFoot = $('.kb-editor-foot', $('#kbEditor'));
     if (editorFoot) { var historyButton = document.createElement('button'); historyButton.type = 'button'; historyButton.dataset.versionHistory = 'knowledge'; historyButton.textContent = '版本记录' + (active.versions && active.versions.length ? ' (' + active.versions.length + ')' : ''); editorFoot.insertBefore(historyButton, $('#kbSaveDoc')); }
+    if (editorFoot && active) { var fileButton = document.createElement('button'); fileButton.type = 'button'; fileButton.dataset.fileContext = 'knowledge'; fileButton.textContent = '附件'; editorFoot.insertBefore(fileButton, $('#kbSaveDoc')); }
     var save = $('#kbSaveDoc'); if (save) save.addEventListener('click', saveKnowledgeDoc);
   }
 

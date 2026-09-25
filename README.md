@@ -75,3 +75,13 @@ THIRD_PARTY_NOTICES.md        上游项目及第三方许可说明
 ## 来源与许可
 
 本项目整合并改造了 [Academic Workbench](https://github.com/wujing855/academic-workbench) 与 [Offline Research Hub](https://github.com/ShutterZor/offline-research-hub)。请参阅 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 和 [LICENSE](LICENSE) 了解版权与许可信息。
+
+## 文件附件
+
+知识库文档、研究项目、文献条目以及论文管线卡片可分别上传附件；在研论文的附件也可存放数据、代码与复现材料。文件保存在账号隔离的私有 Supabase Storage 存储桶中，不会塞进工作台正文或浏览器本地存储；同一账号在其他设备登录后可下载。单个文件上限为 50 MB，较大的文件使用可续传上传。删除附件是永久删除，请先确认不再需要。
+
+自行部署时，先在 Supabase 执行 [`supabase/migrations/202609250001_research_attachments.sql`](supabase/migrations/202609250001_research_attachments.sql)，再发布前端。工作台导出的 JSON 备份**不包含附件文件**；请另外备份重要原始文件。附件会占用 Supabase Storage 配额。
+
+## 安卓快捷方式备用入口
+
+如果 Android Chrome 一直停在“安装中”，可打开 [轻量快捷方式入口](https://silencelight-eco.github.io/academic-research-hub/shortcut.html)，从 Chrome 菜单选择“添加到主屏幕／创建快捷方式”。这个入口不声明 PWA 清单，避免触发 WebAPK 打包；它是浏览器快捷方式而不是 APK，仍需网络访问，账号与云端数据和主站共用。

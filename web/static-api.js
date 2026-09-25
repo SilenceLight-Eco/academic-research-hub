@@ -156,6 +156,107 @@
   // Read the persisted browser session first. Unlike getUser(), this does not
   // depend on a network round-trip during a page refresh.
   async function getUser() { await window.__academicAuthReady; var result = await client.auth.getSession(); return result.data.session ? result.data.session.user : null; }
+  var attachmentBucket = 'research-attachments';
+  var attachmentTusPromise = null;
+  function attachmentContext(kind, id) {
+    var validKind = ['knowledge', 'project', 'reference', 'paper'].indexOf(kind) >= 0;
+    var validId = /^[A-Za-z0-9_-]{1,120}$/.test(String(id || ''));
+    if (!validKind || !validId) throw new Error('请先选择已保存的文档、项目或论文');
+    return { kind: kind, id: String(id) };
+  }
+  async function attachmentSession() {
+    await window.__academicAuthReady;
+    var result = await client.auth.getSession();
+    if (result.error || !result.data || !result.data.session) throw new Error('请先登录后使用云端附件');
+    return result.data.session;
+  }
+  function loadAttachmentTus() {
+    if (window.tus && window.tus.Upload) return Promise.resolve(window.tus);
+    if (!attachmentTusPromise) attachmentTusPromise = new Promise(function (resolve, reject) {
+      var script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/tus-js-client@4.3.1/dist/tus.min.js';
+      script.onload = function () { window.tus && window.tus.Upload ? resolve(window.tus) : reject(new Error('大文件上传组件未加载')); };
+      script.onerror = function () { reject(new Error('大文件上传组件加载失败，请检查网络')); };
+      document.head.appendChild(script);
+    }).catch(function (error) { attachmentTusPromise = null; throw error; });
+    return attachmentTusPromise;
+  }
+  async function uploadLargeAttachment(file, path, session, onProgress) {
+    var tus = await loadAttachmentTus();
+    return new Promise(function (resolve, reject) {
+      var upload = new tus.Upload(file, {
+        endpoint: 'https://gqopwqpysoixcgdacurx.storage.supabase.co/storage/v1/upload/resumable',
+        retryDelays: [0, 3000, 5000, 10000],
+        headers: { authorization: 'Bearer ' + session.access_token, apikey: key },
+        uploadDataDuringCreation: true,
+        removeFingerprintOnSuccess: true,
+        chunkSize: 6 * 1024 * 1024,
+        metadata: { bucketName: attachmentBucket, objectName: path, contentType: file.type || 'application/octet-stream', cacheControl: '3600' },
+        onError: reject,
+        onProgress: function (sent, total) { if (onProgress) onProgress(Math.round(sent / Math.max(total, 1) * 100)); },
+        onSuccess: resolve
+      });
+      upload.findPreviousUploads().then(function (previous) {
+        if (previous.length) upload.resumeFromPreviousUpload(previous[0]);
+        upload.start();
+      }).catch(reject);
+    });
+  }
+  window.__academicAttachments = {
+    list: async function (kind, id) {
+      var context = attachmentContext(kind, id);
+      await attachmentSession();
+      var result = await client.from('research_attachments')
+        .select('id,file_name,file_size,content_type,created_at')
+        .eq('context_kind', context.kind).eq('context_id', context.id)
+        .order('created_at', { ascending: false }).limit(200);
+      if (result.error) throw result.error;
+      return result.data || [];
+    },
+    upload: async function (kind, id, file, onProgress) {
+      var context = attachmentContext(kind, id);
+      var session = await attachmentSession();
+      if (!file || !file.name || file.size > 50 * 1024 * 1024) throw new Error('请选择不超过 50 MB 的文件');
+      if (file.name.length > 255) throw new Error('文件名不能超过 255 个字符');
+      var extension = (file.name.match(/\.([A-Za-z0-9]{1,12})$/) || [,'bin'])[1].toLowerCase();
+      var path = session.user.id + '/' + context.kind + '/' + crypto.randomUUID() + '.' + extension;
+      var storage = client.storage.from(attachmentBucket);
+      if (file.size > 6 * 1024 * 1024) {
+        await uploadLargeAttachment(file, path, session, onProgress);
+      } else {
+        var uploaded = await storage.upload(path, file, { contentType: file.type || 'application/octet-stream', upsert: false });
+        if (uploaded.error) throw uploaded.error;
+        if (onProgress) onProgress(100);
+      }
+      var result = await client.from('research_attachments').insert({
+        user_id: session.user.id, context_kind: context.kind, context_id: context.id,
+        object_path: path, file_name: file.name, file_size: file.size,
+        content_type: file.type || 'application/octet-stream'
+      }).select('id,file_name,file_size,content_type,created_at').single();
+      if (result.error) {
+        await storage.remove([path]).catch(function () {});
+        throw result.error;
+      }
+      return result.data;
+    },
+    download: async function (id) {
+      await attachmentSession();
+      var record = await client.from('research_attachments').select('object_path,file_name').eq('id', id).single();
+      if (record.error) throw record.error;
+      var downloaded = await client.storage.from(attachmentBucket).download(record.data.object_path);
+      if (downloaded.error) throw downloaded.error;
+      return { blob: downloaded.data, name: record.data.file_name };
+    },
+    remove: async function (id) {
+      await attachmentSession();
+      var record = await client.from('research_attachments').select('object_path').eq('id', id).single();
+      if (record.error) throw record.error;
+      var removed = await client.storage.from(attachmentBucket).remove([record.data.object_path]);
+      if (removed.error) throw removed.error;
+      var deleted = await client.from('research_attachments').delete().eq('id', id);
+      if (deleted.error) throw deleted.error;
+    }
+  };
   async function loadWorkspace() {
     if (pendingWorkspaceConflict) { workspace = pendingWorkspaceConflict.localData; return workspace; }
     if (workspaceLoadPromise) return workspaceLoadPromise;

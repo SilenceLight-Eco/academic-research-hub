@@ -634,8 +634,9 @@ function renderResearchCard(p) {
     ${renderStageBlock(p)}
     <div class="next-action"><b>NEXT ACTION</b>${editableText(p, "nextAction")}</div>
     <div class="file-path-row"><span class="muted">文件夹</span>${editableText(p, "filePath", "path-text")}<button class="btn" onclick="copyPath('${encodeURIComponent(getPaperField(p, "filePath") || "")}')">复制路径</button></div>
+    <div class="file-path-row"><span class="muted">论文／数据与代码附件</span><button class="btn" type="button" onclick="openPaperFiles('${p._key}')">上传与查看文件</button></div>
     ${renderResearchResources(p)}
-    <button class="btn flow-btn" title="在研完成后流转到在投论文（仅继承标题、作者与文件夹路径）" onclick="moveToSubmitted('${p._key}')">转移到在投 ➜</button>
+    <button class="btn flow-btn" title="在研完成后流转到在投论文（继承标题、作者、文件夹路径与附件）" onclick="moveToSubmitted('${p._key}')">转移到在投 ➜</button>
   </article>`;
 }
 
@@ -771,7 +772,8 @@ function renderSubmittedCard(p) {
     <div class="next-action"><b>NEXT ACTION</b>${editableText(p, "nextAction")}</div>
     <div><div class="hist-head"><span class="muted">投稿历史</span><button class="stage-tool" title="添加投稿记录" onclick="addHistory('${p._key}')">＋</button></div><div class="timeline">${history.map((h, i) => `<div class="timeline-item"><div class="timeline-date">${editableHist(p, i, "date")}</div><div class="timeline-content"><strong>${editableHist(p, i, "journal")}</strong><select class="select hist-status" onchange="setHistoryStatus('${p._key}', ${i}, this.value)">${SUBMITTED_STATUS_OPTIONS.map(([v, l]) => `<option value="${v}" ${h.status === v ? "selected" : ""}>${l}</option>`).join("")}</select><button class="stage-tool" title="删除该记录" onclick="deleteHistory('${p._key}', ${i})">✕</button></div></div>`).join("") || "<div class='muted'>（暂无投稿历史）</div>"}</div></div>
     <div class="file-path-row"><span class="muted">文件夹</span>${editableText(p, "filePath", "path-text")}<button class="btn" onclick="copyPath('${encodeURIComponent(getPaperField(p, "filePath") || "")}')">复制路径</button></div>
-    <button class="btn flow-btn" title="录用后流转到已发表论文（继承标题、作者、当前期刊与文件夹路径）" onclick="moveToPublished('${p._key}')">转移到已发表 ➜</button>
+    <div class="file-path-row"><span class="muted">投稿附件</span><button class="btn" type="button" onclick="openPaperFiles('${p._key}')">上传与查看文件</button></div>
+    <button class="btn flow-btn" title="录用后流转到已发表论文（继承标题、作者、当前期刊、文件夹路径与附件）" onclick="moveToPublished('${p._key}')">转移到已发表 ➜</button>
   </article>`;
 }
 
@@ -952,6 +954,7 @@ function renderPublishedCard(p) {
     <div class="card-line"><span class="muted">页码</span><strong>${editableText(p, "pages")}</strong></div>
     <div class="card-line"><span class="muted">DOI</span><strong>${editableText(p, "doi")}</strong></div>
     <div class="citation-actions"><button class="btn" onclick="importPublishedMetadata('${p._key}')">按 DOI 补全摘要与关键词</button><button class="btn" data-semantic-scholar-key="${escapeHtml(p._key)}" onclick="importPublishedSemanticScholar('${p._key}')" title="优先按 DOI 查询；无 DOI 时按标题精确匹配，仅补充空字段">Semantic Scholar 补充信息</button></div>
+    <div class="file-path-row"><span class="muted">论文附件</span><button class="btn" type="button" onclick="openPaperFiles('${p._key}')">上传与查看文件</button></div>
     ${renderCitationBlock(p)}
     <div><div class="muted" style="margin-bottom:6px">摘要</div><div class="abstract">${editableText(p, "abstract", "editable-abstract")}</div></div>
     ${renderChipEditor(p, "keywords", "关键词")}
@@ -1701,7 +1704,7 @@ function moveToSubmitted(key) {
   const p = findPaperByKey(key);
   if (!p) return;
   const title = getPaperField(p, "title") || "未命名论文";
-  if (!confirm(`确定将“${title}”从在研论文转移到在投论文吗？\n只继承标题、作者与文件夹路径，其余信息需在在投页面手动补充。`)) return;
+  if (!confirm(`确定将“${title}”从在研论文转移到在投论文吗？\n继承标题、作者、文件夹路径与附件，其余信息需在在投页面手动补充。`)) return;
   const st = getCardStore();
   st.research = st.research || {};
   if (st.research.added && st.research.added[key]) delete st.research.added[key];
@@ -1716,10 +1719,11 @@ function moveToSubmitted(key) {
   const nk = "A" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const np = NEW_CARD_TEMPLATES.submitted();
   np._key = nk;
+  np.attachmentKey = kept.attachmentKey || p.attachmentKey || key;
   np.title = kept.title != null ? kept.title : (p.title || "");
   np.authors = kept.authors != null ? kept.authors : (p.authors || []);
   np.filePath = kept.filePath != null ? kept.filePath : (p.filePath || "");
-  fs[nk] = { title: np.title, authors: np.authors, filePath: np.filePath };
+  fs[nk] = { title: np.title, authors: np.authors, filePath: np.filePath, attachmentKey: np.attachmentKey };
   try { localStorage.setItem(FIELD_STORE_KEY, JSON.stringify(fs)); } catch (e) {}
   st.submitted = st.submitted || {};
   st.submitted.added = st.submitted.added || {};
@@ -1847,7 +1851,7 @@ function moveToPublished(key) {
   const p = findPaperByKey(key);
   if (!p) return;
   const title = getPaperField(p, "title") || "未命名论文";
-  if (!confirm(`确定将“${title}”从在投论文转移到已发表论文吗？\n将继承标题、作者、当前期刊（转为期刊名）与文件夹路径，其余信息需在已发表页面手动补充。`)) return;
+  if (!confirm(`确定将“${title}”从在投论文转移到已发表论文吗？\n将继承标题、作者、当前期刊（转为期刊名）、文件夹路径与附件，其余信息需在已发表页面手动补充。`)) return;
   const st = getCardStore();
   st.submitted = st.submitted || {};
   if (st.submitted.added && st.submitted.added[key]) delete st.submitted.added[key];
@@ -1862,11 +1866,12 @@ function moveToPublished(key) {
   const nk = "A" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const np = NEW_CARD_TEMPLATES.published();
   np._key = nk;
+  np.attachmentKey = kept.attachmentKey || p.attachmentKey || key;
   np.title = kept.title != null ? kept.title : (p.title || "");
   np.authors = kept.authors != null ? [...kept.authors] : (p.authors || []);
   np.journal = kept.currentJournal != null ? kept.currentJournal : (p.currentJournal || "");
   np.filePath = kept.filePath != null ? kept.filePath : (p.filePath || "");
-  fs[nk] = { title: np.title, authors: np.authors, journal: np.journal, filePath: np.filePath };
+  fs[nk] = { title: np.title, authors: np.authors, journal: np.journal, filePath: np.filePath, attachmentKey: np.attachmentKey };
   try { localStorage.setItem(FIELD_STORE_KEY, JSON.stringify(fs)); } catch (e) {}
   st.published = st.published || {};
   st.published.added = st.published.added || {};
@@ -2046,6 +2051,20 @@ async function copyAllPublishedReferences(){const zh=sortPublishedReferences((DA
 function openKnowledgeBaseFromPaper() {
   if (window.parent && window.parent !== window) { window.parent.postMessage({ type: "academic-research-hub-open-knowledge-base" }, window.location.origin); return; }
   window.location.hash = "knowledge-base";
+}
+
+function openPaperFiles(key) {
+  const paper = findPaperByKey(key);
+  if (!paper) return;
+  if (window.parent && window.parent !== window) {
+    window.parent.postMessage({
+      type: "academic-research-hub-open-attachments",
+      id: String(getPaperField(paper, "attachmentKey") || pkey(paper)),
+      title: String(getPaperField(paper, "title") || "论文")
+    }, window.location.origin);
+  } else {
+    alert("请从学术工作台打开论文管线后使用云端附件。");
+  }
 }
 
 function copyPath(encoded) {

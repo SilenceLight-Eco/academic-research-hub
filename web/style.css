@@ -6975,3 +6975,22 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .variable-trash-row button[data-variable-purge] { color:#bc4444; }
 .tracker-visible-count { display:inline-flex; align-items:center; margin-left:7px; padding:3px 8px; border:1px solid var(--hairline-soft); border-radius:999px; color:var(--text-muted); font:500 10px/1.3 "Noto Sans SC",sans-serif; vertical-align:middle; }
 @media (max-width:760px) { .variable-head { align-items:flex-start; flex-direction:column; }.variable-workspace { display:block; }.variable-list-pane { max-height:460px; overflow:auto; border-right:0; border-bottom:1px solid var(--hairline-soft); }.variable-editor { padding:16px; }.variable-split { grid-template-columns:1fr; } }
+
+/* Per-record cloud attachments are loaded only when their dialog opens. */
+.file-card { width:min(640px,calc(100vw - 32px)); max-height:calc(100dvh - 32px); box-sizing:border-box; overflow:auto; }
+.file-card h2 { padding-right:30px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.file-list { min-height:120px; max-height:min(48vh,420px); overflow:auto; border:1px solid var(--hairline-soft); border-radius:9px; background:var(--glass); }
+.file-empty { margin:0; padding:30px 16px; color:var(--text-muted); text-align:center; font-size:12px; }
+.file-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 12px; border-bottom:1px solid var(--hairline-soft); }
+.file-row:last-child { border-bottom:0; }
+.file-row-detail { min-width:0; }
+.file-row-detail strong,.file-row-detail small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.file-row-detail strong { color:var(--text); font-size:13px; font-weight:600; }
+.file-row-detail small { margin-top:4px; color:var(--text-muted); font-size:11px; }
+.file-row-actions { display:flex; flex:none; gap:6px; }
+.file-row-actions button { padding:6px 8px; border:1px solid var(--hairline); border-radius:6px; background:var(--glass-strong); color:var(--text-secondary); cursor:pointer; font:12px "Noto Sans SC",sans-serif; }
+.file-row-actions button:hover { border-color:var(--accent); color:var(--accent); }
+.file-row-actions button:disabled,#fileUpload:disabled { opacity:.55; cursor:wait; }
+.file-status { min-height:18px; color:var(--text-muted); font-size:12px; overflow-wrap:anywhere; }
+.file-status.is-error { color:#bc4444; }
+@media (max-width:560px) { .file-card { padding:20px; }.file-row { align-items:flex-start; flex-direction:column; }.file-row-actions { width:100%; }.file-row-actions button { flex:1; } }
