@@ -7011,8 +7011,7 @@
     $('#variableTrash').addEventListener('click', function () { state.variableTrashOpen = !state.variableTrashOpen; renderVariableLibrary(); });
     $('#variableSearch').addEventListener('input', function () { state.variableQuery = this.value; renderVariableLibrary(); });
     $('#variableCategories').addEventListener('click', function (event) { var category = event.target.closest('[data-variable-category]'); if (!category) return; state.variableCategoryFilter = category.dataset.variableCategory; state.variableId = null; renderVariableLibrary(); });
-    $('#variableList').addEventListener('click', function (event) { var restore = event.target.closest('[data-variable-restore]'); if (restore) { restoreVariable(restore.dataset.variableRestore); return; } var purge = event.target.closest('[data-variable-purge]'); if (purge) { purgeVariable(purge.dataset.variablePurge); return; } var collapse = event.target.closest('[data-variable-collapse]'); if (collapse) { toggleVariableRole(collapse.dataset.variableCollapse, collapse); return; } var item = event.target.closest('[data-variable-id]'); if (!item) return; state.variableId = item.dataset.variableId; renderVariableLibrary(); });
-    $('#variableList').addEventListener('dblclick', function (event) { var create = event.target.closest('[data-variable-role-create]'); if (create) { event.preventDefault(); newVariable(create.dataset.variableRoleCreate); } });
+    $('#variableList').addEventListener('click', function (event) { var restore = event.target.closest('[data-variable-restore]'); if (restore) { restoreVariable(restore.dataset.variableRestore); return; } var purge = event.target.closest('[data-variable-purge]'); if (purge) { purgeVariable(purge.dataset.variablePurge); return; } var create = event.target.closest('[data-variable-role-new]'); if (create) { newVariable(create.dataset.variableRoleNew); return; } var collapse = event.target.closest('[data-variable-collapse]'); if (collapse) { if (event.detail >= 2) { event.preventDefault(); newVariable(collapse.dataset.variableRoleCreate); return; } toggleVariableRole(collapse.dataset.variableCollapse, collapse); return; } var item = event.target.closest('[data-variable-id]'); if (!item) return; state.variableId = item.dataset.variableId; renderVariableLibrary(); });
     ['variableName', 'variablePaper', 'variableDefinition', 'variableMeasure', 'variableSource', 'variableNotes'].forEach(function (id) { $('#' + id).addEventListener('input', queueVariableAutoSave); $('#' + id).addEventListener('change', queueVariableAutoSave); });
     $('#variableRoleOptions').addEventListener('change', function (event) { if (!selectedVariableRoles().length && event.target.matches('input[name="variable-role"]')) event.target.checked = true; queueVariableAutoSave(); });
     $('#variableReferenceNew').addEventListener('click', createVariableReference);
@@ -7990,7 +7989,7 @@
   }
   function displayVariableRoleText(role) { return normalizeVariableRoles(role).join('、'); }
   function selectedVariableRoles() { return $$('#variableRoleOptions input[name="variable-role"]:checked').map(function (input) { return input.value; }); }
-  function toggleVariableRole(role, button) { variableCollapsedRoles[role] = !variableCollapsedRoles[role]; try { localStorage.setItem(variableCollapsedStorageKey, JSON.stringify(variableCollapsedRoles)); } catch (_) {} if (button) { var collapsed = variableCollapsedRoles[role], items = button.parentNode.querySelector('.variable-role-items'); button.classList.toggle('is-collapsed', collapsed); button.setAttribute('aria-expanded', String(!collapsed)); if (items) items.hidden = collapsed; } }
+  function toggleVariableRole(role, button) { variableCollapsedRoles[role] = !variableCollapsedRoles[role]; try { localStorage.setItem(variableCollapsedStorageKey, JSON.stringify(variableCollapsedRoles)); } catch (_) {} if (button) { var collapsed = variableCollapsedRoles[role], group = button.closest('.variable-role-group'), items = group && group.querySelector('.variable-role-items'); button.classList.toggle('is-collapsed', collapsed); button.setAttribute('aria-expanded', String(!collapsed)); if (items) items.hidden = collapsed; } }
   function loadVariableLibrary() {
     return api('/api/variable-library').then(function (res) {
       if (!res.ok) { toast(res.error || '变量库加载失败'); return; }
@@ -8031,9 +8030,9 @@
       var group = visible.filter(function (item) { return normalizeVariableRoles(item.role).indexOf(role) >= 0; });
       if (!group.length && query) return '';
       var collapsed = !!variableCollapsedRoles[role];
-      return '<section class="variable-role-group"><button type="button" class="variable-role-title' + (collapsed ? ' is-collapsed' : '') + '" data-variable-collapse="' + escapeHtml(role) + '" data-variable-role-create="' + escapeHtml(role) + '" title="单击折叠或展开；双击新建此类变量" aria-expanded="' + (!collapsed) + '"><span>' + escapeHtml(role) + '</span><span class="variable-role-count">' + group.length + '</span><span class="variable-role-hint">双击新建</span><span class="variable-role-chevron" aria-hidden="true">⌄</span></button><div class="variable-role-items"' + (collapsed ? ' hidden' : '') + '>' + (group.length ? group.map(function (item) {
+      return '<section class="variable-role-group"><div class="variable-role-heading-row"><button type="button" class="variable-role-title' + (collapsed ? ' is-collapsed' : '') + '" data-variable-collapse="' + escapeHtml(role) + '" data-variable-role-create="' + escapeHtml(role) + '" title="单击折叠或展开；双击新建此类变量" aria-expanded="' + (!collapsed) + '"><span>' + escapeHtml(role) + '</span><span class="variable-role-count">' + group.length + '</span><span class="variable-role-hint">双击新建</span><span class="variable-role-chevron" aria-hidden="true">⌄</span></button><button type="button" class="variable-role-new" data-variable-role-new="' + escapeHtml(role) + '" title="新建' + escapeHtml(role) + '" aria-label="新建' + escapeHtml(role) + '">＋</button></div><div class="variable-role-items"' + (collapsed ? ' hidden' : '') + '>' + (group.length ? group.map(function (item) {
         return '<button type="button" class="variable-list-item' + (String(item.id) === String(state.variableId) ? ' is-active' : '') + '" data-variable-id="' + escapeHtml(item.id) + '"><b>' + escapeHtml(item.name || '未命名变量') + '</b></button>';
-      }).join('') : '<div class="variable-role-empty" data-variable-role-create="' + escapeHtml(role) + '" title="双击新建此类变量">双击此处新建变量</div>') + '</div></section>';
+      }).join('') : '<button type="button" class="variable-role-empty" data-variable-role-new="' + escapeHtml(role) + '">＋ 新建此类变量</button>') + '</div></section>';
     }).join('') : '<div class="variable-empty">' + (items.length ? '没有匹配的变量' : '还没有变量记录<br>点击“新建变量”开始整理') + '</div>';
     var active = activeVariable();
     variableFields().forEach(function (id) { $('#' + id).disabled = !active; });
@@ -8059,7 +8058,7 @@
       variableCollapsedRoles[requestedRole] = false;
       try { localStorage.setItem(variableCollapsedStorageKey, JSON.stringify(variableCollapsedRoles)); } catch (_) {}
       renderVariableLibrary(); $('#variableName').focus(); $('#variableName').select();
-    });
+    }).catch(function (error) { toast((error && error.message) || '新建变量失败，请重试'); });
   }
   function readVariablePayload() {
     return { action: 'save', id: state.variableId, name: $('#variableName').value, role: selectedVariableRoles(), paper: $('#variablePaper').value, definition: $('#variableDefinition').value, measure: $('#variableMeasure').value, source: $('#variableSource').value, notes: $('#variableNotes').value };
