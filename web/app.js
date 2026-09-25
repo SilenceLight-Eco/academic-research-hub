@@ -9038,10 +9038,102 @@
   var cmdkItems = [];
   var cmdkIndex = 0;
   var cmdkFiltered = [];
+  var cmdkSearchData = {};
+  var cmdkSearchLoading = false;
+  var cmdkSearchRequest = 0;
+
+  function refreshCmdkSearchData() {
+    var request = ++cmdkSearchRequest;
+    var sources = [
+      ['knowledge', '/api/knowledge-base', 'knowledgeBase'],
+      ['notes', '/api/note-studio', 'noteStudio'],
+      ['references', '/api/references', 'referenceLibrary'],
+      ['variables', '/api/variable-library', 'variableLibrary'],
+      ['projects', '/api/research-projects', 'researchProjects'],
+      ['prompts', '/api/prompt-library', 'promptLibrary']
+    ];
+    cmdkSearchData = {
+      knowledge: state.knowledgeBase,
+      notes: state.noteStudio,
+      references: state.referenceLibrary,
+      variables: state.variableLibrary,
+      projects: state.researchProjects,
+      prompts: state.promptLibrary
+    };
+    cmdkSearchLoading = true;
+    Promise.all(sources.map(function (source) {
+      return api(source[1]).then(function (result) {
+        if (request === cmdkSearchRequest && result && result.ok) cmdkSearchData[source[0]] = result[source[2]];
+      }).catch(function () {});
+    })).then(function () {
+      if (request !== cmdkSearchRequest) return;
+      cmdkSearchLoading = false;
+      if ($('#cmdkOverlay').classList.contains('open')) renderCmdk($('#cmdkInput').value);
+    });
+  }
+
+  function cmdkExcerpt(value, needle) {
+    var text = String(value || '').replace(/[#*_`\[\]<>\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+    var at = text.toLowerCase().indexOf(needle);
+    if (at < 0) return '';
+    return (at > 18 ? '…' : '') + text.slice(Math.max(0, at - 18), at + Math.max(needle.length + 28, 55)) + (at + 55 < text.length ? '…' : '');
+  }
+
+  function cmdkSearchGroup(items, group, title, fields, needle, open) {
+    return (items || []).map(function (item) {
+      var label = String(item[title] || '未命名');
+      var body = fields.map(function (field) { return item[field] || ''; }).join(' ');
+      var titleHit = label.toLowerCase().indexOf(needle) >= 0;
+      if (!titleHit && body.toLowerCase().indexOf(needle) < 0) return null;
+      return { group: group, label: label, keys: label + ' ' + body,
+        icon: CM_ICONS.book, sub: titleHit ? '' : cmdkExcerpt(body, needle),
+        rank: titleHit ? 0 : 1, run: function () { open(item); } };
+    }).filter(Boolean).sort(function (a, b) { return a.rank - b.rank; }).slice(0, 6);
+  }
+
+  function openCmdkRecord(panel, item, kind) {
+    if (kind === 'knowledge') { state.kbTrashOpen = false; state.kbFolderId = 'all'; state.kbDocId = item.id; state.kbDraft = null; }
+    if (kind === 'notes') { state.noteTrashOpen = false; state.noteId = item.id; }
+    if (kind === 'references') { state.referenceTrashOpen = false; state.referenceQuery = ''; state.referenceTypeFilter = 'all'; state.referenceId = item.id; }
+    if (kind === 'variables') {
+      state.variableTrashOpen = false; state.variableQuery = ''; state.variableCategoryFilter = 'all'; state.variableId = item.id;
+      normalizeVariableRoles(item.role).forEach(function (role) { variableCollapsedRoles[role] = false; });
+    }
+    if (kind === 'projects') { state.projectTrashOpen = false; state.projectCategoryFilter = 'all'; state.projectId = item.id; }
+    if (kind === 'prompts') { state.promptTrashOpen = false; state.promptCategoryFilter = 'all'; state.promptId = item.id; }
+    switchPanel(panel);
+  }
+
+  function cmdkPaperItems(needle) {
+    var cards, fields;
+    try {
+      cards = JSON.parse(localStorage.getItem('research-hub-cards-v1') || '{}');
+      fields = JSON.parse(localStorage.getItem('research-hub-fields-v1') || '{}');
+    } catch (_) { return []; }
+    var result = [];
+    [['research', '在研论文'], ['submitted', '在投论文'], ['published', '已发表论文']].forEach(function (kind) {
+      var collection = cards[kind[0]] || {};
+      var papers = Object.keys(collection.added || {}).map(function (key) {
+        return { key: key, paper: Object.assign({}, collection.added[key], fields[key] || {}) };
+      });
+      result = result.concat(cmdkSearchGroup(papers.map(function (entry) {
+        return Object.assign({ searchKey: entry.key }, entry.paper);
+      }), kind[1], 'title', ['authors', 'abstract', 'keywords', 'doi', 'journal', 'currentJournal', 'targetJournal', 'notes'], needle, function (paper) {
+        switchPanel('research-hub');
+        var frame = $('.research-hub-frame');
+        if (!frame) return;
+        var send = function () { frame.contentWindow.postMessage({ type: 'academic-research-hub-open-paper', kind: kind[0], key: paper.searchKey }, location.origin); };
+        if (frame.contentDocument && frame.contentDocument.readyState === 'complete') send();
+        else { frame.addEventListener('load', send, { once: true }); frame.loading = 'eager'; }
+      }));
+    });
+    return result;
+  }
 
   function buildCmdkItems() {
     var items = [];
     $$('.nav-item').forEach(function (btn) {
+      if (btn.closest('[hidden]')) return;
       var svg = btn.querySelector('svg');
       var key = btn.dataset.panel;
       items.push({
@@ -9060,24 +9152,10 @@
       sub: '隐藏玩法：点主题按钮有惊喜',
       run: function () { toggleTheme(); }
     });
-    items.push({
-      group: '动作', label: '更新资讯', keys: 'refresh news update 刷新 更新',
-      icon: CM_ICONS.refresh, run: function () { var btn = $('#refreshBtn'); if (btn) btn.click(); }
-    });
-    items.push({
-      group: '动作', label: '打开热点日报归档目录', keys: 'folder hotspots 归档 目录',
-      icon: CM_ICONS.folder,
-      run: function () { var b = $('#hotspotFolderBtn'); if (b) b.click(); }
-    });
-    items.push({
-      group: '动作', label: '打开摘要卡片保存目录', keys: 'folder summaries 摘要 目录',
-      icon: CM_ICONS.folder,
-      run: function () { var b = $('#summaryFolderBtn'); if (b) b.click(); }
-    });
     return items;
   }
 
-  // 全局内容搜索：⌘K 输入关键字时跨面板检索（待办 / 文献卡片 / 研究日志）
+  // 全局内容搜索：只展示当前账号的有效记录，不检索回收站。
   function buildCmdkContentItems(q) {
     var needle = (q || '').trim().toLowerCase();
     if (!needle) return [];
@@ -9090,44 +9168,14 @@
           run: function () { switchPanel('todos'); }
         });
       });
-    summaryAll.filter(function (s) {
-      var hay = [s.title, s.title_en, s.keywords, s.one_liner].join(' ').toLowerCase();
-      return hay.indexOf(needle) >= 0;
-    }).slice(0, 5).forEach(function (s) {
-      var title = s.title || s.title_en || s.id;
-      items.push({
-        group: '文献卡片', label: title, keys: [s.title, s.title_en, s.one_liner].join(' '),
-        icon: CM_ICONS.folder || '', sub: '摘要卡片',
-        run: function () { switchPanel('summaries'); openSummaryDetail(s.id); }
-      });
-    });
-    // 译文库 / 精读库也进搜索：否则「搜不到自己存过的东西」会显得很割裂
-    (state.translations || []).filter(function (t) {
-      return [t.title, t.source, t.excerpt].join(' ').toLowerCase().indexOf(needle) >= 0;
-    }).slice(0, 4).forEach(function (t) {
-      items.push({
-        group: '译文', label: t.title || '未命名译文', keys: [t.title, t.source].join(' '),
-        icon: CM_ICONS.folder || '', sub: '译文库 · ' + Math.max(1, Math.round((t.chars || 0) / 1000)) + 'k 字',
-        run: function () { switchPanel('translations'); openTranslationDetail(t.id); }
-      });
-    });
-    (state.readings || []).filter(function (t) {
-      return [t.title, t.source, t.excerpt].join(' ').toLowerCase().indexOf(needle) >= 0;
-    }).slice(0, 4).forEach(function (t) {
-      items.push({
-        group: '原文精读', label: t.title || '未命名精读', keys: [t.title, t.source].join(' '),
-        icon: CM_ICONS.book || '', sub: '精读库 · ' + Math.max(1, Math.round((t.chars || 0) / 1000)) + 'k 字',
-        run: function () { switchPanel('readings'); openReadingDetail(t.id); }
-      });
-    });
-    state.journal.filter(function (j) { return (j.content || '').toLowerCase().indexOf(needle) >= 0; })
-      .slice(0, 4).forEach(function (j) {
-        items.push({
-          group: '研究日志', label: String(j.content || '').slice(0, 52), keys: j.content || '',
-          icon: CM_ICONS.edit || '', sub: j.date || j.created || '',
-          run: function () { switchPanel('journal'); }
-        });
-      });
+    var data = cmdkSearchData;
+    items = items.concat(cmdkSearchGroup((data.knowledge || {}).docs, '知识库', 'title', ['content'], needle, function (item) { openCmdkRecord('knowledge-base', item, 'knowledge'); }));
+    items = items.concat(cmdkSearchGroup((data.notes || {}).notes, '笔记', 'title', ['markdown'], needle, function (item) { openCmdkRecord('note-studio', item, 'notes'); }));
+    items = items.concat(cmdkSearchGroup((data.references || {}).items, '文献与引用', 'title', ['authors', 'year', 'source', 'doi', 'tags', 'notes'], needle, function (item) { openCmdkRecord('references', item, 'references'); }));
+    items = items.concat(cmdkSearchGroup((data.variables || {}).items, '变量库', 'name', ['symbol', 'role', 'definition', 'measure', 'source', 'paper', 'notes'], needle, function (item) { openCmdkRecord('variable-library', item, 'variables'); }));
+    items = items.concat(cmdkSearchGroup((data.projects || {}).projects, '研究项目', 'title', ['category', 'goal', 'milestones', 'resources', 'members'], needle, function (item) { openCmdkRecord('research-projects', item, 'projects'); }));
+    items = items.concat(cmdkSearchGroup((data.prompts || {}).prompts, '提示词', 'title', ['category', 'tags', 'body'], needle, function (item) { openCmdkRecord('prompt-library', item, 'prompts'); }));
+    items = items.concat(cmdkPaperItems(needle));
     return items;
   }
 
@@ -9135,7 +9183,7 @@
     var list = $('#cmdkList');
     if (!list) return;
     var q = (query || '').trim().toLowerCase();
-    var pool = cmdkItems.concat(buildCmdkContentItems(q));
+    var pool = q ? buildCmdkContentItems(q).concat(cmdkItems) : cmdkItems;
     cmdkFiltered = pool.filter(function (it) {
       if (!q) return true;
       return (it.label + ' ' + it.keys).toLowerCase().indexOf(q) >= 0;
@@ -9144,7 +9192,7 @@
     if (cmdkIndex < 0) cmdkIndex = 0;
 
     if (!cmdkFiltered.length) {
-      list.innerHTML = '<div class="cmdk-empty">没有匹配的项</div>';
+      list.innerHTML = '<div class="cmdk-empty">' + (cmdkSearchLoading ? '正在检索各模块…' : '没有匹配的项') + '</div>';
       return;
     }
     var html = [];
@@ -9157,7 +9205,7 @@
       html.push(
         '<button class="cmdk-item' + (i === cmdkIndex ? ' active' : '') + '" data-i="' + i + '">' +
           it.icon +
-          '<span>' + escapeHtml(it.label) + '</span>' +
+          '<span class="cmdk-item-label">' + escapeHtml(it.label) + '</span>' +
           (it.sub ? '<span class="cmdk-item-sub">' + escapeHtml(it.sub) + '</span>' : '') +
         '</button>'
       );
@@ -9184,6 +9232,7 @@
     renderCmdk('');
     ov.classList.add('open');
     document.body.classList.add('cmdk-open');
+    refreshCmdkSearchData();
     setTimeout(function () { $('#cmdkInput').focus(); }, 30);
   }
 

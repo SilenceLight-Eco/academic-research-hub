@@ -550,8 +550,18 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   render();
   window.addEventListener("message", event => {
-    if (event.origin !== location.origin || !event.data || event.data.type !== "academic-research-hub-data-code-migration") return;
-    importLegacyDataCodeLibrary(event.data.library || {});
+    if (event.origin !== location.origin || event.source !== window.parent || !event.data) return;
+    if (event.data.type === "academic-research-hub-data-code-migration") {
+      importLegacyDataCodeLibrary(event.data.library || {});
+    }
+    if (event.data.type === "academic-research-hub-open-paper") {
+      const kind = event.data.kind, key = String(event.data.key || "");
+      if (!["research", "submitted", "published"].includes(kind)) return;
+      if (!(DATA[kind] || []).some(p => String(p._key) === key)) return;
+      navigate(kind);
+      const card = [...document.querySelectorAll(".paper-card")].find(el => el.dataset.paperKey === key);
+      if (card) card.scrollIntoView({ block: "start", behavior: "smooth" });
+    }
   });
   if (window.parent && window.parent !== window) window.parent.postMessage({ type: "academic-research-hub-request-data-code-migration" }, location.origin);
 });
@@ -626,7 +636,7 @@ function renderResearch() {
 }
 
 function renderResearchCard(p) {
-  return `<article class="paper-card" draggable="true" ondragstart="cardDragStart(event,'research','${p._key}')" ondragover="cardDragOver(event,'research')" ondragleave="cardDragLeave(event)" ondrop="cardDrop(event,'research','${p._key}')" ondragend="cardDragEnd(event)">
+  return `<article class="paper-card" data-paper-key="${escapeHtml(p._key)}" draggable="true" ondragstart="cardDragStart(event,'research','${p._key}')" ondragover="cardDragOver(event,'research')" ondragleave="cardDragLeave(event)" ondrop="cardDrop(event,'research','${p._key}')" ondragend="cardDragEnd(event)">
     <div class="card-top"><div><div class="paper-id">${p.id} · RESEARCH PROJECT</div><div class="paper-title">${editableText(p, "title", "editable-title")}</div></div><div style="display:flex;gap:6px;align-items:flex-start">${prioritySelect(p)}<button class="stage-tool" title="删除该卡片" onclick="deletePaperCard('research','${p._key}')">✕</button></div></div>
     ${renderChipEditor(p, "authors", "作者")}
     <div class="card-line"><span class="muted">目标期刊</span><strong>${editableText(p, "targetJournal")}</strong></div>
@@ -762,7 +772,7 @@ function renderSubmitted() {
 
 function renderSubmittedCard(p) {
   const history = getPaperField(p, "history") || [];
-  return `<article class="paper-card" draggable="true" ondragstart="cardDragStart(event,'submitted','${p._key}')" ondragover="cardDragOver(event,'submitted')" ondragleave="cardDragLeave(event)" ondrop="cardDrop(event,'submitted','${p._key}')" ondragend="cardDragEnd(event)">
+  return `<article class="paper-card" data-paper-key="${escapeHtml(p._key)}" draggable="true" ondragstart="cardDragStart(event,'submitted','${p._key}')" ondragover="cardDragOver(event,'submitted')" ondragleave="cardDragLeave(event)" ondrop="cardDrop(event,'submitted','${p._key}')" ondragend="cardDragEnd(event)">
     <div class="card-top"><div><div class="paper-id">${p.id} · SUBMISSION</div><div class="paper-title">${editableText(p, "title", "editable-title")}</div></div><div style="display:flex;gap:6px;align-items:flex-start">${statusBadge(p.status)}<button class="stage-tool" title="删除该卡片" onclick="deletePaperCard('submitted','${p._key}')">✕</button></div></div>
     ${renderChipEditor(p, "authors", "作者")}
     <div class="card-line"><span class="muted">当前期刊</span><strong>${editableText(p, "currentJournal")}</strong></div>
@@ -946,7 +956,7 @@ async function fetchCitationFor(key) {
 }
 
 function renderPublishedCard(p) {
-  return `<article class="paper-card" draggable="true" ondragstart="cardDragStart(event,'published','${p._key}')" ondragover="cardDragOver(event,'published')" ondragleave="cardDragLeave(event)" ondrop="cardDrop(event,'published','${p._key}')" ondragend="cardDragEnd(event)">
+  return `<article class="paper-card" data-paper-key="${escapeHtml(p._key)}" draggable="true" ondragstart="cardDragStart(event,'published','${p._key}')" ondragover="cardDragOver(event,'published')" ondragleave="cardDragLeave(event)" ondrop="cardDrop(event,'published','${p._key}')" ondragend="cardDragEnd(event)">
     <div class="card-top"><div><div class="paper-id">${p.id} · PUBLICATION</div><div class="paper-title">${editableText(p, "title", "editable-title")}</div></div><div style="display:flex;gap:6px;align-items:flex-start"><span class="badge green">${editableText(p, "year")}</span><button class="stage-tool" title="删除该卡片" onclick="deletePaperCard('published','${p._key}')">✕</button></div></div>
     ${renderChipEditor(p, "authors", "作者")}
     <div class="card-line"><span class="muted">期刊</span><strong>${editableText(p, "journal")}</strong></div>
