@@ -53,6 +53,11 @@
     projectId: null,
     projectTrashOpen: false,
     projectCategoryFilter: 'all',
+    variableLibrary: { items: [], trash: [] },
+    variableId: null,
+    variableTrashOpen: false,
+    variableCategoryFilter: 'all',
+    variableQuery: '',
     dataCodeLibrary: { items: [], trash: [] },
     dataCodeId: null,
     dataCodeTrashOpen: false,
@@ -76,7 +81,7 @@
     trackerPublicationTo: '',
     trackerAddCategory: '',
     journalTrackerReadFilter: 'all',
-    trackerCollapsedGroups: { unread: false, read: true },
+    trackerCollapsedGroups: { unread: false, read: false },
     trackerArticlePages: { unread: 1, read: 1 },
     trackerArticleSorts: { unread: 'newest', read: 'newest' },
     trackerJournalCategoryCollapsed: {},
@@ -235,6 +240,7 @@
     try {
       var saved = JSON.parse(localStorage.getItem(trackerDisplayPreferencesKey) || '{}');
       if (!saved || typeof saved !== 'object') return;
+      var migrateAllStatusExpansion = Number(saved.version || 0) < 2 && (!saved.readFilter || saved.readFilter === 'all');
       if (['all', '7days', '30days', 'custom'].indexOf(saved.publicationRange) >= 0) state.trackerPublicationRange = saved.publicationRange;
       if (typeof saved.publicationFrom === 'string') state.trackerPublicationFrom = saved.publicationFrom;
       if (typeof saved.publicationTo === 'string') state.trackerPublicationTo = saved.publicationTo;
@@ -253,11 +259,13 @@
         state.trackerCollapsedGroups.unread = Boolean(saved.collapsed.unread);
         state.trackerCollapsedGroups.read = Boolean(saved.collapsed.read);
       }
+      if (migrateAllStatusExpansion) { state.trackerCollapsedGroups.unread = false; state.trackerCollapsedGroups.read = false; }
     } catch (_) {}
   }
   function saveTrackerDisplayPreferences() {
     try {
       localStorage.setItem(trackerDisplayPreferencesKey, JSON.stringify({
+        version: 2,
         publicationRange: state.trackerPublicationRange,
         publicationFrom: state.trackerPublicationFrom,
         publicationTo: state.trackerPublicationTo,
@@ -278,6 +286,7 @@
     'note-studio': '公众号笔记',
     'prompt-library': '提示词库',
     'research-projects': '研究项目',
+    'variable-library': '变量库',
     references: '文献与引用',
     'journal-tracker': '文献追踪',
     dashboard: '概览',
@@ -1069,6 +1078,7 @@
     if (panel === 'note-studio') loadNoteStudio();
     if (panel === 'prompt-library') loadPromptLibrary();
     if (panel === 'research-projects') loadResearchProjects();
+    if (panel === 'variable-library') loadVariableLibrary();
     if (panel === 'references') loadReferenceLibrary();
     if (panel === 'journal-tracker') { loadJournalTracker(false); startTrackerListPolling(); }
     if (panel === 'focus') focusRenderAll();   // 专注面板：进度/统计/记录实时刷新
@@ -6105,7 +6115,10 @@
     if (customDateTo) customDateTo.value = state.trackerPublicationTo || '';
     if (dateRangeHint) dateRangeHint.hidden = !(state.trackerPublicationRange === 'custom' && state.trackerPublicationFrom && state.trackerPublicationTo && state.trackerPublicationFrom > state.trackerPublicationTo);
 
+    $('#trackerReadFilter').value = state.journalTrackerReadFilter;
     var visible = trackerVisibleArticles();
+    var visibleCountLabel = state.journalTrackerReadFilter === 'all' ? '全部 ' : state.journalTrackerReadFilter === 'read' ? '已读 ' : '未读 ';
+    $('#trackerVisibleCount').textContent = visibleCountLabel + visible.length + ' 篇';
     var visibleUnread = visible.filter(function (article) { return article.is_read !== true; });
     if (markAllReadButton) {
       markAllReadButton.disabled = visibleUnread.length === 0;
@@ -6807,7 +6820,7 @@
     $('#trackerArticleSearch').addEventListener('input', function () { state.journalTrackerQuery = this.value; state.trackerArticlePages = { unread: 1, read: 1 }; renderJournalTracker(); });
     $('#trackerJournalFilter').addEventListener('change', function () { state.journalTrackerFilter = this.value; state.trackerJournalCategoryFilter = 'all'; state.trackerArticlePages = { unread: 1, read: 1 }; saveTrackerDisplayPreferences(); renderJournalTracker(); });
     $('#trackerCategoryFilter').addEventListener('change', function () { state.trackerJournalCategoryFilter = this.value; state.journalTrackerFilter = 'all'; state.trackerArticlePages = { unread: 1, read: 1 }; saveTrackerDisplayPreferences(); renderJournalTracker(); });
-    $('#trackerReadFilter').addEventListener('change', function () { state.journalTrackerReadFilter = this.value; state.trackerArticlePages = { unread: 1, read: 1 }; if (this.value === 'read') state.trackerCollapsedGroups.read = false; if (this.value === 'unread') state.trackerCollapsedGroups.unread = false; saveTrackerDisplayPreferences(); renderJournalTracker(); });
+    $('#trackerReadFilter').addEventListener('change', function () { state.journalTrackerReadFilter = this.value; state.trackerArticlePages = { unread: 1, read: 1 }; if (this.value === 'all') { state.trackerCollapsedGroups.unread = false; state.trackerCollapsedGroups.read = false; } else if (this.value === 'read') state.trackerCollapsedGroups.read = false; else state.trackerCollapsedGroups.unread = false; saveTrackerDisplayPreferences(); renderJournalTracker(); });
     $('#trackerPublicationRange').addEventListener('change', function () { state.trackerPublicationRange = ['all', '7days', '30days', 'custom'].indexOf(this.value) >= 0 ? this.value : 'all'; state.trackerArticlePages = { unread: 1, read: 1 }; saveTrackerDisplayPreferences(); renderJournalTracker(); });
     $('#trackerPublicationFrom').addEventListener('change', function () { state.trackerPublicationFrom = this.value; state.trackerArticlePages = { unread: 1, read: 1 }; saveTrackerDisplayPreferences(); renderJournalTracker(); });
     $('#trackerPublicationTo').addEventListener('change', function () { state.trackerPublicationTo = this.value; state.trackerArticlePages = { unread: 1, read: 1 }; saveTrackerDisplayPreferences(); renderJournalTracker(); });
@@ -6964,6 +6977,14 @@
     $('#projectList').addEventListener('click', function (e) { var restore = e.target.closest('[data-project-restore]'); if (restore) { restoreResearchProject(restore.dataset.projectRestore); return; } var purge = e.target.closest('[data-project-purge]'); if (purge) { purgeResearchProject(purge.dataset.projectPurge); return; } var category = e.target.closest('[data-project-category]'); if (category) { state.projectCategoryFilter = category.dataset.projectCategory; var first = (state.researchProjects.projects || []).filter(function (item) { return state.projectCategoryFilter === 'all' || ((item.category || '通用').trim() || '通用') === state.projectCategoryFilter; })[0]; state.projectId = first ? first.id : null; renderResearchProjects(); return; } var project = e.target.closest('[data-project-id]'); if (!project) return; state.projectId = Number(project.dataset.projectId); renderResearchProjects(); });
     ['projectTitle', 'projectCategory', 'projectStatus', 'projectProgress', 'projectStart', 'projectEnd', 'projectGoal', 'projectMembers', 'projectMilestones', 'projectResources'].forEach(function (id) { $('#' + id).addEventListener('input', function () { renderProjectSummary(); queueResearchProjectAutoSave(); }); });
     $('#projectStatus').addEventListener('change', function () { renderProjectSummary(); queueResearchProjectAutoSave(); });
+    $('#variableNew').addEventListener('click', newVariable);
+    $('#variableSave').addEventListener('click', saveVariable);
+    $('#variableDelete').addEventListener('click', trashVariable);
+    $('#variableTrash').addEventListener('click', function () { state.variableTrashOpen = !state.variableTrashOpen; renderVariableLibrary(); });
+    $('#variableSearch').addEventListener('input', function () { state.variableQuery = this.value; renderVariableLibrary(); });
+    $('#variableCategories').addEventListener('click', function (event) { var category = event.target.closest('[data-variable-category]'); if (!category) return; state.variableCategoryFilter = category.dataset.variableCategory; state.variableId = null; renderVariableLibrary(); });
+    $('#variableList').addEventListener('click', function (event) { var restore = event.target.closest('[data-variable-restore]'); if (restore) { restoreVariable(restore.dataset.variableRestore); return; } var purge = event.target.closest('[data-variable-purge]'); if (purge) { purgeVariable(purge.dataset.variablePurge); return; } var item = event.target.closest('[data-variable-id]'); if (!item) return; state.variableId = item.dataset.variableId; renderVariableLibrary(); });
+    ['variableName', 'variableRole', 'variableSymbol', 'variableUnit', 'variablePaper', 'variableDefinition', 'variableMeasure', 'variableSource', 'variableNotes'].forEach(function (id) { $('#' + id).addEventListener('input', queueVariableAutoSave); $('#' + id).addEventListener('change', queueVariableAutoSave); });
     $('#refNew').addEventListener('click', newReference);
     $('#refSave').addEventListener('click', saveReference);
     $('#refDelete').addEventListener('click', trashReference);
@@ -7926,6 +7947,115 @@
   function trashResearchProject() { if (!state.projectId || !confirm('确定将此项目移入回收站吗？')) return; api('/api/research-projects', { method: 'POST', body: JSON.stringify({ action: 'trash', id: state.projectId }) }).then(function (res) { if (!res.ok) { toast(res.error || '移入回收站失败'); return; } state.researchProjects = res.researchProjects; state.projectId = null; renderResearchProjects(); toast('项目已移入回收站'); }); }
   function restoreResearchProject(id) { api('/api/research-projects', { method: 'POST', body: JSON.stringify({ action: 'restore', id: id }) }).then(function (res) { if (!res.ok) { toast(res.error || '恢复失败'); return; } state.researchProjects = res.researchProjects; renderResearchProjects(); toast('项目已恢复'); }); }
   function purgeResearchProject(id) { if (!confirm('确定彻底删除项目吗？此操作无法恢复。')) return; api('/api/research-projects', { method: 'POST', body: JSON.stringify({ action: 'purge', id: id }) }).then(function (res) { if (!res.ok) { toast(res.error || '彻底删除失败'); return; } state.researchProjects = res.researchProjects; renderResearchProjects(); toast('已彻底删除'); }); }
+
+  // ===== 变量库：按实证研究角色记录变量定义与测量口径 =====
+  var variableRoles = ['被解释变量', '核心解释变量', '机制变量', '调节变量', '经济后果变量', '控制变量', '其他'];
+  function loadVariableLibrary() {
+    return api('/api/variable-library').then(function (res) {
+      if (!res.ok) { toast(res.error || '变量库加载失败'); return; }
+      state.variableLibrary = Object.assign({ items: [], trash: [] }, res.variableLibrary || {});
+      var items = state.variableLibrary.items || [];
+      if (!items.some(function (item) { return String(item.id) === String(state.variableId); })) state.variableId = items[0] ? items[0].id : null;
+      renderVariableLibrary();
+    });
+  }
+  function activeVariable() { return (state.variableLibrary.items || []).filter(function (item) { return String(item.id) === String(state.variableId); })[0] || null; }
+  function variableFields() { return ['variableName', 'variableRole', 'variableSymbol', 'variableUnit', 'variablePaper', 'variableDefinition', 'variableMeasure', 'variableSource', 'variableNotes']; }
+  function renderVariableLibrary() {
+    var library = state.variableLibrary || { items: [], trash: [] }, items = library.items || [], trash = library.trash || [];
+    var list = $('#variableList'), categories = $('#variableCategories');
+    $('#variableTrash').textContent = state.variableTrashOpen ? '返回变量库' : '回收站' + (trash.length ? ' (' + trash.length + ')' : '');
+    $('#variableSearch').value = state.variableQuery || '';
+    if (state.variableTrashOpen) {
+      categories.innerHTML = '';
+      list.innerHTML = trash.length ? trash.map(function (entry) { var item = entry.item || {}; return '<div class="variable-trash-row"><div><b>' + escapeHtml(item.name || '未命名变量') + '</b><span>' + escapeHtml(item.role || '') + ' · ' + escapeHtml(entry.deletedAt || '') + '</span></div><div><button type="button" data-variable-restore="' + escapeHtml(entry.id) + '">恢复</button><button type="button" data-variable-purge="' + escapeHtml(entry.id) + '">彻底删除</button></div></div>'; }).join('') : '<div class="variable-empty">回收站为空</div>';
+      variableFields().forEach(function (id) { $('#' + id).value = ''; $('#' + id).disabled = true; });
+      $('#variableDelete').hidden = true;
+      $('#variableSaveStatus').textContent = '回收站中的变量可恢复或彻底删除。';
+      return;
+    }
+    var query = (state.variableQuery || '').trim().toLowerCase();
+    var visible = items.filter(function (item) {
+      if (state.variableCategoryFilter !== 'all' && (item.role || '其他') !== state.variableCategoryFilter) return false;
+      return !query || [item.name, item.symbol, item.role, item.definition, item.measure, item.source, item.paper, item.notes].join(' ').toLowerCase().indexOf(query) >= 0;
+    });
+    if (!visible.some(function (item) { return String(item.id) === String(state.variableId); })) state.variableId = visible[0] ? visible[0].id : null;
+    var categoriesHtml = '<button type="button" class="variable-category' + (state.variableCategoryFilter === 'all' ? ' is-active' : '') + '" data-variable-category="all">全部变量 <span>' + items.length + '</span></button>' + variableRoles.map(function (role) {
+      var count = items.filter(function (item) { return (item.role || '其他') === role; }).length;
+      return '<button type="button" class="variable-category' + (state.variableCategoryFilter === role ? ' is-active' : '') + '" data-variable-category="' + escapeHtml(role) + '">' + escapeHtml(role) + '<span>' + count + '</span></button>';
+    }).join('');
+    categories.innerHTML = categoriesHtml;
+    list.innerHTML = visible.length ? '<div class="variable-list-label">变量记录 <span>' + visible.length + '</span></div>' + visible.map(function (item) {
+      return '<button type="button" class="variable-list-item' + (String(item.id) === String(state.variableId) ? ' is-active' : '') + '" data-variable-id="' + escapeHtml(item.id) + '"><b>' + escapeHtml(item.name || '未命名变量') + '</b><span><i>' + escapeHtml(item.role || '其他') + '</i>' + (item.symbol ? ' · ' + escapeHtml(item.symbol) : '') + '</span></button>';
+    }).join('') : '<div class="variable-empty">' + (items.length ? '没有匹配的变量' : '还没有变量记录<br>点击“新建变量”开始整理') + '</div>';
+    var active = activeVariable();
+    variableFields().forEach(function (id) { $('#' + id).disabled = !active; });
+    $('#variableDelete').hidden = !active;
+    $('#variableName').value = active ? active.name || '' : '';
+    $('#variableRole').value = active ? (variableRoles.indexOf(active.role) >= 0 ? active.role : '其他') : '被解释变量';
+    $('#variableSymbol').value = active ? active.symbol || '' : '';
+    $('#variableUnit').value = active ? active.unit || '' : '';
+    $('#variablePaper').value = active ? active.paper || '' : '';
+    $('#variableDefinition').value = active ? active.definition || '' : '';
+    $('#variableMeasure').value = active ? active.measure || '' : '';
+    $('#variableSource').value = active ? active.source || '' : '';
+    $('#variableNotes').value = active ? active.notes || '' : '';
+    $('#variableSaveStatus').textContent = active ? '修改会自动保存并同步到账号云端。最近保存：' + (active.updated || '尚未保存') : '选择或新建变量后编辑，修改会自动保存。';
+  }
+  function newVariable() {
+    return api('/api/variable-library', { method: 'POST', body: JSON.stringify({ action: 'create' }) }).then(function (res) {
+      if (!res.ok) { toast(res.error || '新建变量失败'); return; }
+      state.variableLibrary = res.variableLibrary; state.variableTrashOpen = false; state.variableCategoryFilter = 'all'; state.variableId = res.variableLibrary.items[0].id;
+      renderVariableLibrary(); $('#variableName').focus(); $('#variableName').select();
+    });
+  }
+  function readVariablePayload() {
+    return { action: 'save', id: state.variableId, name: $('#variableName').value, role: $('#variableRole').value, symbol: $('#variableSymbol').value, unit: $('#variableUnit').value, paper: $('#variablePaper').value, definition: $('#variableDefinition').value, measure: $('#variableMeasure').value, source: $('#variableSource').value, notes: $('#variableNotes').value };
+  }
+  function persistVariable(body, automatic) {
+    return api('/api/variable-library', { method: 'POST', body: JSON.stringify(body) }).then(function (res) {
+      if (!res.ok) throw new Error(res.error || '变量保存失败');
+      state.variableLibrary = res.variableLibrary;
+      if (automatic) $('#variableSaveStatus').textContent = '已自动保存并同步到云端。';
+      else { renderVariableLibrary(); toast('变量已同步保存'); }
+    }).catch(function (error) {
+      $('#variableSaveStatus').textContent = '保存失败：' + ((error && error.message) || '请重试');
+      if (!automatic) toast((error && error.message) || '变量保存失败');
+      throw error;
+    });
+  }
+  function queueVariableAutoSave() {
+    if (!state.variableId || state.variableTrashOpen) return;
+    var body = readVariablePayload();
+    $('#variableSaveStatus').textContent = '正在保存…';
+    queueAutoSave('variable:' + body.id, body, persistVariable);
+  }
+  function saveVariable() {
+    if (!state.variableId || state.variableTrashOpen) return;
+    var body = readVariablePayload();
+    $('#variableSaveStatus').textContent = '正在保存…';
+    return saveImmediately('variable:' + body.id, body, persistVariable);
+  }
+  function trashVariable() {
+    if (!state.variableId || !confirm('确定将此变量移入回收站吗？')) return;
+    api('/api/variable-library', { method: 'POST', body: JSON.stringify({ action: 'trash', id: state.variableId }) }).then(function (res) {
+      if (!res.ok) { toast(res.error || '移入回收站失败'); return; }
+      state.variableLibrary = res.variableLibrary; state.variableId = null; renderVariableLibrary(); toast('变量已移入回收站');
+    });
+  }
+  function restoreVariable(id) {
+    api('/api/variable-library', { method: 'POST', body: JSON.stringify({ action: 'restore', id: id }) }).then(function (res) {
+      if (!res.ok) { toast(res.error || '恢复变量失败'); return; }
+      state.variableLibrary = res.variableLibrary; renderVariableLibrary(); toast('变量已恢复');
+    });
+  }
+  function purgeVariable(id) {
+    if (!confirm('确定彻底删除该变量记录吗？此操作无法恢复。')) return;
+    api('/api/variable-library', { method: 'POST', body: JSON.stringify({ action: 'purge', id: id }) }).then(function (res) {
+      if (!res.ok) { toast(res.error || '彻底删除失败'); return; }
+      state.variableLibrary = res.variableLibrary; renderVariableLibrary(); toast('变量已彻底删除');
+    });
+  }
 
   function versionHistoryItem(type, id) {
     var source = type === 'note' ? state.noteStudio && state.noteStudio.notes : type === 'prompt' ? state.promptLibrary && state.promptLibrary.prompts : state.knowledgeBase && state.knowledgeBase.docs;

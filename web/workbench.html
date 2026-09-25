@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>学术工作台</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='%230F766E' stroke='%230F766E' stroke-width='2'/><circle cx='16' cy='16' r='5' fill='%230F766E'/></svg>">
-  <link rel="stylesheet" href="style.css?v=20260924-92">
+  <link rel="stylesheet" href="style.css?v=20260925-93">
   <style>.sidebar-nav .retired-content{display:none!important}</style>
 </head>
 <body>
@@ -74,6 +74,10 @@
         <button class="nav-item" data-panel="research-projects">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16v14H4z"/><path d="M8 6V4h8v2M8 11h8M8 15h5"/></svg>
           <span>研究项目</span>
+        </button>
+        <button class="nav-item" data-panel="variable-library">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h14v16H5z"/><path d="M9 8h6M9 12h2M15 12h.01M9 16h2M15 16h.01"/><path d="M12 12v4"/></svg>
+          <span>变量库</span>
         </button>
         <button class="nav-item" data-panel="references">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v17H6.5A2.5 2.5 0 0 1 4 17.5z"/><path d="M4 17.5A2.5 2.5 0 0 1 6.5 15H20M8 7h8M8 10.5h8"/></svg>
@@ -366,6 +370,21 @@
         </div>
       </section>
 
+      <section class="panel" id="panel-variable-library">
+        <div class="variable-head"><div><div class="card-dot"></div><div class="card-label">变量库</div><p>按研究角色整理变量定义、计量方式、数据来源与关联研究，支持自动同步。</p></div><div class="variable-actions"><button type="button" id="variableTrash">回收站</button><button type="button" id="variableNew">+ 新建变量</button><button type="button" id="variableSave">立即保存</button></div></div>
+        <div class="variable-workspace">
+          <aside class="variable-list-pane"><label class="variable-search"><span>检索变量</span><input id="variableSearch" type="search" placeholder="名称、符号、定义或来源"></label><div id="variableCategories" class="variable-category-list"></div><div id="variableList" class="variable-list"></div></aside>
+          <section class="variable-editor">
+            <div class="variable-title-row"><input id="variableName" placeholder="变量名称" aria-label="变量名称"><button id="variableDelete" type="button" title="移入回收站">×</button></div>
+            <div class="variable-meta"><label>研究角色<select id="variableRole"><option>被解释变量</option><option>核心解释变量</option><option>机制变量</option><option>调节变量</option><option>经济后果变量</option><option>控制变量</option><option>其他</option></select></label><label>变量符号<input id="variableSymbol" placeholder="例如：Y、Treat、Mediator"></label><label>计量单位<input id="variableUnit" placeholder="例如：万元、比例、标准差"></label><label>关联论文<input id="variablePaper" placeholder="论文标题或研究项目"></label></div>
+            <label class="variable-field">概念定义<textarea id="variableDefinition" placeholder="变量的理论含义与研究语境"></textarea></label>
+            <div class="variable-split"><label class="variable-field">操作化与计算方式<textarea id="variableMeasure" placeholder="指标构造、计算公式、赋值规则或处理方式"></textarea></label><label class="variable-field">数据来源与口径<textarea id="variableSource" placeholder="数据来源、样本范围、频率及口径说明"></textarea></label></div>
+            <label class="variable-field">备注与文献依据<textarea id="variableNotes" placeholder="参考文献、替代指标、识别注意事项等"></textarea></label>
+            <div class="variable-save-status" id="variableSaveStatus" aria-live="polite">选择或新建变量后编辑，修改会自动保存。</div>
+          </section>
+        </div>
+      </section>
+
       <section class="panel" id="panel-data-code" hidden>
         <div class="dc-head"><div><div class="card-dot"></div><div class="card-label">数据与代码</div><p>记录数据来源、版本、运行环境与复现顺序。</p></div><div class="dc-actions"><button type="button" id="dcTrash">回收站</button><button type="button" id="dcNew">+ 新建资源</button><button type="button" id="dcSave">立即保存</button></div></div>
         <div class="dc-workspace"><aside class="dc-list" id="dcList"></aside><section class="dc-editor"><div class="dc-title-row"><input id="dcTitle" placeholder="资源名称"><button id="dcDelete" type="button" title="移入回收站">×</button></div><div class="dc-meta"><label>资源分类<input id="dcCategory" placeholder="例如：气象数据"></label><label>类型<select id="dcKind"><option>数据集</option><option>分析代码</option><option>复现包</option></select></label><label>关联项目<select id="dcProject"><option value="">未关联</option></select></label><label>关联论文<input id="dcPaper" list="dcPaperOptions" placeholder="论文标题"><datalist id="dcPaperOptions"></datalist></label><label>版本<input id="dcVersion" placeholder="v1.0"></label></div><div class="dc-grid"><label>数据来源或代码仓库<input id="dcSource" placeholder="网址、机构或仓库地址"></label><label>时间与样本范围<input id="dcCoverage" placeholder="例如：2010—2025，中国地级市"></label><label>运行环境<input id="dcEnvironment" placeholder="例如：Stata 18 / Python 3.12"></label><label>文件位置<input id="dcLocation" placeholder="本地路径、云盘或 GitHub 链接"></label></div><label class="dc-field">说明<textarea id="dcDescription" placeholder="用途、口径、许可证及注意事项"></textarea></label><div class="dc-split"><label class="dc-field">关键变量<textarea id="dcVariables" placeholder="每行一个变量及定义"></textarea></label><label class="dc-field">运行顺序<textarea id="dcRunOrder" placeholder="01_clean.do\n02_merge.do\n03_regression.do"></textarea></label></div></section><aside class="dc-repro"><div class="dc-repro-kicker">复现检查</div><label><input type="checkbox" data-dc-check="raw"> 原始数据已保留</label><label><input type="checkbox" data-dc-check="clean"> 清洗脚本可运行</label><label><input type="checkbox" data-dc-check="env"> 环境与依赖已记录</label><label><input type="checkbox" data-dc-check="output"> 结果可重新生成</label><label><input type="checkbox" data-dc-check="readme"> README 已完成</label><div class="dc-repro-progress" id="dcReproProgress"></div></aside></div>
@@ -411,7 +430,7 @@
             <div class="tracker-feed-toolbar">
               <div>
                 <span class="tracker-eyebrow">LATEST ARTICLES</span>
-                <h3>最新文章 <span id="trackerUnreadCount" class="tracker-unread-count" hidden></span></h3>
+                <h3>最新文章 <span id="trackerUnreadCount" class="tracker-unread-count" hidden></span><span id="trackerVisibleCount" class="tracker-visible-count" aria-live="polite"></span></h3>
               </div>
               <div class="tracker-filters">
                 <input id="trackerArticleSearch" type="search" placeholder="搜索标题、作者或关键词">
@@ -1407,7 +1426,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-  <script src="static-api.js?v=20260924-80"></script>
-  <script src="app.js?v=20260924-115"></script>
+  <script src="static-api.js?v=20260925-81"></script>
+  <script src="app.js?v=20260925-116"></script>
 </body>
 </html>
