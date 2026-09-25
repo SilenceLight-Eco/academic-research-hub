@@ -372,14 +372,14 @@
         variableLibrary.items = Array.isArray(variableLibrary.items) ? variableLibrary.items : [];
         variableLibrary.trash = Array.isArray(variableLibrary.trash) ? variableLibrary.trash : [];
         if (method === 'GET') return response({ ok: true, variableLibrary: variableLibrary });
-        var variableRoles = ['被解释变量', '核心解释变量', '机制变量', '调节变量', '经济后果变量', '控制变量', '其他'];
-        if (body.action === 'create') variableLibrary.items.unshift({ id: nowId(), name: '新变量', role: '被解释变量', symbol: '', unit: '', paper: '', definition: '', measure: '', source: '', notes: '', updated: nowText() });
+        var variableRoles = ['被解释变量', '核心解释变量', '机制变量', '调节变量', '经济后果变量', '异质性分析变量', '其他'];
+        if (body.action === 'create') variableLibrary.items.unshift({ id: nowId(), name: '新变量', role: variableRoles.indexOf(body.role) >= 0 ? body.role : '被解释变量', symbol: '', unit: '', paper: '', definition: '', measure: '', source: '', notes: '', updated: nowText() });
         if (body.action === 'save') variableLibrary.items.forEach(function (item) {
           if (String(item.id) !== String(body.id)) return;
           item.name = String(body.name || '未命名变量').trim().slice(0, 200);
           item.role = variableRoles.indexOf(body.role) >= 0 ? body.role : '其他';
-          item.symbol = String(body.symbol || '').trim().slice(0, 80);
-          item.unit = String(body.unit || '').trim().slice(0, 200);
+          if (Object.prototype.hasOwnProperty.call(body, 'symbol')) item.symbol = String(body.symbol || '').trim().slice(0, 80);
+          if (Object.prototype.hasOwnProperty.call(body, 'unit')) item.unit = String(body.unit || '').trim().slice(0, 200);
           item.paper = String(body.paper || '').trim().slice(0, 500);
           item.definition = String(body.definition || '').slice(0, 20000);
           item.measure = String(body.measure || '').slice(0, 20000);
