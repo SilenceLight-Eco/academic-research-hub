@@ -5651,15 +5651,19 @@
     trackerListPollInFlight = false;
   }
 
-  function trackerRetryDelayMs(item, now) {
-    if (!item || !item.last_error) return 24 * 60 * 60 * 1000;
-    var lastSuccess = Date.parse(item.last_success_at || '');
-    if (!lastSuccess) return 15 * 60 * 1000;
-    var failureAge = Math.max(0, (now || Date.now()) - lastSuccess);
-    if (failureAge < 60 * 60 * 1000) return 10 * 60 * 1000;
-    if (failureAge < 6 * 60 * 60 * 1000) return 30 * 60 * 1000;
-    if (failureAge < 24 * 60 * 60 * 1000) return 2 * 60 * 60 * 1000;
-    return 6 * 60 * 60 * 1000;
+  function trackerNextDailyRun(now) {
+    var current = now || Date.now();
+    var beijingTime = new Date(current + 8 * 60 * 60 * 1000);
+    beijingTime.setUTCHours(8, 0, 0, 0);
+    if (beijingTime.getTime() <= current + 8 * 60 * 60 * 1000) beijingTime.setUTCDate(beijingTime.getUTCDate() + 1);
+    return new Date(beijingTime.getTime() - 8 * 60 * 60 * 1000).toISOString();
+  }
+
+  function trackerBeijingDateLabel(value) {
+    var date = new Date(value);
+    if (isNaN(date.getTime())) return String(value || '');
+    var beijingTime = new Date(date.getTime() + 8 * 60 * 60 * 1000);
+    return beijingTime.getUTCFullYear() + '年' + (beijingTime.getUTCMonth() + 1) + '月' + beijingTime.getUTCDate() + '日 08:00';
   }
 
   function trackerDateLabel(value, withTime) {
@@ -6021,7 +6025,7 @@
         var detail = log.error ? '<small title="' + escapeHtml(log.error) + '">' + escapeHtml(log.error) + '</small>' : '';
         return '<li><time>' + escapeHtml(trackerDateLabel(log.checked_at, true)) + '</time><span class="tracker-run-log-title" title="' + escapeHtml(logTitle) + '">' + escapeHtml(logTitle) + '</span><span class="tracker-run-source">' + escapeHtml(sourceLabels[log.source] || '检查') + '</span><b class="' + outcomeClass + '">' + outcome + '</b><span class="tracker-run-count">+' + Number(log.article_count || 0) + ' 篇</span>' + detail + '</li>';
       }).join('');
-      runHistory.innerHTML = '<div class="tracker-run-banner' + (failingSubscriptions.length ? ' has-failures' : '') + '"><div class="tracker-run-banner-title"><span class="tracker-run-indicator"></span><div><b>' + (failingSubscriptions.length ? '后台更新需要关注' : '后台更新运行正常') + '</b><span>' + (failingSubscriptions.length ? failingSubscriptions.length + ' 本期刊存在抓取问题，将按退避间隔自动重试。' : latestLog ? '最近检查：' + escapeHtml(trackerDateLabel(latestLog.checked_at, true)) + '；关闭网页后仍会定时检查。' : '关闭网页后仍会定时检查。') + '</span></div></div>' + (recentFailures ? '<ul class="tracker-run-failures">' + recentFailures + '</ul>' : '') + (logRows ? '<details class="tracker-run-details"><summary>最近检查记录（' + refreshLogs.length + '）</summary><ol>' + logRows + '</ol></details>' : '') + '</div>';
+      runHistory.innerHTML = '<div class="tracker-run-banner' + (failingSubscriptions.length ? ' has-failures' : '') + '"><div class="tracker-run-banner-title"><span class="tracker-run-indicator"></span><div><b>' + (failingSubscriptions.length ? '后台更新需要关注' : '后台更新运行正常') + '</b><span>' + (failingSubscriptions.length ? failingSubscriptions.length + ' 本期刊存在抓取问题；系统会在每日北京时间 08:00 再次检查，也可手动重试。' : latestLog ? '最近检查：' + escapeHtml(trackerDateLabel(latestLog.checked_at, true)) + '；每日北京时间 08:00 自动检查。' : '每日北京时间 08:00 自动检查，关闭网页后仍会运行。') + '</span></div></div>' + (recentFailures ? '<ul class="tracker-run-failures">' + recentFailures + '</ul>' : '') + (logRows ? '<details class="tracker-run-details"><summary>最近检查记录（' + refreshLogs.length + '）</summary><ol>' + logRows + '</ol></details>' : '') + '</div>';
     }
     var unreadCount = articles.filter(function (article) { return article.is_read !== true; }).length;
     var unreadLabel = $('#trackerUnreadCount');
@@ -6080,7 +6084,7 @@
       var status = item.last_error ? item.last_error : (item.last_success_at ? '更新于 ' + trackerDateLabel(item.last_success_at, true) : '等待首次检查');
       var checkedAt = Date.parse(item.last_checked_at || '');
       var checkStatus = checkedAt ? '最近检查 ' + trackerDateLabel(item.last_checked_at, true) : '尚未检查';
-      if (item.last_error && checkedAt) checkStatus += ' · 下次重试 ' + trackerDateLabel(new Date(checkedAt + trackerRetryDelayMs(item, Date.now())).toISOString(), true);
+      if (item.last_error && checkedAt) checkStatus += ' · 下次自动检查 ' + trackerBeijingDateLabel(trackerNextDailyRun(Date.now())) + '（北京时间）';
       var isSelected = String(state.journalTrackerFilter) === String(item.id);
       var isBulkSelected = Boolean(state.trackerSelectedJournalIds && state.trackerSelectedJournalIds[String(item.id)]);
       var currentCategory = String(item.category || '').trim();
@@ -8609,7 +8613,7 @@
     var visible = state.promptCategoryFilter === 'all' ? prompts : prompts.filter(function (prompt) { return ((prompt.category || '通用').trim() || '通用') === state.promptCategoryFilter; });
     if (!visible.some(function (prompt) { return Number(prompt.id) === Number(state.promptId); })) state.promptId = visible[0] ? visible[0].id : null;
     var active = activePrompt();
-    list.innerHTML = (prompts.length ? '<div class="prompt-category-list"><button type="button" class="prompt-category' + (state.promptCategoryFilter === 'all' ? ' is-active' : '') + '" data-prompt-category="all">全部 <span>' + prompts.length + '</span></button>' + categories.map(function (category) { return '<button type="button" class="prompt-category' + (state.promptCategoryFilter === category ? ' is-active' : '') + '" data-prompt-category="' + escapeHtml(category) + '">' + escapeHtml(category) + '<span>' + prompts.filter(function (prompt) { return ((prompt.category || '通用').trim() || '通用') === category; }).length + '</span></button>'; }).join('') + '</div><div class="prompt-list-label">提示词 <span>' + visible.length + '</span></div>' + (visible.length ? visible.map(function (prompt) { return '<button type="button" class="prompt-list-item' + (Number(prompt.id) === Number(state.promptId) ? ' is-active' : '') + '" data-prompt-id="' + prompt.id + '"><b>' + escapeHtml(prompt.title || '未命名提示词') + '</b><span>' + escapeHtml(prompt.category || '通用') + ' · ' + escapeHtml(prompt.updated || '') + '</span></button>'; }).join('') : '<div class="prompt-list-empty">此分类暂无提示词</div>') : '<div class="prompt-list-empty">还没有提示词<br>点击右上角新建</div>') + '<div class="prompt-create-hint" data-prompt-create role="button" tabindex="0" title="双击新建提示词">＋ 双击此处新建提示词</div>';
+    list.innerHTML = prompts.length ? '<div class="prompt-category-list"><button type="button" class="prompt-category' + (state.promptCategoryFilter === 'all' ? ' is-active' : '') + '" data-prompt-category="all">全部 <span>' + prompts.length + '</span></button>' + categories.map(function (category) { return '<button type="button" class="prompt-category' + (state.promptCategoryFilter === category ? ' is-active' : '') + '" data-prompt-category="' + escapeHtml(category) + '">' + escapeHtml(category) + '<span>' + prompts.filter(function (prompt) { return ((prompt.category || '通用').trim() || '通用') === category; }).length + '</span></button>'; }).join('') + '</div><div class="prompt-list-label" data-prompt-create tabindex="0" title="双击新建提示词">提示词 <span>' + visible.length + '</span></div>' + (visible.length ? visible.map(function (prompt) { return '<button type="button" class="prompt-list-item' + (Number(prompt.id) === Number(state.promptId) ? ' is-active' : '') + '" data-prompt-id="' + prompt.id + '"><b>' + escapeHtml(prompt.title || '未命名提示词') + '</b><span>' + escapeHtml(prompt.category || '通用') + ' · ' + escapeHtml(prompt.updated || '') + '</span></button>'; }).join('') : '<div class="prompt-list-empty" data-prompt-create role="button" tabindex="0" title="双击新建提示词">此分类暂无提示词<br>双击此处新建</div>') : '<div class="prompt-list-empty" data-prompt-create role="button" tabindex="0" title="双击新建提示词">还没有提示词<br>双击此处或点击右上角新建</div>';
     fields.forEach(function (id) { $('#' + id).disabled = !active; }); $('#promptDelete').hidden = !active;
     $('#promptTitle').value = active ? active.title || '' : ''; $('#promptCategory').value = active ? active.category || '' : ''; $('#promptTags').value = active ? active.tags || '' : ''; $('#promptBody').value = active ? active.body || '' : '';
     renderPromptResult();

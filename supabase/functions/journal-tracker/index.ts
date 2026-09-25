@@ -924,9 +924,17 @@ Deno.serve(async (request: Request) => {
     if (action === "cron") {
       const configured = Deno.env.get("JOURNAL_TRACKER_CRON_SECRET") || "";
       if (!configured || request.headers.get("x-cron-secret") !== configured) return json(request, { ok: false, error: "定时任务凭证无效" }, 401);
+      const scheduleTime = new Date();
+      // Keep the old ten-minute database schedule harmless until its migration
+      // is applied: only perform work at 00:00 UTC (08:00 China time).
+      if (scheduleTime.getUTCHours() !== 0 || scheduleTime.getUTCMinutes() !== 0) {
+        return json(request, { ok: true, skipped: "daily schedule runs at 08:00 Asia/Shanghai" });
+      }
       const cleaned = await purgeExpiredReadArticles();
       await purgeExpiredRefreshLogs();
-      const subscriptions = (await listSubscriptions()).filter((item) => subscriptionRefreshDue(item)).slice(0, 100);
+      // The scheduled run is a daily batch, so inspect every enabled journal
+      // on each run even if a manual refresh happened earlier that day.
+      const subscriptions = (await listSubscriptions()).filter((item) => item.enabled);
       const results: RefreshResult[] = [];
       for (const subscription of subscriptions) results.push(await refreshSubscription(subscription));
       await recordRefreshLogs(subscriptions, results, "scheduled");
