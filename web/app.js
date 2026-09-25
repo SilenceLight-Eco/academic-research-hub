@@ -8807,7 +8807,7 @@
     });
     // 不依赖 inputType / data：部分浏览器和中文输入法不会在 input 事件中返回空格字符。
     // 只在当前段落已经符合 Markdown 触发语法时才会转换，因此每次输入检查也不会影响普通文本。
-    rich.addEventListener('input', function () { if (!autoFormatKnowledgeCurrentLine(rich, false)) { autoFormatKnowledgeHeading(rich, false); autoFormatKnowledgeFormula(rich, false); } });
+    rich.addEventListener('input', function (event) { moveKnowledgeGapAfterSplit(rich, event); if (!autoFormatKnowledgeCurrentLine(rich, false)) { autoFormatKnowledgeHeading(rich, false); autoFormatKnowledgeFormula(rich, false); } });
     source.replaceWith(rich);
     renderProjectBacklinks('knowledge', state.kbDocId, $('#kbEditor'));
     renderKnowledgeFormulas(rich);
@@ -8881,6 +8881,19 @@
 
   function editorContainsSelection(editor, selection) {
     return !!(selection.anchorNode && selection.focusNode && editor.contains(selection.anchorNode) && editor.contains(selection.focusNode));
+  }
+
+  function moveKnowledgeGapAfterSplit(editor, event) {
+    if (!event || event.inputType !== 'insertParagraph') return;
+    var selection = window.getSelection();
+    var node = selection && selection.anchorNode;
+    node = node && (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement);
+    while (node && node.parentElement && node.parentElement !== editor) node = node.parentElement;
+    if (!node || node.parentElement !== editor) return;
+    var previous = node.previousElementSibling;
+    if (!previous || !previous.hasAttribute('data-md-gap-after')) return;
+    if (!node.hasAttribute('data-md-gap-after')) node.setAttribute('data-md-gap-after', previous.getAttribute('data-md-gap-after'));
+    previous.removeAttribute('data-md-gap-after');
   }
 
   function runKnowledgeRichCommand(command) {
@@ -9038,20 +9051,23 @@
     function walkChildren(parent) {
       var output = '';
       var pendingBreaks = 0;
-      var previousBlock = false;
+      var previousBlock = null;
       Array.from(parent.childNodes).forEach(function (child) {
         if (child.nodeType === Node.ELEMENT_NODE && child.tagName.toLowerCase() === 'br') { pendingBreaks += 1; return; }
         var block = isBlock(child);
         if (block) {
-          if (previousBlock) output += '\n'.repeat(pendingBreaks + 1);
+          if (previousBlock) {
+            var preservedGap = parseInt(previousBlock.getAttribute('data-md-gap-after') || '', 10);
+            output += '\n'.repeat(pendingBreaks ? pendingBreaks + 1 : (preservedGap > 0 ? preservedGap : 1));
+          }
           else if (pendingBreaks) output += '\n'.repeat(pendingBreaks);
           else if (output) output += '\n';
           output += walk(child);
-          previousBlock = true;
+          previousBlock = child;
         } else {
           if (pendingBreaks) output += '\n'.repeat(pendingBreaks);
           output += walk(child);
-          previousBlock = false;
+          previousBlock = null;
         }
         pendingBreaks = 0;
       });
@@ -9059,7 +9075,7 @@
       return output;
     }
     function walk(node) {
-      if (node.nodeType === Node.TEXT_NODE) return node.nodeValue || '';
+      if (node.nodeType === Node.TEXT_NODE) return (node.nodeValue || '').replace(/\u00a0/g, ' ');
       if (node.nodeType !== Node.ELEMENT_NODE) return '';
       var tag = node.tagName.toLowerCase();
       var inner = walkChildren(node);
@@ -9144,26 +9160,78 @@
   function renderKnowledgeMarkdown(source) {
     var codeBlocks = [];
     var colorSpans = [];
-    var raw = String(source || '').replace(/```([\s\S]*?)```/g, function (_, code) { var token = '@@KB_CODE_' + codeBlocks.length + '@@'; codeBlocks.push('<pre><code>' + escapeHtml(code.trim()) + '</code></pre>'); return token; });
+    var markdownSource = String(source || '').replace(/\r\n?/g, '\n');
+    if (!markdownSource) return '';
+    var raw = markdownSource.replace(/```([\s\S]*?)```/g, function (_, code) { var token = '@@KB_CODE_' + codeBlocks.length + '@@'; codeBlocks.push('<pre><code>' + escapeHtml(code.trim()) + '</code></pre>'); return token; });
     raw = extractKnowledgeColorTokens(raw, colorSpans);
     var text = escapeHtml(raw);
-    var lines = text.split('\n'); var html = []; var listType = '';
-    function closeList() { if (listType) { html.push('</' + listType + '>'); listType = ''; } }
-    function openList(type) { if (listType !== type) { closeList(); html.push('<' + type + '>'); listType = type; } }
-    lines.forEach(function (line) {
-      if (/^@@KB_CODE_\d+@@$/.test(line)) { closeList(); html.push(line); return; }
+    var lines = text.split('\n'); var html = []; var listType = ''; var listHtmlIndex = -1; var listLastLine = -1;
+    var paragraphLines = []; var paragraphLastLine = -1; var quoteLines = []; var quoteLastLine = -1;
+    var firstContentLine = lines.findIndex(function (line) { return line !== ''; });
+    var lastContentLine = -1;
+    lines.forEach(function (line, index) { if (line !== '') lastContentLine = index; });
+    if (firstContentLine < 0) return '<br>'.repeat(Math.max(0, lines.length - 1));
+    function gapAfter(index) {
+      var next = index + 1;
+      while (next < lines.length && lines[next] === '') next += 1;
+      return Math.max(1, next - index);
+    }
+    function gapAttribute(index) { return ' data-md-gap-after="' + gapAfter(index) + '"'; }
+    function closeList() {
+      if (!listType) return;
+      html[listHtmlIndex] = '<' + listType + gapAttribute(listLastLine) + '>';
+      html.push('</' + listType + '>');
+      listType = ''; listHtmlIndex = -1; listLastLine = -1;
+    }
+    function openList(type, index) {
+      if (listType === type) { listLastLine = index; return; }
+      closeList(); listType = type; listLastLine = index; listHtmlIndex = html.length; html.push('<' + type + '>');
+    }
+    function flushParagraph() {
+      if (!paragraphLines.length) return;
+      closeList();
+      html.push('<p' + gapAttribute(paragraphLastLine) + '>' + paragraphLines.map(markdownInline).join('<br>') + '</p>');
+      paragraphLines = []; paragraphLastLine = -1;
+    }
+    function flushQuote() {
+      if (!quoteLines.length) return;
+      closeList();
+      html.push('<blockquote' + gapAttribute(quoteLastLine) + '>' + quoteLines.map(function (line) { return markdownInline(line.replace(/^>\s?/, '')); }).join('<br>') + '</blockquote>');
+      quoteLines = []; quoteLastLine = -1;
+    }
+    function flushTextBlocks() { flushParagraph(); flushQuote(); closeList(); }
+    lines.forEach(function (line, index) {
+      if (line === '') {
+        flushTextBlocks();
+        if (firstContentLine < 0) return;
+        if (index < firstContentLine || index > lastContentLine) html.push('<br>');
+        return;
+      }
+      if (/^@@KB_CODE_\d+@@$/.test(line)) {
+        flushTextBlocks();
+        var codeIndex = Number((line.match(/\d+/) || [])[0]);
+        html.push((codeBlocks[codeIndex] || '').replace(/^<pre>/, '<pre' + gapAttribute(index) + '>'));
+        return;
+      }
       // 新旧文档都支持：# 标题 和 #标题 在编辑器中都会显示为标题。
-      if (/^####\s*\S/.test(line)) { closeList(); html.push('<h4>' + markdownInline(line.replace(/^####\s*/, '')) + '</h4>'); return; }
-      if (/^###\s*\S/.test(line)) { closeList(); html.push('<h3>' + markdownInline(line.replace(/^###\s*/, '')) + '</h3>'); return; }
-      if (/^##\s*\S/.test(line)) { closeList(); html.push('<h2>' + markdownInline(line.replace(/^##\s*/, '')) + '</h2>'); return; }
-      if (/^#\s*\S/.test(line)) { closeList(); html.push('<h1>' + markdownInline(line.replace(/^#\s*/, '')) + '</h1>'); return; }
-      if (/^---+\s*$/.test(line)) { closeList(); html.push('<hr>'); return; }
-      if (/^>\s?/.test(line)) { closeList(); html.push('<blockquote>' + markdownInline(line.replace(/^>\s?/, '')) + '</blockquote>'); return; }
-      if (/^\d+\.\s+/.test(line)) { openList('ol'); html.push('<li>' + markdownInline(line.replace(/^\d+\.\s+/, '')) + '</li>'); return; }
-      if (/^[-*]\s+/.test(line)) { openList('ul'); html.push('<li>' + markdownInline(line.replace(/^[-*]\s+/, '')) + '</li>'); return; }
-      closeList(); html.push(line ? '<p>' + markdownInline(line) + '</p>' : '<br>');
+      if (/^####\s*\S/.test(line)) { flushTextBlocks(); html.push('<h4' + gapAttribute(index) + '>' + markdownInline(line.replace(/^####\s*/, '')) + '</h4>'); return; }
+      if (/^###\s*\S/.test(line)) { flushTextBlocks(); html.push('<h3' + gapAttribute(index) + '>' + markdownInline(line.replace(/^###\s*/, '')) + '</h3>'); return; }
+      if (/^##\s*\S/.test(line)) { flushTextBlocks(); html.push('<h2' + gapAttribute(index) + '>' + markdownInline(line.replace(/^##\s*/, '')) + '</h2>'); return; }
+      if (/^#\s*\S/.test(line)) { flushTextBlocks(); html.push('<h1' + gapAttribute(index) + '>' + markdownInline(line.replace(/^#\s*/, '')) + '</h1>'); return; }
+      if (/^---+\s*$/.test(line)) { flushTextBlocks(); html.push('<hr' + gapAttribute(index) + '>'); return; }
+      if (/^>\s?/.test(line)) { flushParagraph(); closeList(); quoteLines.push(line); quoteLastLine = index; return; }
+      flushQuote();
+      var orderedItem = line.match(/^\d+\.\s+/);
+      var unorderedItem = line.match(/^[-*]\s+/);
+      if (orderedItem || unorderedItem) {
+        flushParagraph();
+        openList(orderedItem ? 'ol' : 'ul', index);
+        html.push('<li>' + markdownInline(line.replace(orderedItem || unorderedItem, '')) + '</li>');
+        return;
+      }
+      closeList(); paragraphLines.push(line); paragraphLastLine = index;
     });
-    closeList();
+    flushTextBlocks();
     return restoreKnowledgeColorTokens(html.join(''), colorSpans).replace(/@@KB_CODE_(\d+)@@/g, function (_, i) { return codeBlocks[Number(i)] || ''; });
   }
 
