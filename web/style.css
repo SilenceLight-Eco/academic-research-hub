@@ -6909,8 +6909,10 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 
 /* 变量库：以变量角色为索引的实证研究工作区 */
 .variable-head { display:flex; align-items:flex-end; justify-content:space-between; gap:18px; margin-bottom:16px; }
-.variable-head .card-label { margin-top:7px; }
-.variable-head p { margin:5px 0 0; color:var(--text-muted); font-size:12px; }
+.variable-head > div:first-child { display:grid; grid-template-columns:7px minmax(0,1fr); grid-template-rows:auto auto; align-items:center; column-gap:10px; row-gap:5px; }
+.variable-head .card-dot { position:static; grid-column:1; grid-row:1; width:7px; height:7px; margin:0; box-shadow:0 0 0 3px var(--accent-dim); }
+.variable-head .card-label { grid-column:2; grid-row:1; margin:0; padding:0; line-height:1.45; }
+.variable-head p { grid-column:2; grid-row:2; margin:0; color:var(--text-muted); font-size:12px; }
 .variable-actions { display:flex; flex-wrap:wrap; gap:8px; }
 .variable-actions button { padding:7px 10px; border:1px solid var(--hairline); border-radius:7px; background:var(--glass-strong); color:var(--text-secondary); cursor:pointer; font:inherit; font-size:12px; }
 .variable-actions button:last-child { border-color:var(--accent); color:var(--accent); }
@@ -6928,10 +6930,14 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .variable-role-title:hover { background:var(--accent-dim); color:var(--accent); }
 .variable-role-title > span:first-child { font:600 14px/1.4 "Noto Sans SC",sans-serif; }
 .variable-role-count { min-width:18px; padding:1px 5px; border-radius:999px; background:var(--hairline-soft); color:var(--text-muted); font-size:10px; text-align:center; }
+.variable-role-hint { margin-left:auto; color:var(--text-muted); font-size:9px; opacity:.72; }
 .variable-role-chevron { margin-left:auto; color:var(--text-muted); font-size:15px; transition:transform .16s ease; }
+.variable-role-hint + .variable-role-chevron { margin-left:0; }
 .variable-role-title.is-collapsed .variable-role-chevron { transform:rotate(-90deg); }
 .variable-role-items { padding-left:8px; }
 .variable-role-items[hidden] { display:none; }
+.variable-role-empty { margin:1px 0 5px; padding:7px 9px; border-left:1px solid var(--hairline); color:var(--text-muted); cursor:pointer; font-size:10px; }
+.variable-role-empty:hover { border-color:var(--accent); color:var(--accent); }
 .variable-list-item { display:block; width:100%; margin:2px 0; padding:9px 8px; border:0; border-radius:6px; background:transparent; color:var(--text-secondary); cursor:pointer; font:inherit; font-size:12px; text-align:left; }
 .variable-list-item:hover,.variable-list-item.is-active { background:var(--accent-dim); color:var(--accent); }
 .variable-list-item b,.variable-list-item span { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
