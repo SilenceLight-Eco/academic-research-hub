@@ -6621,18 +6621,30 @@
     button.disabled = true;
     button.textContent = '正在标记…';
     var selectedIds = selectedArticles.map(function (article) { return String(article.id); });
-    journalTrackerRequest({ action: 'mark-selected-read', ids: selectedIds }).then(function (result) {
-      var updatedArticles = result.articles || [];
-      var selectedStillUnread = updatedArticles.some(function (article) { return selectedIds.indexOf(String(article.id)) >= 0 && article.is_read !== true; });
-      if (result.readStateVersion !== 1 || selectedStillUnread) {
-        throw new Error('云端文献追踪函数尚未更新，阅读状态未保存。请在 Supabase 重新部署 journal-tracker 后重试。');
-      }
+    var batches = [];
+    for (var offset = 0; offset < selectedIds.length; offset += 300) batches.push(selectedIds.slice(offset, offset + 300));
+    var latestResult = null;
+    var updatedTotal = 0;
+    var markPromise = Promise.resolve();
+    batches.forEach(function (batch) {
+      markPromise = markPromise.then(function () {
+        return journalTrackerRequest({ action: 'mark-selected-read', ids: batch }).then(function (result) {
+          var updatedArticles = result.articles || [];
+          var selectedStillUnread = updatedArticles.some(function (article) { return batch.indexOf(String(article.id)) >= 0 && article.is_read !== true; });
+          if (result.readStateVersion !== 1 || selectedStillUnread) throw new Error('部分文章未能标记为已读，请刷新后重试。');
+          latestResult = result;
+          updatedTotal += Number(result.updatedCount || 0);
+        });
+      });
+    });
+    markPromise.then(function () {
       state.trackerCollapsedGroups.read = true;
       try { localStorage.setItem('academic-workbench-tracker-collapsed-v1', JSON.stringify(state.trackerCollapsedGroups)); } catch (_) {}
       saveTrackerDisplayPreferences();
-      applyJournalTrackerData(result);
-      toast('已将 ' + Number(result.updatedCount || 0) + ' 篇文章标记为已读');
+      if (latestResult) applyJournalTrackerData(latestResult);
+      toast('已将 ' + updatedTotal + ' 篇文章标记为已读');
     }).catch(function (error) {
+      if (latestResult) applyJournalTrackerData(latestResult);
       toast((error && error.message) || '批量标记失败');
     }).then(function () {
       var current = $('#trackerMarkAllRead');
@@ -7001,7 +7013,9 @@
     $('#variableCategories').addEventListener('click', function (event) { var category = event.target.closest('[data-variable-category]'); if (!category) return; state.variableCategoryFilter = category.dataset.variableCategory; state.variableId = null; renderVariableLibrary(); });
     $('#variableList').addEventListener('click', function (event) { var restore = event.target.closest('[data-variable-restore]'); if (restore) { restoreVariable(restore.dataset.variableRestore); return; } var purge = event.target.closest('[data-variable-purge]'); if (purge) { purgeVariable(purge.dataset.variablePurge); return; } var collapse = event.target.closest('[data-variable-collapse]'); if (collapse) { toggleVariableRole(collapse.dataset.variableCollapse, collapse); return; } var item = event.target.closest('[data-variable-id]'); if (!item) return; state.variableId = item.dataset.variableId; renderVariableLibrary(); });
     $('#variableList').addEventListener('dblclick', function (event) { var create = event.target.closest('[data-variable-role-create]'); if (create) { event.preventDefault(); newVariable(create.dataset.variableRoleCreate); } });
-    ['variableName', 'variableRole', 'variablePaper', 'variableDefinition', 'variableMeasure', 'variableSource', 'variableNotes'].forEach(function (id) { $('#' + id).addEventListener('input', queueVariableAutoSave); $('#' + id).addEventListener('change', queueVariableAutoSave); });
+    ['variableName', 'variablePaper', 'variableDefinition', 'variableMeasure', 'variableSource', 'variableNotes'].forEach(function (id) { $('#' + id).addEventListener('input', queueVariableAutoSave); $('#' + id).addEventListener('change', queueVariableAutoSave); });
+    $('#variableRoleOptions').addEventListener('change', function (event) { if (!selectedVariableRoles().length && event.target.matches('input[name="variable-role"]')) event.target.checked = true; queueVariableAutoSave(); });
+    $('#variableReferenceNew').addEventListener('click', createVariableReference);
     $('#refNew').addEventListener('click', newReference);
     $('#refSave').addEventListener('click', saveReference);
     $('#refDelete').addEventListener('click', trashReference);
@@ -7969,7 +7983,13 @@
   var variableRoles = ['被解释变量', '核心解释变量', '机制变量', '调节变量', '经济后果变量', '异质性分析变量', '其他'];
   var variableCollapsedStorageKey = 'academic-workbench-variable-collapsed-v1';
   var variableCollapsedRoles = (function () { try { return JSON.parse(localStorage.getItem(variableCollapsedStorageKey) || '{}') || {}; } catch (_) { return {}; } }());
-  function displayVariableRole(role) { return role === '控制变量' ? '异质性分析变量' : (variableRoles.indexOf(role) >= 0 ? role : '其他'); }
+  function normalizeVariableRoles(role) {
+    var roles = Array.isArray(role) ? role : [role];
+    roles = roles.map(function (value) { return value === '控制变量' ? '异质性分析变量' : value; }).filter(function (value, index, all) { return variableRoles.indexOf(value) >= 0 && all.indexOf(value) === index; });
+    return roles.length ? roles : ['其他'];
+  }
+  function displayVariableRoleText(role) { return normalizeVariableRoles(role).join('、'); }
+  function selectedVariableRoles() { return $$('#variableRoleOptions input[name="variable-role"]:checked').map(function (input) { return input.value; }); }
   function toggleVariableRole(role, button) { variableCollapsedRoles[role] = !variableCollapsedRoles[role]; try { localStorage.setItem(variableCollapsedStorageKey, JSON.stringify(variableCollapsedRoles)); } catch (_) {} if (button) { var collapsed = variableCollapsedRoles[role], items = button.parentNode.querySelector('.variable-role-items'); button.classList.toggle('is-collapsed', collapsed); button.setAttribute('aria-expanded', String(!collapsed)); if (items) items.hidden = collapsed; } }
   function loadVariableLibrary() {
     return api('/api/variable-library').then(function (res) {
@@ -7977,11 +7997,14 @@
       state.variableLibrary = Object.assign({ items: [], trash: [] }, res.variableLibrary || {});
       var items = state.variableLibrary.items || [];
       if (!items.some(function (item) { return String(item.id) === String(state.variableId); })) state.variableId = items[0] ? items[0].id : null;
-      renderVariableLibrary();
+      return api('/api/references').then(function (referenceResult) {
+        if (referenceResult.ok) state.referenceLibrary = Object.assign({ items: [], trash: [] }, referenceResult.referenceLibrary || {});
+        renderVariableLibrary();
+      });
     });
   }
   function activeVariable() { return (state.variableLibrary.items || []).filter(function (item) { return String(item.id) === String(state.variableId); })[0] || null; }
-  function variableFields() { return ['variableName', 'variableRole', 'variablePaper', 'variableDefinition', 'variableMeasure', 'variableSource', 'variableNotes']; }
+  function variableFields() { return ['variableName', 'variablePaper', 'variableDefinition', 'variableMeasure', 'variableSource', 'variableNotes']; }
   function renderVariableLibrary() {
     var library = state.variableLibrary || { items: [], trash: [] }, items = library.items || [], trash = library.trash || [];
     var list = $('#variableList'), categories = $('#variableCategories');
@@ -7989,21 +8012,23 @@
     $('#variableSearch').value = state.variableQuery || '';
     if (state.variableTrashOpen) {
       categories.innerHTML = '';
-      list.innerHTML = trash.length ? trash.map(function (entry) { var item = entry.item || {}; return '<div class="variable-trash-row"><div><b>' + escapeHtml(item.name || '未命名变量') + '</b><span>' + escapeHtml(displayVariableRole(item.role)) + ' · ' + escapeHtml(entry.deletedAt || '') + '</span></div><div><button type="button" data-variable-restore="' + escapeHtml(entry.id) + '">恢复</button><button type="button" data-variable-purge="' + escapeHtml(entry.id) + '">彻底删除</button></div></div>'; }).join('') : '<div class="variable-empty">回收站为空</div>';
+      list.innerHTML = trash.length ? trash.map(function (entry) { var item = entry.item || {}; return '<div class="variable-trash-row"><div><b>' + escapeHtml(item.name || '未命名变量') + '</b><span>' + escapeHtml(displayVariableRoleText(item.role)) + ' · ' + escapeHtml(entry.deletedAt || '') + '</span></div><div><button type="button" data-variable-restore="' + escapeHtml(entry.id) + '">恢复</button><button type="button" data-variable-purge="' + escapeHtml(entry.id) + '">彻底删除</button></div></div>'; }).join('') : '<div class="variable-empty">回收站为空</div>';
       variableFields().forEach(function (id) { $('#' + id).value = ''; $('#' + id).disabled = true; });
+      $('#variableRoleOptions').innerHTML = variableRoles.map(function (role) { return '<label class="variable-role-option"><input type="checkbox" name="variable-role" value="' + escapeHtml(role) + '" disabled><span>' + escapeHtml(role) + '</span></label>'; }).join('');
+      $('#variableReferenceNew').disabled = true;
       $('#variableDelete').hidden = true;
       $('#variableSaveStatus').textContent = '回收站中的变量可恢复或彻底删除。';
       return;
     }
     var query = (state.variableQuery || '').trim().toLowerCase();
     var visible = items.filter(function (item) {
-      if (state.variableCategoryFilter !== 'all' && displayVariableRole(item.role) !== state.variableCategoryFilter) return false;
-      return !query || [item.name, item.symbol, displayVariableRole(item.role), item.definition, item.measure, item.source, item.paper, item.notes].join(' ').toLowerCase().indexOf(query) >= 0;
+      if (state.variableCategoryFilter !== 'all' && normalizeVariableRoles(item.role).indexOf(state.variableCategoryFilter) < 0) return false;
+      return !query || [item.name, item.symbol, displayVariableRoleText(item.role), item.definition, item.measure, item.source, item.paper, item.notes].join(' ').toLowerCase().indexOf(query) >= 0;
     });
     if (!visible.some(function (item) { return String(item.id) === String(state.variableId); })) state.variableId = visible[0] ? visible[0].id : null;
     categories.innerHTML = '<button type="button" class="variable-category is-active" data-variable-category="all">全部变量 <span>' + items.length + '</span></button>';
     list.innerHTML = visible.length || !query ? '<div class="variable-list-label">研究角色</div>' + variableRoles.map(function (role) {
-      var group = visible.filter(function (item) { return displayVariableRole(item.role) === role; });
+      var group = visible.filter(function (item) { return normalizeVariableRoles(item.role).indexOf(role) >= 0; });
       if (!group.length && query) return '';
       var collapsed = !!variableCollapsedRoles[role];
       return '<section class="variable-role-group"><button type="button" class="variable-role-title' + (collapsed ? ' is-collapsed' : '') + '" data-variable-collapse="' + escapeHtml(role) + '" data-variable-role-create="' + escapeHtml(role) + '" title="单击折叠或展开；双击新建此类变量" aria-expanded="' + (!collapsed) + '"><span>' + escapeHtml(role) + '</span><span class="variable-role-count">' + group.length + '</span><span class="variable-role-hint">双击新建</span><span class="variable-role-chevron" aria-hidden="true">⌄</span></button><div class="variable-role-items"' + (collapsed ? ' hidden' : '') + '>' + (group.length ? group.map(function (item) {
@@ -8013,9 +8038,13 @@
     var active = activeVariable();
     variableFields().forEach(function (id) { $('#' + id).disabled = !active; });
     $('#variableDelete').hidden = !active;
+    $('#variableReferenceNew').disabled = !active;
     $('#variableName').value = active ? active.name || '' : '';
-    $('#variableRole').value = active ? displayVariableRole(active.role) : '被解释变量';
+    var activeRoles = active ? normalizeVariableRoles(active.role) : [];
+    $('#variableRoleOptions').innerHTML = variableRoles.map(function (role) { return '<label class="variable-role-option"><input type="checkbox" name="variable-role" value="' + escapeHtml(role) + '"' + (activeRoles.indexOf(role) >= 0 ? ' checked' : '') + (!active ? ' disabled' : '') + '><span>' + escapeHtml(role) + '</span></label>'; }).join('');
     $('#variablePaper').value = active ? active.paper || '' : '';
+    $('#variablePaper').disabled = !active;
+    $('#variableReferenceOptions').innerHTML = ((state.referenceLibrary && state.referenceLibrary.items) || []).map(function (reference) { return reference.title ? '<option value="' + escapeHtml(reference.title) + '"></option>' : ''; }).join('');
     $('#variableDefinition').value = active ? active.definition || '' : '';
     $('#variableMeasure').value = active ? active.measure || '' : '';
     $('#variableSource').value = active ? active.source || '' : '';
@@ -8033,7 +8062,25 @@
     });
   }
   function readVariablePayload() {
-    return { action: 'save', id: state.variableId, name: $('#variableName').value, role: $('#variableRole').value, paper: $('#variablePaper').value, definition: $('#variableDefinition').value, measure: $('#variableMeasure').value, source: $('#variableSource').value, notes: $('#variableNotes').value };
+    return { action: 'save', id: state.variableId, name: $('#variableName').value, role: selectedVariableRoles(), paper: $('#variablePaper').value, definition: $('#variableDefinition').value, measure: $('#variableMeasure').value, source: $('#variableSource').value, notes: $('#variableNotes').value };
+  }
+  function createVariableReference() {
+    if (!state.variableId) { toast('请先新建或选择一个变量'); return; }
+    var title = window.prompt('输入参考文献标题');
+    if (title === null || !title.trim()) return;
+    title = title.trim().slice(0, 500);
+    api('/api/references', { method: 'POST', body: JSON.stringify({ action: 'create' }) }).then(function (created) {
+      if (!created.ok || !created.referenceLibrary || !created.referenceLibrary.items[0]) throw new Error(created.error || '新建参考文献失败');
+      var referenceId = created.referenceLibrary.items[0].id;
+      return api('/api/references', { method: 'POST', body: JSON.stringify({ action: 'save', id: referenceId, title: title, type: '期刊论文' }) });
+    }).then(function (saved) {
+      if (!saved || !saved.ok) throw new Error((saved && saved.error) || '参考文献保存失败');
+      state.referenceLibrary = Object.assign({ items: [], trash: [] }, saved.referenceLibrary || {});
+      $('#variablePaper').value = title;
+      queueVariableAutoSave();
+      $('#variableReferenceOptions').innerHTML = ((state.referenceLibrary && state.referenceLibrary.items) || []).map(function (reference) { return reference.title ? '<option value="' + escapeHtml(reference.title) + '"></option>' : ''; }).join('');
+      toast('参考文献已加入文献库，并关联到当前变量');
+    }).catch(function (error) { toast(error.message || '新建参考文献失败'); });
   }
   function persistVariable(body, automatic) {
     return api('/api/variable-library', { method: 'POST', body: JSON.stringify(body) }).then(function (res) {

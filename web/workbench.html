@@ -376,8 +376,8 @@
           <aside class="variable-list-pane"><label class="variable-search"><span>检索变量</span><input id="variableSearch" type="search" placeholder="名称、定义、来源或参考文献"></label><div id="variableCategories" class="variable-category-list"></div><div id="variableList" class="variable-list"></div></aside>
           <section class="variable-editor">
             <div class="variable-title-row"><input id="variableName" placeholder="变量名称" aria-label="变量名称"><button id="variableDelete" type="button" title="移入回收站">×</button></div>
-            <label class="variable-role-heading"><span>研究角色</span><select id="variableRole"><option>被解释变量</option><option>核心解释变量</option><option>机制变量</option><option>调节变量</option><option>经济后果变量</option><option>异质性分析变量</option><option>其他</option></select></label>
-            <div class="variable-meta"><label>参考文献<input id="variablePaper" placeholder="作者、年份、DOI 或文献标题"></label></div>
+            <div class="variable-role-heading"><span>研究角色（可多选）</span><div id="variableRoleOptions" class="variable-role-options"></div></div>
+            <div class="variable-meta"><div class="variable-reference-field"><label for="variablePaper">参考文献</label><div class="variable-reference-row"><input id="variablePaper" list="variableReferenceOptions" placeholder="选择或填写作者、年份、DOI、文献标题"><datalist id="variableReferenceOptions"></datalist><button id="variableReferenceNew" type="button" title="新建参考文献并加入文献库">＋新建</button></div></div></div>
             <label class="variable-field">概念定义<textarea id="variableDefinition" placeholder="变量的理论含义与研究语境"></textarea></label>
             <div class="variable-split"><label class="variable-field">操作化与计算方式<textarea id="variableMeasure" placeholder="指标构造、计算公式、赋值规则或处理方式"></textarea></label><label class="variable-field">数据来源与口径<textarea id="variableSource" placeholder="数据来源、样本范围、频率及口径说明"></textarea></label></div>
             <label class="variable-field">备注与文献依据<textarea id="variableNotes" placeholder="参考文献、替代指标、识别注意事项等"></textarea></label>
@@ -1427,7 +1427,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-  <script src="static-api.js?v=20260925-82"></script>
-  <script src="app.js?v=20260925-120"></script>
+  <script src="static-api.js?v=20260925-83"></script>
+  <script src="app.js?v=20260925-121"></script>
 </body>
 </html>
