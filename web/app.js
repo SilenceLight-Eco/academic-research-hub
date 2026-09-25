@@ -9165,7 +9165,11 @@
         items.push({
           group: '待办事项', label: t.text, keys: t.text,
           icon: CM_ICONS.check || '', sub: '待办',
-          run: function () { switchPanel('todos'); }
+          run: function () {
+            switchPanel('todos');
+            var card = $$('.todo-card').filter(function (entry) { return entry.dataset.id === String(t.id); })[0];
+            if (card) card.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          }
         });
       });
     var data = cmdkSearchData;
