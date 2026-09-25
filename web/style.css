@@ -6526,16 +6526,33 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .prompt-workspace { display:grid; grid-template-columns:minmax(190px,225px) minmax(320px,1.1fr) minmax(260px,.82fr); height:min(76vh,850px); min-height:610px; overflow:hidden; border:1px solid var(--hairline-soft); border-radius:var(--radius-lg); background:var(--glass-strong); }
 .prompt-list { min-width:0; min-height:0; overflow:auto; padding:12px; border-right:1px solid var(--hairline-soft); background:var(--glass); }
 .prompt-category-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:0 0 8px; color:var(--text-muted); font-size:10px; font-weight:650; letter-spacing:.06em; }
-.prompt-category-heading button { padding:4px 7px; border:1px solid var(--hairline-soft); border-radius:999px; background:var(--glass-strong); color:var(--accent); cursor:pointer; font:10px "Noto Sans SC",sans-serif; letter-spacing:0; }
+.prompt-category-heading button { padding:4px 7px; border:1px solid var(--hairline-soft); border-radius:6px; background:var(--glass-strong); color:var(--accent); cursor:pointer; font:10px "Noto Sans SC",sans-serif; letter-spacing:0; }
 .prompt-category-heading button:hover { border-color:var(--accent); background:var(--accent-dim); }
 .prompt-category-form { display:grid; grid-template-columns:minmax(0,1fr) auto auto; gap:5px; margin:0 0 9px; }
 .prompt-category-form input { min-width:0; width:100%; box-sizing:border-box; padding:6px 7px; border:1px solid var(--hairline); border-radius:5px; outline:0; background:var(--glass-strong); color:var(--text); font:11px "Noto Sans SC",sans-serif; }
 .prompt-category-form button { padding:5px 6px; border:1px solid var(--hairline-soft); border-radius:5px; background:var(--glass-strong); color:var(--text-secondary); cursor:pointer; font:10px "Noto Sans SC",sans-serif; }
 .prompt-category-form button[type="submit"] { border-color:var(--accent); background:var(--accent-dim); color:var(--accent); }
-.prompt-category-list { display:flex; flex-wrap:wrap; align-content:flex-start; gap:5px; margin-bottom:10px; padding-bottom:12px; border-bottom:1px solid var(--hairline-soft); }
-.prompt-category { display:inline-flex; align-items:center; justify-content:space-between; gap:8px; max-width:100%; padding:6px 8px; border:1px solid transparent; border-radius:999px; background:transparent; color:var(--text-secondary); cursor:pointer; font:11px "Noto Sans SC",sans-serif; text-align:left; transition:background .15s ease,border-color .15s ease,color .15s ease; }
-.prompt-category span { color:var(--text-muted); font-size:10px; }
-.prompt-category:hover,.prompt-category.is-active { border-color:var(--hairline-soft); background:var(--accent-dim); color:var(--accent); }
+.prompt-folder-all,.prompt-folder-toggle { display:flex; align-items:center; width:100%; min-width:0; gap:8px; padding:8px 7px; border:1px solid transparent; border-radius:7px; background:transparent; color:var(--text-secondary); cursor:pointer; font:11px "Noto Sans SC",sans-serif; text-align:left; }
+.prompt-folder-all { margin-bottom:5px; }
+.prompt-folder-all > span:first-child { width:15px; color:var(--text-muted); text-align:center; }
+.prompt-folder-all b,.prompt-folder-toggle b { overflow:hidden; flex:1; font-weight:550; text-overflow:ellipsis; white-space:nowrap; }
+.prompt-folder-all:hover,.prompt-folder-toggle:hover { background:var(--glass-strong); }
+.prompt-folder-all.is-active,.prompt-folder-toggle.is-selected { background:var(--accent-dim); color:var(--accent); }
+.prompt-folder-count { flex:none; color:var(--text-muted); font-size:10px; }
+.prompt-folder-tree { display:flex; flex-direction:column; gap:2px; }
+.prompt-folder { min-width:0; }
+.prompt-folder-row { display:flex; align-items:center; gap:2px; }
+.prompt-folder-toggle { flex:1; }
+.prompt-folder-chevron { width:10px; flex:none; color:var(--text-muted); font-size:12px; }
+.prompt-folder-icon { width:17px; flex:none; font-size:13px; }
+.prompt-folder-add { width:25px; height:25px; flex:none; border:1px solid transparent; border-radius:5px; background:transparent; color:var(--text-muted); cursor:pointer; font:15px/1 sans-serif; }
+.prompt-folder-add:hover { border-color:var(--hairline-soft); background:var(--glass-strong); color:var(--accent); }
+.prompt-folder-contents { margin:0 0 3px 21px; padding-left:7px; border-left:1px solid var(--hairline-soft); }
+.prompt-folder-contents[hidden] { display:none; }
+.prompt-folder-contents .prompt-list-item { margin:1px 0; padding:7px 8px; font-size:11px; }
+.prompt-folder-contents .prompt-list-item span { margin-top:3px; }
+.prompt-folder-empty { width:100%; padding:7px 8px; border:0; border-radius:5px; background:transparent; color:var(--text-muted); cursor:pointer; font:10px "Noto Sans SC",sans-serif; text-align:left; }
+.prompt-folder-empty:hover { background:var(--glass-strong); color:var(--accent); }
 .prompt-list-label { display:flex; align-items:center; justify-content:space-between; margin:2px 0 6px; padding:4px 5px 7px; border-bottom:1px solid var(--hairline-soft); color:var(--text-muted); font-size:10px; font-weight:650; letter-spacing:.06em; }
 .prompt-list-item { display:block; width:100%; margin:3px 0; padding:10px 9px; border:1px solid transparent; border-radius:8px; background:transparent; color:var(--text-secondary); cursor:pointer; font:inherit; font-size:12px; text-align:left; transition:background .15s ease,border-color .15s ease,transform .15s ease; }
 .prompt-list-item:hover { border-color:var(--hairline-soft); background:var(--glass-strong); transform:translateY(-1px); }
