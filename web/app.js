@@ -1078,7 +1078,7 @@
     if (RETIRED_PANELS.indexOf(panel) >= 0) panel = 'dashboard';
     var prev = state.panel;
     if (prev === 'journal-tracker' && panel !== prev && trackerArticleDetailId) closeTrackerArticleDetail();
-    if (prev === 'journal-tracker' && panel !== prev) stopTrackerListPolling();
+    if (prev === 'journal-tracker' && panel !== prev) { stopTrackerListPolling(); hideTrackerJournalSearchResults(true); }
     if (prev && prev !== panel) scrollMemory[prev] = window.scrollY || 0;
     state.panel = panel;
     $$('.nav-item').forEach(function (btn) {
@@ -6216,17 +6216,33 @@
     articleList.scrollTop += section.getBoundingClientRect().top - articleList.getBoundingClientRect().top;
   }
 
+  var trackerJournalSearchRequestId = 0;
+  function hideTrackerJournalSearchResults(clearQuery) {
+    trackerJournalSearchRequestId += 1;
+    trackerJournalSearchCandidates = [];
+    var container = $('#trackerSearchResults');
+    container.hidden = true;
+    container.replaceChildren();
+    if (clearQuery) $('#trackerJournalQuery').value = '';
+    var formButton = $('#trackerSearchForm button[type="submit"]');
+    formButton.disabled = false;
+    formButton.textContent = '查找';
+  }
+
   function searchTrackerJournals(event) {
     event.preventDefault();
     var query = $('#trackerJournalQuery').value.trim();
-    if (query.length < 2) { toast('请输入期刊名称或 ISSN'); return; }
+    if (query.length < 2) { hideTrackerJournalSearchResults(false); toast('请输入期刊名称或 ISSN'); return; }
+    hideTrackerJournalSearchResults(false);
+    var requestId = ++trackerJournalSearchRequestId;
     var formButton = $('#trackerSearchForm button');
     formButton.disabled = true; formButton.textContent = '查找中…';
     setTrackerStatus('', false);
     journalTrackerRequest({ action: 'search', query: query }).then(function (result) {
+      if (requestId !== trackerJournalSearchRequestId || $('#trackerJournalQuery').value.trim() !== query) return;
       var journals = Array.isArray(result.journals) ? result.journals : [];
       renderTrackerJournalCandidates(journals, query);
-    }).catch(function (error) { setTrackerStatus((error && error.message) || '期刊查找失败', true); }).then(function () { formButton.disabled = false; formButton.textContent = '查找'; });
+    }).catch(function (error) { if (requestId === trackerJournalSearchRequestId) setTrackerStatus((error && error.message) || '期刊查找失败', true); }).then(function () { if (requestId === trackerJournalSearchRequestId) { formButton.disabled = false; formButton.textContent = '查找'; } });
   }
 
   function normalizeTrackerJournalTitle(value) {
@@ -6253,8 +6269,9 @@
     var container = $('#trackerSearchResults');
     trackerJournalSearchCandidates = journals;
     container.hidden = false;
+    var header = '<div class="tracker-search-results-head"><span>查找结果</span><button type="button" data-tracker-close-results aria-label="清除期刊查找结果">清除</button></div>';
     if (journals.length) {
-      container.innerHTML = journals.map(function (journal) {
+      container.innerHTML = header + journals.map(function (journal) {
         var fullTitle = journal.title || journal.issn;
         var subscription = trackerJournalSubscription(journal);
         var action = subscription
@@ -6263,7 +6280,7 @@
         return '<div class="tracker-search-result"><div><b title="' + escapeHtml(fullTitle) + '" aria-label="期刊全名：' + escapeHtml(fullTitle) + '">' + escapeHtml(fullTitle) + '</b><span>' + escapeHtml(journal.issn) + (journal.publisher ? ' · ' + escapeHtml(journal.publisher) : '') + '</span></div>' + action + '</div>';
       }).join('');
     } else {
-      container.innerHTML = '<div class="tracker-empty"><b>没有找到期刊</b><span>请检查名称，或改用完整刊名、ISSN 搜索。</span></div>';
+      container.innerHTML = header + '<div class="tracker-empty"><b>没有找到期刊</b><span>请检查名称，或改用完整刊名、ISSN 搜索。</span></div>';
     }
   }
 
@@ -6279,8 +6296,7 @@
     var addPayload = { action: 'add', issn: issn, category: category };
     journalTrackerRequest(addPayload).then(function (result) {
       applyJournalTrackerData(result);
-      $('#trackerSearchResults').hidden = true;
-      $('#trackerJournalQuery').value = '';
+      hideTrackerJournalSearchResults(true);
       setTrackerStatus(result.warning ? '订阅已保存，但首次检查未找到文章：' + result.warning : '', false);
       toast(result.warning ? '订阅已保存；可为该期刊补充官网 RSS' : '期刊已加入每日追踪');
     }).catch(function (error) {
@@ -6689,11 +6705,13 @@
     });
 
     $('#trackerSearchForm').addEventListener('submit', searchTrackerJournals);
+    $('#trackerJournalQuery').addEventListener('input', function () { hideTrackerJournalSearchResults(false); });
     $('#trackerRefresh').addEventListener('click', refreshJournalTracker);
     $('#trackerRefreshCategory').addEventListener('click', refreshTrackerCategory);
     $('#trackerRetryFailed').addEventListener('click', retryFailedTrackerJournals);
     $('#trackerMarkAllRead').addEventListener('click', function () { markAllTrackedArticlesRead(this); });
     $('#trackerSearchResults').addEventListener('click', function (event) {
+      if (event.target.closest('[data-tracker-close-results]')) { hideTrackerJournalSearchResults(true); return; }
       var removeButton = event.target.closest('[data-tracker-remove]');
       if (removeButton) { removeTrackerJournal(removeButton.dataset.trackerRemove); return; }
       var addButton = event.target.closest('[data-tracker-add]');
