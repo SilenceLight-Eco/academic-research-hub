@@ -7691,6 +7691,8 @@
     $('#refCopyBibtex').addEventListener('click', function () { copyReference(referenceBibtex(activeReference()), 'BibTeX'); });
     $('#refCopyBibliography').addEventListener('click', copyFilteredReferenceBibliography);
     $('#refDownloadBibliography').addEventListener('click', downloadFilteredReferenceBibliography);
+    $('#refExportBibtex').addEventListener('click', function () { downloadReferenceMetadata('bib'); });
+    $('#refExportRis').addEventListener('click', function () { downloadReferenceMetadata('ris'); });
     $('#refQualityCheck').addEventListener('click', function () { state.referenceAuditEnabled = true; renderReferenceQualityAudit(); });
     $('#refShowMerged').addEventListener('click', function () { state.referenceShowMerged = !state.referenceShowMerged; renderReferenceLibrary(); });
     $('#refFolderAll').addEventListener('click', function () { afterCurrentEditorSaved('references', function () { state.referenceFolderId = 'all'; state.referenceId = null; renderReferenceLibrary(); }); });
@@ -9061,6 +9063,22 @@
     anchor.download = '参考文献表-' + new Date().toISOString().slice(0, 10) + '.txt';
     document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url);
     toast('已下载参考文献表（' + items.length + ' 篇）');
+  }
+  function downloadReferenceMetadata(format) {
+    var items = referenceBibliographyItems();
+    if (!items.length) { toast('当前文件夹和筛选条件下没有可导出的文献'); return; }
+    var exporter = window.AcademicReferenceExport;
+    if (!exporter) { toast('导出组件尚未加载，请刷新页面后重试'); return; }
+    var extension = format === 'ris' ? 'ris' : 'bib';
+    var content = format === 'ris' ? exporter.toRis(items) : exporter.toBibtex(items);
+    var folderName = '全部文献';
+    if (state.referenceFolderId === 'unfiled') folderName = '未分类';
+    else if (state.referenceFolderId !== 'all') folderName = (((state.referenceLibrary || {}).folders || []).find(function (folder) { return String(folder.id) === String(state.referenceFolderId); }) || {}).name || '文献库';
+    var blob = new Blob([format === 'ris' ? '\uFEFF' + content : content], { type: format === 'ris' ? 'application/x-research-info-systems;charset=utf-8' : 'application/x-bibtex;charset=utf-8' });
+    var url = URL.createObjectURL(blob), anchor = document.createElement('a');
+    anchor.href = url; anchor.download = exporter.filename(folderName, extension);
+    document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url);
+    toast('已导出 ' + items.length + ' 篇文献（' + extension.toUpperCase() + '）');
   }
   function normalizeReferenceDoi(value) {
     return String(value || '').trim().replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, '').replace(/^doi:\s*/i, '').replace(/[\s?#].*$/, '').toLowerCase();
