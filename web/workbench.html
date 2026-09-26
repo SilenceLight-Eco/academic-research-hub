@@ -8,7 +8,7 @@
   <link rel="apple-touch-icon" href="icon-180.png">
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#174e4a">
-  <link rel="stylesheet" href="style.css?v=20260926-36">
+  <link rel="stylesheet" href="style.css?v=20260926-37">
   <style>.sidebar-nav .retired-content{display:none!important}</style>
 </head>
 <body>
@@ -404,6 +404,10 @@
               <input id="refFolderNameInput" type="text" maxlength="60" placeholder="输入文件夹名称" aria-label="文件夹名称">
               <button type="submit">创建</button><button type="button" id="refFolderCreateCancel" aria-label="取消新建文件夹">取消</button>
             </form>
+            <div id="refBulkBar" class="ref-bulk-bar" hidden>
+              <div class="ref-bulk-summary"><span id="refBulkCount">已选 0 篇</span><button type="button" id="refBulkClear">清除选择</button></div>
+              <div class="ref-bulk-actions"><select id="refBulkFolder" aria-label="批量移动到文件夹"><option value="">未分类</option></select><button type="button" id="refBulkMove">批量移动</button></div>
+            </div>
             <div id="refFolders" class="ref-folders"></div>
             <div id="refList" class="ref-list"></div>
           </aside>
@@ -1516,8 +1520,8 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-<script src="static-api.js?v=20260926-17"></script>
-  <script src="app.js?v=20260926-46"></script>
+<script src="static-api.js?v=20260926-18"></script>
+  <script src="app.js?v=20260926-47"></script>
   <script src="attachments.js?v=20260925-1"></script>
 </body>
 </html>

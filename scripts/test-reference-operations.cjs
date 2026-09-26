@@ -214,6 +214,19 @@ test('reference folders persist, rename safely, and preserve references when del
   assert.equal(assignResponse.status, 200);
   assert.equal(assigned.referenceLibrary.items.find(item => item.id === 'paper-a').folderId, String(folderId));
 
+  const bulkMoveResponse = await harness.request({ action: 'bulk-move', ids: ['paper-a', 'paper-b'], folderId });
+  const bulkMoved = await bulkMoveResponse.json();
+  assert.equal(bulkMoveResponse.status, 200);
+  assert.equal(bulkMoved.selectedCount, 2);
+  assert.equal(bulkMoved.movedCount, 1);
+  assert.equal(bulkMoved.referenceLibrary.items.find(item => item.id === 'paper-a').folderId, String(folderId));
+  assert.equal(bulkMoved.referenceLibrary.items.find(item => item.id === 'paper-b').folderId, String(folderId));
+  assert.equal(bulkMoved.referenceLibrary.items.find(item => item.id === 'paper-a').notes, 'Keep this record');
+
+  const invalidBulkMove = await harness.request({ action: 'bulk-move', ids: ['paper-a', 'missing-paper'], folderId });
+  assert.equal(invalidBulkMove.status, 409);
+  assert.equal(harness.readWorkspace().referenceLibrary.items.find(item => item.id === 'paper-a').folderId, String(folderId));
+
   const renameResponse = await harness.request({ action: 'folder-rename', id: folderId, name: '因果识别' });
   const renamed = await renameResponse.json();
   assert.equal(renameResponse.status, 200);
@@ -225,6 +238,7 @@ test('reference folders persist, rename safely, and preserve references when del
   assert.equal(deleteResponse.status, 200);
   assert.equal(deleted.referenceLibrary.folders.length, 0);
   assert.equal(deleted.referenceLibrary.items.find(item => item.id === 'paper-a').folderId, '');
+  assert.equal(deleted.referenceLibrary.items.find(item => item.id === 'paper-b').folderId, '');
   assert.equal(deleted.referenceLibrary.items.find(item => item.id === 'paper-a').notes, 'Keep this record');
 
   const persisted = harness.readWorkspace().referenceLibrary;

@@ -6859,6 +6859,13 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .ref-folder-create input:focus { border-color:var(--accent); }
 .ref-folder-create button { padding:4px 8px; border:1px solid var(--hairline); border-radius:5px; background:var(--glass-strong); color:var(--text-secondary); cursor:pointer; font:10px "Noto Sans SC",sans-serif; }
 .ref-folder-create button[type="submit"] { border-color:var(--accent); color:var(--accent); }
+.ref-bulk-bar { display:grid; gap:6px; margin:3px 0 7px; padding:8px; border:1px solid var(--hairline); border-radius:7px; background:var(--accent-dim); }
+.ref-bulk-bar[hidden] { display:none; }
+.ref-bulk-summary,.ref-bulk-actions { display:flex; min-width:0; align-items:center; justify-content:space-between; gap:6px; }
+.ref-bulk-summary { color:var(--accent); font-size:10px; }
+.ref-bulk-summary button,.ref-bulk-actions button { flex:none; padding:4px 6px; border:1px solid var(--hairline); border-radius:5px; background:var(--glass-strong); color:var(--text-secondary); cursor:pointer; font:10px "Noto Sans SC",sans-serif; }
+.ref-bulk-actions select { flex:1; min-width:0; padding:4px 5px; border:1px solid var(--hairline); border-radius:5px; background:var(--glass-strong); color:var(--text); font:10px "Noto Sans SC",sans-serif; }
+.ref-bulk-actions button { border-color:var(--accent); color:var(--accent); }
 .ref-folders { display:grid; gap:2px; max-height:560px; min-height:0; overflow:auto; padding-bottom:8px; border-bottom:1px solid var(--hairline-soft); }
 .ref-folder-section { min-width:0; border-radius:6px; }
 .ref-folder-section.is-active > .ref-folder-row { background:var(--accent-dim); }
@@ -6880,7 +6887,11 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .ref-folder-tools button:hover { background:var(--glass-strong); color:var(--accent); }
 .ref-list-item[draggable="true"] { cursor:grab; }
 .ref-list-item.is-dragging { opacity:.42; cursor:grabbing; }
-.ref-list-entry { min-width:0; margin:2px 0 7px; padding-bottom:5px; border-bottom:1px solid var(--hairline-soft); }
+.ref-list-entry { display:grid; grid-template-columns:16px minmax(0,1fr); min-width:0; align-items:start; gap:3px; margin:2px 0 7px; padding-bottom:5px; border-bottom:1px solid var(--hairline-soft); }
+.ref-multi-select { display:grid; width:16px; min-height:30px; place-items:center; cursor:pointer; }
+.ref-multi-select input { width:12px; height:12px; margin:0; accent-color:var(--accent); }
+.ref-multi-select .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
+.ref-list-entry-main { min-width:0; }
 .ref-list-entry .ref-list-item { margin:0; }
 .ref-list-move { display:flex; min-width:0; align-items:center; gap:5px; padding:0 8px 3px; color:var(--text-muted); font-size:9px; }
 .ref-list-move select { min-width:0; flex:1; padding:3px 5px; border:1px solid var(--hairline-soft); border-radius:5px; background:var(--glass-strong); color:var(--text-secondary); font:10px "Noto Sans SC",sans-serif; }

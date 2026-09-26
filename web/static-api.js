@@ -831,6 +831,26 @@
         initializedReferenceLibrary.trash = Array.isArray(initializedReferenceLibrary.trash) ? initializedReferenceLibrary.trash : [];
         initializedReferenceLibrary.folders = Array.isArray(initializedReferenceLibrary.folders) ? initializedReferenceLibrary.folders : [];
       }
+      if (path === '/api/references' && method === 'POST' && body.action === 'bulk-move') {
+        var bulkReferenceLibrary = data.referenceLibrary || (data.referenceLibrary = { items: [], trash: [], folders: [] });
+        bulkReferenceLibrary.items = Array.isArray(bulkReferenceLibrary.items) ? bulkReferenceLibrary.items : [];
+        bulkReferenceLibrary.folders = Array.isArray(bulkReferenceLibrary.folders) ? bulkReferenceLibrary.folders : [];
+        var bulkIds = Array.isArray(body.ids) ? Array.from(new Set(body.ids.map(function (id) { return String(id || '').trim(); }).filter(Boolean))) : [];
+        if (!bulkIds.length || bulkIds.length > 2000) return response({ ok: false, error: '请选择 1 至 2000 篇文献后再批量移动' }, 400);
+        var bulkFolderId = String(body.folderId || '');
+        if (bulkFolderId && !bulkReferenceLibrary.folders.some(function (folder) { return String(folder.id) === bulkFolderId; })) return response({ ok: false, error: '目标文件夹不存在，请刷新后重试' }, 404);
+        var bulkReferences = bulkReferenceLibrary.items.filter(function (item) { return bulkIds.indexOf(String(item.id)) >= 0; });
+        if (bulkReferences.length !== bulkIds.length) return response({ ok: false, error: '部分文献已发生变化，请刷新后重新选择' }, 409);
+        var bulkMovedCount = 0;
+        bulkReferences.forEach(function (item) {
+          if (String(item.folderId || '') === bulkFolderId) return;
+          item.folderId = bulkFolderId;
+          item.updated = nowText();
+          bulkMovedCount += 1;
+        });
+        await saveWorkspace(data, dataRevision);
+        return response({ ok: true, referenceLibrary: bulkReferenceLibrary, selectedCount: bulkReferences.length, movedCount: bulkMovedCount });
+      }
       if (path === '/api/references' && method === 'POST' && ['folder-create', 'folder-rename', 'folder-delete'].indexOf(body.action) >= 0) {
         var folderLibrary = data.referenceLibrary || (data.referenceLibrary = { items: [], trash: [], folders: [] });
         folderLibrary.items = Array.isArray(folderLibrary.items) ? folderLibrary.items : [];
