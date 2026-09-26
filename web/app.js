@@ -9408,23 +9408,10 @@
     var fallbackRole = normalizeVariableRoles(item.role), fallbackSource = String(item.source || '');
     return entries.map(function (entry, index) { entry = entry || {}; var measures = Array.isArray(entry.measures) ? entry.measures.map(function (measure) { return String(measure || ''); }) : [String(entry.measure || '')]; if (!measures.length) measures = ['']; var papers = Array.isArray(entry.papers) ? entry.papers.map(function (paper) { return String(paper || ''); }) : [String(entry.paper || '')]; if (!papers.length) papers = ['']; if (!papers[0] && entry.paper) papers[0] = String(entry.paper); return { role: normalizeVariableRoles(entry.role || (index === 0 ? fallbackRole : fallbackRole)), source: String(entry.source != null ? entry.source : (index === 0 ? fallbackSource : '')), measure: measures[0], measures: measures, paper: papers[0] || '', papers: papers }; });
   }
-  var variableMeasureMeasureCanvas = null;
   function resizeVariableMeasureTextarea(textarea) {
     if (!textarea || !textarea.isConnected) return;
-    var row = textarea.closest('.variable-inline-input-row');
-    if (!row) return;
-    if (!variableMeasureMeasureCanvas) variableMeasureMeasureCanvas = document.createElement('canvas');
-    var context = variableMeasureMeasureCanvas.getContext('2d'), style = window.getComputedStyle(textarea);
-    context.font = style.font;
-    var text = String(textarea.value || textarea.placeholder || ''), widest = 0;
-    text.split('\n').forEach(function (line) { widest = Math.max(widest, context.measureText(line || ' ').width); });
-    var removeButton = row.querySelector('.variable-inline-remove'), buttonWidth = removeButton ? removeButton.getBoundingClientRect().width + 8 : 0;
-    var available = Math.max(80, row.clientWidth - buttonWidth);
-    var padding = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0) + 2;
-    var preferredMinimum = Math.min(220, available);
-    var targetWidth = Math.min(available, Math.max(preferredMinimum, Math.ceil(widest + padding)));
-    textarea.style.width = targetWidth + 'px';
-    textarea.style.flex = '0 1 auto';
+    textarea.style.width = '100%';
+    textarea.style.flex = '1 1 auto';
     textarea.style.height = 'auto';
     textarea.style.height = Math.max(32, textarea.scrollHeight) + 'px';
   }

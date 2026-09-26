@@ -7214,7 +7214,7 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .variable-measure-reference-entry .variable-field textarea { min-height:68px; }
 .variable-measure-inputs { display:grid; gap:8px; }
 .variable-measure-inputs .variable-inline-input-row { align-items:flex-start; }
-.variable-measure-inputs .variable-inline-input-row textarea { display:block; box-sizing:border-box; flex:0 1 auto; width:220px; max-width:100%; min-width:0; height:32px; min-height:32px; padding:6px 8px; overflow:hidden; overflow-wrap:anywhere; white-space:pre-wrap; line-height:1.55; resize:none; }
+.variable-measure-inputs .variable-inline-input-row textarea { display:block; box-sizing:border-box; flex:1 1 auto; width:100%; max-width:100%; min-width:0; height:32px; min-height:32px; padding:6px 8px; overflow:hidden; overflow-wrap:anywhere; white-space:pre-wrap; line-height:1.55; resize:none; }
 .variable-measure-inputs > button { justify-self:start; padding:4px 10px; border:1px dashed var(--hairline); border-radius:5px; background:transparent; color:var(--accent); cursor:pointer; font:10px "Noto Sans SC",sans-serif; }
 .variable-measure-inputs > button:hover { border-color:var(--accent); background:var(--accent-dim); }
 .variable-measure-inputs > button:disabled { opacity:.5; cursor:default; }
