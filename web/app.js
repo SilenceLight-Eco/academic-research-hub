@@ -7150,6 +7150,11 @@
     $('#variableDuplicate').addEventListener('click', duplicateVariable);
     $('#variableImport').addEventListener('click', function () { if (state.variableTrashOpen) { toast('请先退出回收站再导入'); return; } $('#variableImportFile').click(); });
     $('#variableImportFile').addEventListener('change', importVariableCsvFile);
+    $('#variableImportDuplicateToggle').addEventListener('change', renderVariableImportPreview);
+    $('#variableImportClose').addEventListener('click', closeVariableImportPreview);
+    $('#variableImportCancel').addEventListener('click', closeVariableImportPreview);
+    $('#variableImportConfirm').addEventListener('click', commitVariableCsvImport);
+    $('#variableImportModal').addEventListener('click', function (event) { if (event.target === $('#variableImportBackdrop')) closeVariableImportPreview(); });
     $('#variableExport').addEventListener('click', exportVariableCsv);
     $('#variableSave').addEventListener('click', saveVariable);
     $('#variableDelete').addEventListener('click', trashVariable);
@@ -8482,6 +8487,7 @@
 
   // ===== 变量库：按实证研究角色记录变量定义与测量口径 =====
   var variableRoles = ['被解释变量', '核心解释变量', '控制变量', '机制变量', '调节变量', '经济后果变量', '异质性分析变量', '其他'];
+  var pendingVariableCsvGroups = null;
   var variableCollapsedStorageKey = 'academic-workbench-variable-collapsed-v1';
   var variableCollapsedRoles = (function () { try { return JSON.parse(localStorage.getItem(variableCollapsedStorageKey) || '{}') || {}; } catch (_) { return {}; } }());
   function normalizeVariableRoles(role) {
@@ -8603,18 +8609,68 @@
       if (!groups.length) throw new Error('没有找到有效的变量名称');
       if (groups.length > 500) throw new Error('一次最多导入 500 个变量');
       if (groups.some(function (group) { return group.entries.length > 100; })) throw new Error('单个变量最多支持 100 条衡量记录');
-      if (!confirm('将新增 ' + groups.length + ' 个变量（' + rows.length + ' 行衡量记录），不会覆盖已有变量。继续吗？')) return;
-      return api('/api/variable-library', { method: 'POST', body: JSON.stringify({ action: 'import', items: groups.map(function (group) { return { name: group.name, role: group.role, definition: group.definition, measureReferences: group.entries }; }) }) }).then(function (res) {
-        if (!res.ok) throw new Error(res.error || 'CSV 导入失败');
-        state.variableLibrary = Object.assign({ items: [], trash: [] }, res.variableLibrary || {});
-        state.variableId = res.importedIds && res.importedIds[0] || null;
-        state.variableTrashOpen = false;
-        state.variableCategoryFilter = 'all';
-        state.variableQuery = '';
-        renderVariableLibrary();
-        toast('已导入 ' + groups.length + ' 个变量');
+      var existingKeys = Object.create(null);
+      (state.variableLibrary.items || []).forEach(function (item) {
+        existingKeys[[String(item.name || '').trim().toLocaleLowerCase(), normalizeVariableRoles(item.role)[0]].join('\u001f')] = true;
       });
+      var seenKeys = Object.create(null);
+      groups.forEach(function (group) {
+        var key = [group.name.trim().toLocaleLowerCase(), group.role].join('\u001f');
+        group.duplicate = !!existingKeys[key] || !!seenKeys[key];
+        seenKeys[key] = true;
+      });
+      pendingVariableCsvGroups = groups;
+      $('#variableImportDuplicateToggle').checked = false;
+      $('#variableImportModal').hidden = false;
+      renderVariableImportPreview();
     }).catch(function (error) { toast((error && error.message) || 'CSV 导入失败'); });
+  }
+  function renderVariableImportPreview() {
+    if (!pendingVariableCsvGroups) return;
+    var groups = pendingVariableCsvGroups;
+    var duplicates = groups.filter(function (group) { return group.duplicate; });
+    var includeDuplicates = $('#variableImportDuplicateToggle').checked;
+    var importable = groups.filter(function (group) { return includeDuplicates || !group.duplicate; });
+    $('#variableImportSummary').textContent = '识别到 ' + groups.length + ' 个变量、' + groups.reduce(function (sum, group) { return sum + group.entries.length; }, 0) + ' 条衡量记录；其中 ' + duplicates.length + ' 个与变量库现有条目同名且研究角色相同。';
+    $('#variableImportDuplicateWarning').hidden = !duplicates.length;
+    $('#variableImportDuplicateWarning').textContent = duplicates.length ? (includeDuplicates ? '已选择同时导入重复项；不会覆盖已有变量。' : '重复项默认跳过，不会覆盖已有变量。可勾选下方选项强制导入。') : '未发现与现有变量重名且角色相同的条目。';
+    $('#variableImportConfirm').textContent = importable.length ? '导入 ' + importable.length + ' 个变量' : '没有可导入项';
+    $('#variableImportConfirm').disabled = importable.length === 0;
+    var visible = groups.slice(0, 80);
+    $('#variableImportRows').innerHTML = visible.map(function (group) {
+      return '<tr><td>' + escapeHtml(group.name) + '</td><td>' + escapeHtml(group.role) + '</td><td>' + group.entries.length + '</td><td><span class="variable-import-status' + (group.duplicate ? ' is-duplicate' : '') + '">' + (group.duplicate ? '重复' : '新增') + '</span></td></tr>';
+    }).join('');
+    $('#variableImportMore').hidden = groups.length <= visible.length;
+    $('#variableImportMore').textContent = groups.length > visible.length ? '仅预览前 ' + visible.length + ' 项；其余 ' + (groups.length - visible.length) + ' 项也会按相同规则处理。' : '';
+  }
+  function closeVariableImportPreview() {
+    pendingVariableCsvGroups = null;
+    $('#variableImportModal').hidden = true;
+  }
+  function commitVariableCsvImport() {
+    if (!pendingVariableCsvGroups) return;
+    var allGroups = pendingVariableCsvGroups;
+    var includeDuplicates = $('#variableImportDuplicateToggle').checked;
+    var groups = allGroups.filter(function (group) { return includeDuplicates || !group.duplicate; });
+    if (!groups.length) return;
+    var button = $('#variableImportConfirm');
+    button.disabled = true;
+    button.textContent = '正在导入…';
+    api('/api/variable-library', { method: 'POST', body: JSON.stringify({ action: 'import', items: groups.map(function (group) { return { name: group.name, role: group.role, definition: group.definition, measureReferences: group.entries }; }) }) }).then(function (res) {
+      if (!res.ok) throw new Error(res.error || 'CSV 导入失败');
+      state.variableLibrary = Object.assign({ items: [], trash: [] }, res.variableLibrary || {});
+      state.variableId = res.importedIds && res.importedIds[0] || null;
+      state.variableTrashOpen = false;
+      state.variableCategoryFilter = 'all';
+      state.variableQuery = '';
+      closeVariableImportPreview();
+      renderVariableLibrary();
+      toast('已导入 ' + groups.length + ' 个变量' + (allGroups.length > groups.length ? '，跳过 ' + (allGroups.length - groups.length) + ' 个重复项' : ''));
+    }).catch(function (error) {
+      button.disabled = false;
+      renderVariableImportPreview();
+      toast((error && error.message) || 'CSV 导入失败');
+    });
   }
   function normalizedVariableMeasureReferences(item) {
     if (!item) return [{ role: ['被解释变量'], source: '', measure: '', paper: '' }];

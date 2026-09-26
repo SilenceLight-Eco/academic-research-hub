@@ -8,7 +8,7 @@
   <link rel="apple-touch-icon" href="icon-180.png">
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#174e4a">
-  <link rel="stylesheet" href="style.css?v=20260926-12">
+  <link rel="stylesheet" href="style.css?v=20260926-13">
   <style>.sidebar-nav .retired-content{display:none!important}</style>
 </head>
 <body>
@@ -1344,6 +1344,20 @@
   </div>
 </div>
 
+<div class="auth-modal variable-import-modal" id="variableImportModal" hidden>
+  <div class="auth-modal-backdrop" id="variableImportBackdrop"></div>
+  <section class="auth-card variable-import-card" role="dialog" aria-modal="true" aria-labelledby="variableImportTitle">
+    <button class="auth-close" id="variableImportClose" type="button" aria-label="关闭">×</button>
+    <h2 id="variableImportTitle">导入变量预览</h2>
+    <p class="auth-desc" id="variableImportSummary"></p>
+    <p class="variable-import-warning" id="variableImportDuplicateWarning" hidden></p>
+    <div class="variable-import-table-wrap"><table class="variable-import-table"><thead><tr><th>变量名称</th><th>研究角色</th><th>衡量记录</th><th>状态</th></tr></thead><tbody id="variableImportRows"></tbody></table></div>
+    <p class="variable-import-more" id="variableImportMore" hidden></p>
+    <label class="variable-import-duplicate-toggle"><input id="variableImportDuplicateToggle" type="checkbox"> 即使重复也导入（不会覆盖已有变量）</label>
+    <div class="variable-import-actions"><button id="variableImportCancel" type="button">取消</button><button class="btn-primary" id="variableImportConfirm" type="button">导入</button></div>
+  </section>
+</div>
+
 <div class="auth-modal" id="authModal" hidden>
   <div class="auth-modal-backdrop" id="authModalBackdrop"></div>
   <form class="auth-card" id="authForm">
@@ -1441,7 +1455,7 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
   <script src="static-api.js?v=20260926-7"></script>
-  <script src="app.js?v=20260926-14"></script>
+  <script src="app.js?v=20260926-15"></script>
   <script src="attachments.js?v=20260925-1"></script>
 </body>
 </html>
