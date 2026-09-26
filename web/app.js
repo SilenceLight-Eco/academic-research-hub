@@ -72,6 +72,7 @@
     referenceTrashOpen: false,
     referenceQuery: '',
     referenceTypeFilter: 'all',
+    referenceCitationStyle: 'apa7',
     journalTracker: { subscriptions: [], articles: [], articleCount: 0, refreshLogs: [] },
     journalTrackerLoaded: false,
     journalTrackerLoading: false,
@@ -96,6 +97,7 @@
     trackerCategoryManageMode: false,
     trackerSelectedJournalIds: {},
   };
+  try { state.referenceCitationStyle = localStorage.getItem('academic-workbench-reference-citation-style-v1') || 'apa7'; } catch (_) {}
   window.__academicAttachmentContext = function (kind) {
     if (kind === 'knowledge' && state.kbDocId && !state.kbTrashOpen) {
       return { id: String(state.kbDocId), title: ($('#kbDocTitle') || {}).value || '知识库文档' };
@@ -7668,7 +7670,13 @@
     $('#refImport').addEventListener('click', importReferenceBibtex);
     $('#refFetchDoi').addEventListener('click', fetchReferenceDoi);
     $('#refCopyCitation').addEventListener('click', function () { copyReference(referenceCitation(activeReference()), '引用'); });
+    $('#refCopyInTextCitation').addEventListener('click', function () { copyReference(referenceInTextCitation(activeReference()), '文内引用'); });
     $('#refCopyBibtex').addEventListener('click', function () { copyReference(referenceBibtex(activeReference()), 'BibTeX'); });
+    $('#refCitationStyle').addEventListener('change', function () {
+      state.referenceCitationStyle = this.value;
+      try { localStorage.setItem('academic-workbench-reference-citation-style-v1', this.value); } catch (_) {}
+      renderReferencePreview();
+    });
     $('#refSearch').addEventListener('input', function () { state.referenceQuery = this.value; renderReferenceLibrary(); });
     $('#refTypeFilter').addEventListener('change', function () { state.referenceTypeFilter = this.value; renderReferenceLibrary(); });
     $('#refList').addEventListener('click', function (e) { var restore = e.target.closest('[data-ref-restore]'); if (restore) { restoreReference(restore.dataset.refRestore); return; } var purge = e.target.closest('[data-ref-purge]'); if (purge) { purgeReference(purge.dataset.refPurge); return; } var item = e.target.closest('[data-ref-id]'); if (!item) return; var selectedId = item.dataset.refId; if (String(selectedId) === String(state.referenceId)) return; afterCurrentEditorSaved('references', function () { state.referenceId = selectedId; renderReferenceLibrary(); }); });
@@ -8616,13 +8624,58 @@
   function referenceKey(item) { return referenceAuthorToken(item.authors) + (String(item.year || '').replace(/\D/g, '').slice(0, 4) || 'n.d.'); }
   function referenceCitation(item) {
     if (!item) return '';
-    var author = item.authors || '作者未知'; var year = item.year || 'n.d.';
-    var citation = author + ' (' + year + '). ' + (item.title || '未命名文献') + '.';
-    if (item.source) citation += ' ' + item.source + '.';
-    if (item.locator) citation += ' ' + item.locator + '.';
-    if (item.doi) citation += ' https://doi.org/' + item.doi.replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, '');
-    else if (item.url) citation += ' ' + item.url;
-    return citation;
+    var author = (item.authors || '作者未知').trim(), year = (item.year || '无年份').trim();
+    var title = (item.title || '未命名文献').trim(), source = (item.source || '').trim(), locator = (item.locator || '').trim();
+    var doi = item.doi ? 'https://doi.org/' + item.doi.replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, '') : '';
+    var typeCode = { '期刊论文': 'J', '书籍': 'M', '会议论文': 'C', '报告': 'R', '网页': 'EB/OL' }[item.type] || 'J';
+    if (state.referenceCitationStyle === 'gb7714-numeric') {
+      var allItems = (state.referenceLibrary.items || []), sourceIndex = allItems.findIndex(function (entry) { return String(entry.id) === String(item.id); });
+      var number = sourceIndex >= 0 ? sourceIndex + 1 : 1;
+      var gb = '[' + number + '] ' + author + '. ' + title + '[' + typeCode + '].';
+      if (source) gb += ' ' + source + ',';
+      gb += ' ' + year;
+      if (locator) gb += ', ' + locator;
+      gb += '.';
+      if (doi) gb += ' DOI: ' + doi.replace('https://doi.org/', '') + '.';
+      else if (item.url) gb += ' ' + item.url;
+      return gb;
+    }
+    if (state.referenceCitationStyle === 'gb7714-author-date') {
+      var gbad = author + '. ' + title + '[' + typeCode + '].';
+      if (source) gbad += ' ' + source + ',';
+      gbad += ' ' + year;
+      if (locator) gbad += ', ' + locator;
+      gbad += '.';
+      if (doi) gbad += ' DOI: ' + doi.replace('https://doi.org/', '') + '.';
+      else if (item.url) gbad += ' ' + item.url;
+      return gbad;
+    }
+    var apa = author + ' (' + (item.year || 'n.d.') + '). ' + title + '.';
+    if (source) apa += ' ' + source + '.';
+    if (locator) apa += ' ' + locator + '.';
+    if (doi) apa += ' ' + doi;
+    else if (item.url) apa += ' ' + item.url;
+    return apa;
+  }
+  function referenceInTextCitation(item) {
+    if (!item) return '';
+    var style = state.referenceCitationStyle, year = (item.year || (style === 'apa7' ? 'n.d.' : '无年份')).trim();
+    var authors = String(item.authors || '作者未知').split(/[；;]+/).map(function (author) { return author.trim(); }).filter(Boolean);
+    var first = authors[0] || '作者未知';
+    var familyName = first.indexOf(',') >= 0 ? first.split(',')[0].trim() : first;
+    var isChinese = /[\u4e00-\u9fff]/.test(first);
+    var authorText = familyName;
+    if (authors.length > 2) authorText += isChinese ? '等' : ' et al.';
+    else if (authors.length === 2) {
+      var second = authors[1].indexOf(',') >= 0 ? authors[1].split(',')[0].trim() : authors[1];
+      authorText += isChinese ? '、' + second : ' & ' + second;
+    }
+    if (style === 'gb7714-numeric') {
+      var items = state.referenceLibrary.items || [], index = items.findIndex(function (entry) { return String(entry.id) === String(item.id); });
+      return '[' + (index >= 0 ? index + 1 : 1) + ']';
+    }
+    if (style === 'gb7714-author-date') return '（' + authorText + '，' + year + '）';
+    return '(' + authorText + ', ' + year + ')';
   }
   function referenceBibtex(item) {
     if (!item) return '';
@@ -8633,7 +8686,9 @@
   function renderReferencePreview() {
     var active = activeReference();
     var citation = referenceCitation(active), bibtex = referenceBibtex(active);
+    $('#refCitationStyle').value = state.referenceCitationStyle;
     $('#refCitationPreview').textContent = citation || '选择或新建一篇文献后，这里会生成引用。';
+    $('#refInTextCitationPreview').textContent = referenceInTextCitation(active) || '选择文献后，这里会生成文内引用。';
     $('#refBibtex').textContent = bibtex;
   }
   function renderReferenceLibrary() {
