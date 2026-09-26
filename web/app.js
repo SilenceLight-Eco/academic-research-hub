@@ -4588,6 +4588,8 @@
   try { pomoCounts = JSON.parse(localStorage.getItem('wb_pomo_counts') || '{}') || {}; } catch (e) { pomoCounts = {}; }
 
   var focusPreset = 25;
+  var focusAudioContext = null;
+  var focusNotificationRegistration = null;
   try {
     var savedPreset = parseInt(localStorage.getItem(FOCUS_PRESET_KEY) || '', 10);
     if (Number.isInteger(savedPreset) && savedPreset >= FOCUS_MIN_MINUTES && savedPreset <= FOCUS_MAX_MINUTES) focusPreset = savedPreset;
@@ -4677,8 +4679,79 @@
     focusSyncBadge();
   }
 
+  function focusUnlockAudio() {
+    var AudioCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtor) return;
+    try {
+      if (!focusAudioContext) focusAudioContext = new AudioCtor();
+      if (focusAudioContext.state === 'suspended') focusAudioContext.resume().catch(function () {});
+    } catch (e) {}
+  }
+
+  function focusRegisterNotificationWorker() {
+    if (!focusNotificationRegistration && 'serviceWorker' in navigator) {
+      focusNotificationRegistration = navigator.serviceWorker.register('./sw.js').catch(function () { return null; });
+    }
+    return focusNotificationRegistration;
+  }
+
+  function focusRequestNotificationPermission() {
+    if (!('Notification' in window) || Notification.permission !== 'default') return;
+    try { Promise.resolve(Notification.requestPermission()).catch(function () {}); } catch (e) {}
+  }
+
+  function focusPlayAlarm() {
+    var ctx = focusAudioContext;
+    if (!ctx) return;
+    var play = function () {
+      if (ctx.state !== 'running') return;
+      var startAt = ctx.currentTime + 0.05;
+      // 三组短和弦，约 5 秒后自动结束；用户无需额外安装音频文件。
+      [0, 1.65, 3.3].forEach(function (offset) {
+        [880, 1174, 880].forEach(function (frequency, index) {
+          var begins = startAt + offset + index * 0.32;
+          var oscillator = ctx.createOscillator();
+          var gain = ctx.createGain();
+          oscillator.type = 'sine';
+          oscillator.frequency.setValueAtTime(frequency, begins);
+          gain.gain.setValueAtTime(0.0001, begins);
+          gain.gain.linearRampToValueAtTime(0.16, begins + 0.035);
+          gain.gain.exponentialRampToValueAtTime(0.0001, begins + 0.32);
+          oscillator.connect(gain);
+          gain.connect(ctx.destination);
+          oscillator.start(begins);
+          oscillator.stop(begins + 0.34);
+        });
+      });
+    };
+    try {
+      if (ctx.state === 'suspended') ctx.resume().then(play).catch(function () {});
+      else play();
+    } catch (e) {}
+  }
+
+  function focusNotifyCompletion(isBreak, minutes) {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    var title = isBreak ? '休息时间结束' : '专注时间到了';
+    var options = {
+      body: isBreak ? '休息结束，可以开始下一轮专注。' : ('本轮 ' + minutes + ' 分钟专注已完成。'),
+      icon: 'icon-192.png', tag: 'academic-focus-complete', renotify: true
+    };
+    var showFallback = function () {
+      try { new Notification(title, options); } catch (e) {}
+    };
+    if ('serviceWorker' in navigator) {
+      focusRegisterNotificationWorker();
+      navigator.serviceWorker.ready.then(function (registration) {
+        return registration.showNotification(title, options);
+      }).catch(showFallback);
+    } else showFallback();
+  }
+
   function focusBegin(mode, todoId, text) {
     mode = mode || 'focus';
+    focusUnlockAudio();
+    focusRequestNotificationPermission();
     var totalSec = mode === 'break' ? FOCUS_BREAK_SEC : focusPreset * 60;
     focusStopTicker();
     focusState = {
@@ -4749,6 +4822,7 @@
 
   function focusResume() {
     if (!focusState.paused) return;
+    focusUnlockAudio();
     focusState.endAt = Date.now() + focusState.leftMs;
     focusState.paused = false;
     focusState.running = true;
@@ -4813,20 +4887,23 @@
     focusStopTicker();
     focusUnpersist();
 
-    if (silent) { resetFocusState(); focusRenderAll(); renderWeekReview(); return; }
-
-    // 保留一份「刚完成」的状态用于渲染完成态（环变绿 + 扩散波 + 下一步建议）
+    // 保留完成态，确保切回页面时仍能看到结果；补记历史完成时不播放动画和声音。
     focusState = {
       mode: st.mode, totalSec: st.totalSec,
       endAt: 0, leftMs: 0, paused: false, running: false, done: true,
       todoId: st.todoId, text: st.text, startedAt: st.startedAt,
       interval: null, lastMinutes: minutes
     };
+    if (silent) focusLastDone = true;
     focusRenderAll();
     renderTodos();
     renderWeekReview();
     if (typeof renderTodayBoard === 'function') renderTodayBoard();
-    toast(isBreak ? '休息结束，继续加油' : ('专注完成！今日累计 ' + pomoMinutesOn() + ' 分钟'));
+    focusNotifyCompletion(isBreak, minutes);
+    if (!silent) focusPlayAlarm();
+    toast(silent
+      ? (isBreak ? '上一轮休息已结束' : ('上一轮专注已完成，共 ' + minutes + ' 分钟'))
+      : (isBreak ? '休息结束，继续加油' : ('专注完成！今日累计 ' + pomoMinutesOn() + ' 分钟')));
   }
 
   // 启动时恢复未跑完/已跑完的一轮
@@ -10510,6 +10587,7 @@
     $$('.retired-content').forEach(function (node) { node.remove(); });
     $$('.dashboard-retired').forEach(function (node) { node.remove(); });
     initTheme();
+    focusRegisterNotificationWorker();
     $('#panelDate').textContent = formatDate(new Date());
     initV3();
     bindEvents();
