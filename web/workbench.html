@@ -8,7 +8,7 @@
   <link rel="apple-touch-icon" href="icon-180.png">
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#174e4a">
-  <link rel="stylesheet" href="style.css?v=20260926-14">
+  <link rel="stylesheet" href="style.css?v=20260926-15">
   <style>.sidebar-nav .retired-content{display:none!important}</style>
 </head>
 <body>
@@ -374,7 +374,7 @@
       </section>
 
       <section class="panel" id="panel-variable-library">
-        <div class="variable-head"><div><div class="card-dot"></div><div class="card-label">变量库</div><p>按研究角色整理变量定义、计量方式、数据来源与关联研究，支持自动同步。</p></div><div class="variable-actions"><button type="button" id="variableImport">导入 CSV</button><button type="button" id="variableTemplate" title="模板含一条示例记录，导入前请修改或删除">下载 CSV 模板</button><button type="button" id="variableExport">导出 CSV</button><button type="button" id="variableImportUndo" disabled title="尚无可撤销的 CSV 导入">撤销最近导入</button><button type="button" id="variableTrash">回收站</button><button type="button" id="variableSave">立即保存</button><input id="variableImportFile" type="file" accept=".csv,text/csv" hidden></div></div>
+        <div class="variable-head"><div><div class="card-dot"></div><div class="card-label">变量库</div><p>按研究角色整理变量定义、计量方式、数据来源与关联研究，支持自动同步。</p></div><div class="variable-actions"><button type="button" id="variableImport">导入 CSV</button><button type="button" id="variableTemplate" title="模板含一条示例记录，导入前请修改或删除">下载 CSV 模板</button><button type="button" id="variableExport">导出 CSV</button><button type="button" id="variableImportUndo" disabled title="尚无可撤销的 CSV 导入">CSV 导入历史</button><button type="button" id="variableTrash">回收站</button><button type="button" id="variableSave">立即保存</button><input id="variableImportFile" type="file" accept=".csv,text/csv" hidden></div></div>
         <div class="variable-workspace">
           <aside class="variable-list-pane"><label class="variable-search"><span>检索变量</span><input id="variableSearch" type="search" placeholder="名称、定义、来源或参考文献"></label><div id="variableCategories" class="variable-category-list"></div><div id="variableList" class="variable-list"></div></aside>
           <section class="variable-editor" id="variableEditor">
@@ -1363,6 +1363,16 @@
   </section>
 </div>
 
+<div class="auth-modal variable-import-history-modal" id="variableImportHistoryModal" hidden>
+  <div class="auth-modal-backdrop" id="variableImportHistoryBackdrop"></div>
+  <section class="auth-card variable-import-history-card" role="dialog" aria-modal="true" aria-labelledby="variableImportHistoryTitle">
+    <button class="auth-close" id="variableImportHistoryClose" type="button" aria-label="关闭">×</button>
+    <h2 id="variableImportHistoryTitle">CSV 导入历史</h2>
+    <p class="auth-desc">保留最近 10 次导入。撤销时，新建变量会移入回收站；更新变量恢复为导入前内容。若相关变量字段已被修改，该批次将无法撤销。</p>
+    <div id="variableImportHistoryList" class="variable-import-history-list"></div>
+  </section>
+</div>
+
 <div class="auth-modal" id="authModal" hidden>
   <div class="auth-modal-backdrop" id="authModalBackdrop"></div>
   <form class="auth-card" id="authForm">
@@ -1459,8 +1469,8 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-  <script src="static-api.js?v=20260926-10"></script>
-  <script src="app.js?v=20260926-20"></script>
+  <script src="static-api.js?v=20260926-11"></script>
+  <script src="app.js?v=20260926-21"></script>
   <script src="attachments.js?v=20260925-1"></script>
 </body>
 </html>

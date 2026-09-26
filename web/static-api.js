@@ -572,10 +572,26 @@
             return createdVariable;
           }).filter(Boolean);
           variableLibrary.items = importedVariables.concat(variableLibrary.items);
-          variableLibrary.importUndo = { createdAt: nowText(), created: undoCreated, updated: undoUpdated };
+          var importHistory = Array.isArray(variableLibrary.importHistory) ? variableLibrary.importHistory.slice() : [];
+          if (variableLibrary.importUndo && !importHistory.some(function (entry) { return entry && entry.id && entry.id === variableLibrary.importUndo.id; })) {
+            var legacyImport = Object.assign({}, variableLibrary.importUndo);
+            legacyImport.id = legacyImport.id || 'legacy-' + String(legacyImport.createdAt || nowId());
+            importHistory.unshift(legacyImport);
+          }
+          var importRecord = { id: String(nowId()) + '-' + Math.random().toString(36).slice(2, 8), createdAt: nowText(), created: undoCreated, updated: undoUpdated };
+          importHistory.unshift(importRecord);
+          variableLibrary.importHistory = importHistory.slice(0, 10);
+          variableLibrary.importUndo = importRecord;
         }
         if (body.action === 'undo-import') {
-          var importUndo = variableLibrary.importUndo;
+          var availableImportHistory = Array.isArray(variableLibrary.importHistory) ? variableLibrary.importHistory.slice() : [];
+          if (!availableImportHistory.length && variableLibrary.importUndo) {
+            var legacyUndo = Object.assign({}, variableLibrary.importUndo);
+            legacyUndo.id = legacyUndo.id || 'legacy-' + String(legacyUndo.createdAt || nowId());
+            availableImportHistory.push(legacyUndo);
+          }
+          var requestedImportId = body.importId == null ? '' : String(body.importId);
+          var importUndo = requestedImportId ? availableImportHistory.filter(function (entry) { return String(entry.id) === requestedImportId; })[0] : availableImportHistory[0];
           if (!importUndo || (!Array.isArray(importUndo.created) && !Array.isArray(importUndo.updated))) return response({ ok: false, error: '没有可撤销的 CSV 导入记录' }, 404);
           var createdUndo = Array.isArray(importUndo.created) ? importUndo.created : [];
           var updatedUndo = Array.isArray(importUndo.updated) ? importUndo.updated : [];
@@ -607,7 +623,9 @@
             });
             item.updated = nowText();
           });
-          variableLibrary.importUndo = null;
+          availableImportHistory = availableImportHistory.filter(function (entry) { return String(entry.id) !== String(importUndo.id); });
+          variableLibrary.importHistory = availableImportHistory;
+          variableLibrary.importUndo = availableImportHistory[0] || null;
           var undoneCounts = { createdMovedToTrash: movedToTrash, updatedRestored: updatedUndo.length };
         }
         if (body.action === 'reorder' && Array.isArray(body.ids)) {

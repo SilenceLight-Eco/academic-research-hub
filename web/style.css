@@ -601,6 +601,18 @@ html, body {
 .auth-close { position: absolute; right: 14px; top: 12px; border: 0; background: transparent; color: var(--text-secondary); font-size: 24px; cursor: pointer; }
 .auth-error { color: #c74b4b; font-size: 13px; }
 .variable-import-modal { z-index: 120; }
+.variable-import-history-modal { z-index: 121; }
+.variable-import-history-card { width:min(620px,calc(100vw - 32px)); max-height:min(80vh,720px); box-sizing:border-box; display:flex; flex-direction:column; overflow:auto; }
+.variable-import-history-card h2 { color:var(--text); font-size:20px; }
+.variable-import-history-card .auth-desc { color:var(--text-secondary); font-size:13px; line-height:1.65; }
+.variable-import-history-list { display:grid; gap:8px; overflow:auto; }
+.variable-import-history-row { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:12px; border:1px solid var(--hairline-soft); border-radius:8px; background:var(--glass-strong); }
+.variable-import-history-meta { display:grid; min-width:0; gap:3px; color:var(--text-muted); font-size:12px; }
+.variable-import-history-meta strong { color:var(--text); font-size:13px; }
+.variable-import-history-meta time { font-variant-numeric:tabular-nums; }
+.variable-import-history-row button { flex:none; padding:7px 10px; border:1px solid var(--hairline); border-radius:6px; background:var(--card-bg); color:var(--text-secondary); cursor:pointer; font:inherit; font-size:12px; }
+.variable-import-history-row button:disabled { cursor:not-allowed; opacity:.5; }
+.variable-import-history-empty { padding:24px 10px; color:var(--text-muted); text-align:center; font-size:13px; }
 .variable-import-card { width: min(860px, calc(100vw - 32px)); max-height: min(90vh, 900px); box-sizing: border-box; display:flex; flex-direction:column; overflow:auto; }
 .variable-import-card h2 { color:var(--text); font-size:20px; }
 .variable-import-card .auth-desc { color:var(--text-secondary); font-size:13px; line-height:1.65; }
@@ -631,6 +643,7 @@ html, body {
 .variable-import-actions button:disabled { cursor:not-allowed; opacity:.5; }
 @media(max-width:700px) { .variable-import-mapping { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:600px) { .variable-import-card { padding:22px 16px; } .variable-import-table th,.variable-import-table td { padding:8px 7px; } }
+@media(max-width:600px) { .variable-import-history-card { padding:22px 16px; }.variable-import-history-row { align-items:flex-start; gap:8px; padding:10px; }.variable-import-history-row button { padding:6px 8px; } }
 .research-hub-frame {
   display: block;
   width: 100%;
