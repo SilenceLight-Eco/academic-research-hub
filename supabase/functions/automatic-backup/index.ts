@@ -22,6 +22,7 @@ const json = (request: Request, body: Record<string, unknown>, status = 200) =>
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
 const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+const anonKey = Deno.env.get("SUPABASE_ANON_KEY") || "";
 const cronSecret = Deno.env.get("JOURNAL_TRACKER_CRON_SECRET") || "";
 
 function serviceHeaders(extra: Record<string, string> = {}) {
@@ -105,12 +106,26 @@ async function createSnapshot(userId: string) {
   return { id: Array.isArray(inserted) && inserted[0] ? inserted[0].id : null, subscriptions: subscriptions.length, articles: articles.length, attachments: attachmentRows.length };
 }
 
+async function authenticatedUserId(request: Request): Promise<string> {
+  const authorization = request.headers.get("authorization") || "";
+  if (!authorization.startsWith("Bearer ") || !anonKey) throw new Error("请先登录后生成备份");
+  const response = await fetch(`${supabaseUrl}/auth/v1/user`, { headers: { apikey: anonKey, Authorization: authorization } });
+  const user = await response.json().catch(() => null);
+  if (!response.ok || !user || typeof user.id !== "string") throw new Error("登录状态无效，请重新登录");
+  return user.id;
+}
+
 Deno.serve(async (request: Request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders(request) });
   if (request.method !== "POST") return json(request, { ok: false, error: "仅支持 POST" }, 405);
-  if (!supabaseUrl || !serviceKey || !cronSecret) return json(request, { ok: false, error: "自动备份服务尚未配置完成" }, 500);
-  if (request.headers.get("x-cron-secret") !== cronSecret) return json(request, { ok: false, error: "定时任务凭证无效" }, 401);
+  if (!supabaseUrl || !serviceKey || !cronSecret || !anonKey) return json(request, { ok: false, error: "自动备份服务尚未配置完成" }, 500);
   try {
+    if (request.headers.get("x-cron-secret") !== cronSecret) {
+      const userId = await authenticatedUserId(request);
+      const preference = await rest(`automatic_backup_preferences?user_id=eq.${encodeURIComponent(userId)}&select=enabled&limit=1`);
+      if (!Array.isArray(preference) || !preference[0]?.enabled) return json(request, { ok: false, error: "请先开启每日云端快照" }, 403);
+      return json(request, { ok: true, manual: true, ...(await createSnapshot(userId)) });
+    }
     const preferences = await readAll("automatic_backup_preferences?enabled=eq.true&select=user_id");
     const results: Array<Record<string, unknown>> = [];
     for (const preference of preferences) {

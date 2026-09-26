@@ -296,6 +296,17 @@
       if (result.error) throw result.error;
       return result.data;
     },
+    createAutomaticBackupNow: async function () {
+      var session = await attachmentSession();
+      var response = await window.__nativeFetch(url + '/functions/v1/automatic-backup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token, 'apikey': key },
+        body: JSON.stringify({ action: 'manual' })
+      });
+      var data = await response.json().catch(function () { return {}; });
+      if (!response.ok || !data.ok) throw new Error(data.error || '生成云端快照失败');
+      return data;
+    },
     listAutomaticBackups: async function () {
       await attachmentSession();
       var result = await client.from('automatic_backups').select('id,created_at,workspace_bytes,subscription_count,article_count,attachment_count').order('created_at', { ascending: false }).limit(30);

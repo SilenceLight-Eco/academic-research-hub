@@ -790,20 +790,21 @@
   }
 
   function refreshAutomaticBackupPanel() {
-    var status = $('#autoBackupStatus'), list = $('#autoBackupList'), toggle = $('#autoBackupEnabled');
+    var status = $('#autoBackupStatus'), list = $('#autoBackupList'), toggle = $('#autoBackupEnabled'), run = $('#autoBackupRun');
     status.textContent = '正在读取设置…'; list.textContent = '正在读取快照…'; toggle.disabled = true;
     Promise.all([window.__academicBackup.getAutomaticBackupPreferences(), window.__academicBackup.listAutomaticBackups()]).then(function (results) {
       var preference = results[0], rows = results[1];
       toggle.checked = preference.enabled === true; toggle.disabled = false;
+      run.disabled = !preference.enabled;
       status.textContent = preference.enabled ? '已开启 · 每天 08:00（北京时间）' : '未开启';
-      if (!rows.length) { list.innerHTML = '<span>还没有云端快照；开启后将在下次定时任务运行时生成。</span>'; return; }
+      if (!rows.length) { list.innerHTML = '<span>还没有云端快照；开启后可立即生成，也会在每天 08:00 自动生成。</span>'; return; }
       list.innerHTML = rows.map(function (row) {
         var when = row.created_at ? new Date(row.created_at).toLocaleString('zh-CN') : '未知时间';
         var summary = when + ' · ' + Number(row.subscription_count || 0) + ' 本期刊 · ' + Number(row.article_count || 0) + ' 篇文章 · ' + Number(row.attachment_count || 0) + ' 个附件（仅清单）';
         return '<div class="auto-backup-row"><span>' + escapeHtml(summary) + '</span><button type="button" data-auto-backup-download="' + escapeHtml(row.id) + '">下载</button><button type="button" data-auto-backup-restore="' + escapeHtml(row.id) + '">恢复</button></div>';
       }).join('');
     }).catch(function (error) {
-      toggle.disabled = true; status.textContent = '自动备份配置尚未部署';
+      toggle.disabled = true; run.disabled = true; status.textContent = '自动备份配置尚未部署';
       list.textContent = error.message || '无法读取云端快照';
     });
   }
@@ -817,6 +818,18 @@
     }).catch(function (error) {
       toggle.checked = !desired; toggle.disabled = false;
       toast(error.message || '保存自动备份设置失败');
+    });
+  }
+
+  function createAutomaticBackupNow() {
+    var button = $('#autoBackupRun');
+    button.disabled = true; button.textContent = '正在生成…';
+    window.__academicBackup.createAutomaticBackupNow().then(function (result) {
+      toast('快照已生成：期刊 ' + Number(result.subscriptions || 0) + ' 本、文章 ' + Number(result.articles || 0) + ' 篇');
+      button.textContent = '立即生成快照'; refreshAutomaticBackupPanel();
+    }).catch(function (error) {
+      toast(error.message || '生成云端快照失败');
+      button.textContent = '立即生成快照'; refreshAutomaticBackupPanel();
     });
   }
 
@@ -7380,6 +7393,7 @@
     $('#backupModalBackdrop').addEventListener('click', closeBackupModal);
     $('#backupExport').addEventListener('click', exportWorkspaceBackup);
     $('#autoBackupEnabled').addEventListener('change', toggleAutomaticBackup);
+    $('#autoBackupRun').addEventListener('click', createAutomaticBackupNow);
     $('#autoBackupList').addEventListener('click', function (event) {
       var download = event.target.closest('[data-auto-backup-download]');
       if (download) { downloadAutomaticBackup(download.dataset.autoBackupDownload); return; }
@@ -7612,7 +7626,20 @@
       saveCurrent.then(function () { return newVariable(roles); }).catch(function (error) { toast((error && error.message) || '请先保存当前变量后再新建'); }).then(function () { state.variableCreatePending = false; });
     });
     ['variableName', 'variableDefinition'].forEach(function (id) { $('#' + id).addEventListener('input', queueVariableAutoSave); $('#' + id).addEventListener('change', queueVariableAutoSave); });
-    $('#variableMeasureReferences').addEventListener('input', function (event) { if (event.target.matches('[data-variable-source], [data-variable-measure], [data-variable-paper]')) queueVariableAutoSave(); });
+    $('#variableMeasureReferences').addEventListener('input', function (event) {
+      if (event.target.matches('[data-variable-measure]')) resizeVariableMeasureTextarea(event.target);
+      if (event.target.matches('[data-variable-source], [data-variable-measure], [data-variable-paper]')) queueVariableAutoSave();
+    });
+    window.addEventListener('resize', function () { $$('[data-variable-measure]', $('#variableMeasureReferences')).forEach(resizeVariableMeasureTextarea); });
+    if (window.ResizeObserver) {
+      var lastVariableMeasureWidth = -1;
+      new ResizeObserver(function (observations) {
+        var width = observations[0] && observations[0].contentRect.width;
+        if (width === lastVariableMeasureWidth) return;
+        lastVariableMeasureWidth = width;
+        $$('[data-variable-measure]', $('#variableMeasureReferences')).forEach(resizeVariableMeasureTextarea);
+      }).observe($('#variableMeasureReferences'));
+    }
     $('#variableMeasureReferences').addEventListener('change', function (event) {
       if (event.target.matches('[data-variable-role], [data-variable-source], [data-variable-measure], [data-variable-paper]')) queueVariableAutoSave();
     });
@@ -9380,6 +9407,27 @@
     var fallbackRole = normalizeVariableRoles(item.role), fallbackSource = String(item.source || '');
     return entries.map(function (entry, index) { entry = entry || {}; var measures = Array.isArray(entry.measures) ? entry.measures.map(function (measure) { return String(measure || ''); }) : [String(entry.measure || '')]; if (!measures.length) measures = ['']; var papers = Array.isArray(entry.papers) ? entry.papers.map(function (paper) { return String(paper || ''); }) : [String(entry.paper || '')]; if (!papers.length) papers = ['']; if (!papers[0] && entry.paper) papers[0] = String(entry.paper); return { role: normalizeVariableRoles(entry.role || (index === 0 ? fallbackRole : fallbackRole)), source: String(entry.source != null ? entry.source : (index === 0 ? fallbackSource : '')), measure: measures[0], measures: measures, paper: papers[0] || '', papers: papers }; });
   }
+  var variableMeasureMeasureCanvas = null;
+  function resizeVariableMeasureTextarea(textarea) {
+    if (!textarea || !textarea.isConnected) return;
+    var row = textarea.closest('.variable-inline-input-row');
+    if (!row) return;
+    if (!variableMeasureMeasureCanvas) variableMeasureMeasureCanvas = document.createElement('canvas');
+    var context = variableMeasureMeasureCanvas.getContext('2d'), style = window.getComputedStyle(textarea);
+    context.font = style.font;
+    var text = String(textarea.value || textarea.placeholder || ''), widest = 0;
+    text.split('\n').forEach(function (line) { widest = Math.max(widest, context.measureText(line || ' ').width); });
+    var removeButton = row.querySelector('.variable-inline-remove'), buttonWidth = removeButton ? removeButton.getBoundingClientRect().width + 8 : 0;
+    var available = Math.max(80, row.clientWidth - buttonWidth);
+    var padding = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0) + 2;
+    var preferredMinimum = Math.min(220, available);
+    var targetWidth = Math.min(available, Math.max(preferredMinimum, Math.ceil(widest + padding)));
+    textarea.style.width = targetWidth + 'px';
+    textarea.style.flex = '0 1 auto';
+    textarea.style.height = 'auto';
+    textarea.style.height = Math.max(32, textarea.scrollHeight) + 'px';
+  }
+
   function renderVariableMeasureReferences(entries, disabled) {
     var container = $('#variableMeasureReferences');
     if (!container) return;
@@ -9388,13 +9436,14 @@
     container.innerHTML = entries.map(function (entry, index) {
       var selectedRoles = normalizeVariableRoles(entry.role);
       var roles = '<div class="variable-entry-role"><span>研究角色</span><div class="variable-role-options">' + variableRoles.map(function (role) { return '<label class="variable-role-option"><input type="radio" name="variable-role-entry-' + index + '" data-variable-role="' + index + '" value="' + escapeHtml(role) + '"' + (selectedRoles.indexOf(role) >= 0 ? ' checked' : '') + (disabled ? ' disabled' : '') + '><span>' + escapeHtml(role) + '</span></label>'; }).join('') + '</div></div>';
-      var measureInputs = entry.measures.map(function (value, measureIndex) { return '<div class="variable-inline-input-row"><textarea data-variable-measure="' + index + '" data-variable-measure-index="' + measureIndex + '" placeholder="指标构造、计算公式、赋值规则或处理方式" title="双击新建同研究角色变量"' + (disabled ? ' disabled' : '') + '>' + escapeHtml(value) + '</textarea>' + (measureIndex > 0 ? '<button type="button" class="variable-inline-remove" data-variable-measure-remove="' + index + '" data-variable-measure-index="' + measureIndex + '" aria-label="删除此衡量方式" title="删除此衡量方式"' + (disabled ? ' disabled' : '') + '>×</button>' : '') + '</div>'; }).join('');
+      var measureInputs = entry.measures.map(function (value, measureIndex) { return '<div class="variable-inline-input-row"><textarea wrap="soft" data-variable-measure="' + index + '" data-variable-measure-index="' + measureIndex + '" placeholder="指标构造、计算公式、赋值规则或处理方式" title="双击新建同研究角色变量"' + (disabled ? ' disabled' : '') + '>' + escapeHtml(value) + '</textarea>' + (measureIndex > 0 ? '<button type="button" class="variable-inline-remove" data-variable-measure-remove="' + index + '" data-variable-measure-index="' + measureIndex + '" aria-label="删除此衡量方式" title="删除此衡量方式"' + (disabled ? ' disabled' : '') + '>×</button>' : '') + '</div>'; }).join('');
       var measure = '<div class="variable-field variable-measure-field"><div class="variable-measure-field-head"><span>衡量方式</span></div><div class="variable-measure-inputs">' + measureInputs + '<button type="button" data-variable-measure-new="' + index + '" title="在数据来源上方新增一个衡量方式文本框"' + (disabled ? ' disabled' : '') + '>新增</button></div></div>';
       var source = '<label class="variable-field">数据来源<textarea data-variable-source="' + index + '" placeholder="数据来源、样本范围、频率及口径说明" title="双击新建同研究角色变量"' + (disabled ? ' disabled' : '') + '>' + escapeHtml(entry.source) + '</textarea></label>';
       var paperInputs = entry.papers.map(function (value, paperIndex) { return '<div class="variable-inline-input-row"><input' + (paperIndex === 0 ? ' id="variablePaper' + index + '"' : '') + ' data-variable-paper="' + index + '" data-variable-paper-index="' + paperIndex + '"' + (paperIndex > 0 ? ' data-variable-paper-new="true"' : '') + ' list="variableReferenceOptions" placeholder="选择或填写作者、年份、DOI、文献标题"' + (disabled ? ' disabled' : '') + ' value="' + escapeHtml(value) + '">' + (paperIndex > 0 ? '<button type="button" class="variable-inline-remove" data-variable-reference-remove-paper="' + index + '" data-variable-reference-index="' + paperIndex + '" aria-label="删除此参考文献" title="删除此参考文献"' + (disabled ? ' disabled' : '') + '>×</button>' : '') + '</div>'; }).join('');
       return '<section class="variable-measure-reference-entry">' + (entries.length > 1 ? '<div class="variable-measure-reference-entry-head"><button type="button" data-variable-reference-remove="' + index + '" aria-label="删除此记录组" title="删除此组"' + (disabled ? ' disabled' : '') + '>×</button></div>' : '') + roles + measure + source + '<div class="variable-reference-field"><label>参考文献</label><div class="variable-reference-inputs">' + paperInputs + '<button type="button" class="variable-reference-add" data-variable-reference-new="' + index + '" title="在下方新增参考文献输入框"' + (disabled ? ' disabled' : '') + '>＋ 新建</button></div></div></section>';
     }).join('');
     $('#variableMeasureReferenceAdd').disabled = Boolean(disabled);
+    $$('[data-variable-measure]', container).forEach(resizeVariableMeasureTextarea);
   }
   function renderVariableLibrary() {
     var library = state.variableLibrary || { items: [], trash: [] }, items = library.items || [], trash = library.trash || [];

@@ -6746,6 +6746,9 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .auto-backup-toggle { display:flex; align-items:center; gap:6px; color:var(--text-secondary); font-size:11px; cursor:pointer; }
 .auto-backup-toggle input { accent-color:var(--accent); }
 .auto-backup-list { display:grid; gap:6px; margin-top:10px; max-height:170px; overflow:auto; }
+.auto-backup-run { margin-top:9px; padding:6px 10px; border:1px solid var(--hairline); border-radius:6px; background:transparent; color:var(--accent); font-size:10px; cursor:pointer; }
+.auto-backup-run:hover:not(:disabled) { border-color:var(--accent); background:var(--accent-dim); }
+.auto-backup-run:disabled { opacity:.5; cursor:default; }
 .auto-backup-row { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:7px 8px; border:1px solid var(--hairline-soft); border-radius:7px; color:var(--text-secondary); font-size:10px; }
 .auto-backup-row span { min-width:0; overflow-wrap:anywhere; }
 .auto-backup-row button { flex:none; padding:4px 8px; border:1px solid var(--hairline-soft); border-radius:6px; background:var(--glass); color:var(--text); font-size:10px; cursor:pointer; }
@@ -7210,7 +7213,8 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .variable-measure-reference-entry .variable-field { min-width:0; margin:0 0 9px; }
 .variable-measure-reference-entry .variable-field textarea { min-height:68px; }
 .variable-measure-inputs { display:grid; gap:8px; }
-.variable-measure-inputs .variable-inline-input-row textarea { display:block; box-sizing:border-box; flex:1 1 auto; width:100%; min-width:0; height:32px; min-height:32px; padding:6px 8px; resize:vertical; }
+.variable-measure-inputs .variable-inline-input-row { align-items:flex-start; }
+.variable-measure-inputs .variable-inline-input-row textarea { display:block; box-sizing:border-box; flex:0 1 auto; width:220px; max-width:100%; min-width:0; height:32px; min-height:32px; padding:6px 8px; overflow:hidden; overflow-wrap:anywhere; white-space:pre-wrap; line-height:1.55; resize:none; }
 .variable-measure-inputs > button { justify-self:start; padding:4px 10px; border:1px dashed var(--hairline); border-radius:5px; background:transparent; color:var(--accent); cursor:pointer; font:10px "Noto Sans SC",sans-serif; }
 .variable-measure-inputs > button:hover { border-color:var(--accent); background:var(--accent-dim); }
 .variable-measure-inputs > button:disabled { opacity:.5; cursor:default; }
