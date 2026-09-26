@@ -469,8 +469,8 @@
         promptLibrary.categories = Array.isArray(promptLibrary.categories) ? promptLibrary.categories : [];
         var oldCategory = String(body.category || '').trim();
         var managedCategory = oldCategory === '通用' ? '通用' : oldCategory;
-        var categoryExists = managedCategory && (promptLibrary.categories.indexOf(managedCategory) >= 0 || promptLibrary.prompts.some(function (prompt) { return String(prompt.category || '通用').trim() === managedCategory; }));
-        if (!managedCategory || managedCategory === '通用') return response({ ok: false, error: '“通用”是默认文件夹，不能重命名或删除' }, 400);
+        var categoryExists = managedCategory && (managedCategory === '通用' || promptLibrary.categories.indexOf(managedCategory) >= 0 || promptLibrary.prompts.some(function (prompt) { return String(prompt.category || '通用').trim() === managedCategory; }));
+        if (!managedCategory || (managedCategory === '通用' && body.action === 'rename-category')) return response({ ok: false, error: '“通用”默认文件夹不能重命名' }, 400);
         if (!categoryExists) return response({ ok: false, error: '找不到该文件夹，可能已被移除' }, 404);
         var nextCategory = String(body.newCategory || '').trim().slice(0, 40);
         if (body.action === 'rename-category') {
@@ -479,11 +479,16 @@
         }
         var currentPrompt = body.currentPrompt;
         if (currentPrompt && currentPrompt.id != null) promptLibrary.prompts.forEach(function (prompt) { if (String(prompt.id) === String(currentPrompt.id)) { prompt.title = String(currentPrompt.title || '未命名提示词').trim(); prompt.category = String(currentPrompt.category || '通用').trim() || '通用'; prompt.tags = String(currentPrompt.tags || '').trim(); prompt.body = String(currentPrompt.body || ''); prompt.updated = nowText(); } });
-        var destinationCategory = body.action === 'delete-category' ? '通用' : nextCategory;
+        var destinationCategory = body.action === 'delete-category' ? String(body.destinationCategory || '').trim().slice(0, 40) : nextCategory;
+        if (body.action === 'delete-category') {
+          if (!destinationCategory || destinationCategory === managedCategory) destinationCategory = promptLibrary.categories.concat(promptLibrary.prompts.map(function (prompt) { return String(prompt.category || '通用').trim(); })).filter(function (item) { return item && item !== managedCategory; }).sort()[0] || '未分类';
+          if (destinationCategory === managedCategory) destinationCategory = '未分类';
+          if (promptLibrary.categories.indexOf(destinationCategory) < 0) promptLibrary.categories.push(destinationCategory);
+        }
         promptLibrary.prompts.forEach(function (prompt) { if (String(prompt.category || '通用').trim() === managedCategory) prompt.category = destinationCategory; });
         promptLibrary.trash.forEach(function (entry) { if (entry.item && String(entry.item.category || '通用').trim() === managedCategory) entry.item.category = destinationCategory; });
         promptLibrary.categories = promptLibrary.categories.map(function (item) { return String(item) === managedCategory ? destinationCategory : String(item); }).filter(function (item, index, all) { return item && all.indexOf(item) === index; });
-        if (promptLibrary.categories.indexOf('通用') < 0) promptLibrary.categories.unshift('通用');
+        if (managedCategory !== '通用' && promptLibrary.categories.indexOf('通用') < 0) promptLibrary.categories.unshift('通用');
         await saveWorkspace(data, dataRevision);
         return response({ ok: true, promptLibrary: promptLibrary });
       }
