@@ -786,6 +786,54 @@
   function openBackupModal() {
     if (!account) { toast('请先登录后备份账号数据'); openAuth(); return; }
     $('#backupModal').hidden = false;
+    refreshAutomaticBackupPanel();
+  }
+
+  function refreshAutomaticBackupPanel() {
+    var status = $('#autoBackupStatus'), list = $('#autoBackupList'), toggle = $('#autoBackupEnabled');
+    status.textContent = '正在读取设置…'; list.textContent = '正在读取快照…'; toggle.disabled = true;
+    Promise.all([window.__academicBackup.getAutomaticBackupPreferences(), window.__academicBackup.listAutomaticBackups()]).then(function (results) {
+      var preference = results[0], rows = results[1];
+      toggle.checked = preference.enabled === true; toggle.disabled = false;
+      status.textContent = preference.enabled ? '已开启 · 每天 08:00（北京时间）' : '未开启';
+      if (!rows.length) { list.innerHTML = '<span>还没有云端快照；开启后将在下次定时任务运行时生成。</span>'; return; }
+      list.innerHTML = rows.map(function (row) {
+        var when = row.created_at ? new Date(row.created_at).toLocaleString('zh-CN') : '未知时间';
+        var summary = when + ' · ' + Number(row.subscription_count || 0) + ' 本期刊 · ' + Number(row.article_count || 0) + ' 篇文章 · ' + Number(row.attachment_count || 0) + ' 个附件（仅清单）';
+        return '<div class="auto-backup-row"><span>' + escapeHtml(summary) + '</span><button type="button" data-auto-backup-download="' + escapeHtml(row.id) + '">下载</button><button type="button" data-auto-backup-restore="' + escapeHtml(row.id) + '">恢复</button></div>';
+      }).join('');
+    }).catch(function (error) {
+      toggle.disabled = true; status.textContent = '自动备份配置尚未部署';
+      list.textContent = error.message || '无法读取云端快照';
+    });
+  }
+
+  function toggleAutomaticBackup() {
+    var toggle = $('#autoBackupEnabled'), desired = toggle.checked;
+    toggle.disabled = true;
+    window.__academicBackup.setAutomaticBackupEnabled(desired).then(function (preference) {
+      toast(preference.enabled ? '已开启每日云端快照' : '已关闭每日云端快照');
+      refreshAutomaticBackupPanel();
+    }).catch(function (error) {
+      toggle.checked = !desired; toggle.disabled = false;
+      toast(error.message || '保存自动备份设置失败');
+    });
+  }
+
+  function downloadAutomaticBackup(id) {
+    window.__academicBackup.getAutomaticBackup(id).then(function (row) {
+      if (!row || !row.payload) throw new Error('找不到该云端快照');
+      var blob = new Blob([JSON.stringify(row.payload, null, 2)], { type: 'application/json;charset=utf-8' });
+      downloadBlob(blob, backupFileName('automatic-snapshot'));
+    }).catch(function (error) { toast(error.message || '下载云端快照失败'); });
+  }
+
+  function previewAutomaticBackup(id) {
+    window.__academicBackup.getAutomaticBackup(id).then(function (row) {
+      if (!row || !row.payload) throw new Error('找不到该云端快照');
+      pendingBackupRestore = { kind: 'automatic', manifest: row.payload };
+      renderBackupPreview(row.payload, { name: '云端自动快照', size: new Blob([JSON.stringify(row.payload)]).size });
+    }).catch(function (error) { toast(error.message || '读取云端快照失败'); });
   }
 
   function closeBackupModal() {
@@ -933,7 +981,8 @@
 
   function renderBackupPreview(backup, file) {
     var complete = backup && backup.format === 'academic-research-hub-complete-backup';
-    var workspaceBackup = complete ? backup.workspace : backup;
+    var automatic = backup && backup.format === 'academic-research-hub-auto-backup';
+    var workspaceBackup = complete || automatic ? backup.workspace : backup;
     var data = workspaceBackup && workspaceBackup.data || {}, lines = [], knownKeys = [];
     function addLine(label, keys, value, count) {
       if (!keys.some(function (key) { return Object.prototype.hasOwnProperty.call(data, key); })) return;
@@ -962,13 +1011,20 @@
       var attachmentBytes = attachmentRows.reduce(function (total, item) { return total + (Number(item.metadata && item.metadata.file_size) || 0); }, 0);
       lines.push('<li><b>云端附件</b><span>' + escapeHtml(attachmentRows.length + ' 个文件 · ' + (attachmentBytes / 1024 / 1024).toFixed(1) + ' MB') + '</span></li>');
     }
+    if (automatic) {
+      var autoJournal = backup.journal || {}, autoAttachments = Array.isArray(backup.attachments) ? backup.attachments : [];
+      lines.push('<li><b>文献追踪</b><span>' + escapeHtml((autoJournal.subscriptions || []).length + ' 本期刊 · ' + (autoJournal.articles || []).length + ' 篇文章') + '</span></li>');
+      lines.push('<li><b>附件</b><span>' + escapeHtml(autoAttachments.length + ' 个文件仅保留清单，文件本体不在快照中') + '</span></li>');
+    }
     var unknownKeys = Object.keys(data).filter(function (key) { return knownKeys.indexOf(key) < 0; });
     if (unknownKeys.length) addLine('其他数据：' + unknownKeys.join('、'), unknownKeys, unknownKeys.reduce(function (other, key) { other[key] = data[key]; return other; }, {}), null);
     $('#backupPreviewMeta').textContent = (file ? file.name + ' · ' + (file.size / 1024).toFixed(1) + ' KB' : '备份文件') + (backup.exportedAt ? ' · 导出于 ' + new Date(backup.exportedAt).toLocaleString('zh-CN') : ' · 未记录导出时间');
     $('#backupPreviewList').innerHTML = lines.length ? lines.join('') : '<li><b>未识别到工作台模块</b><span>请确认备份来源</span></li>';
     $('#backupPreviewWarning').textContent = complete
       ? '恢复会覆盖工作台数据，并合并文献追踪期刊、文章与云端附件；不会删除账号中现有的附件或追踪文章。更新日志随 ZIP 归档但不回灌；同分类下同名同大小附件会跳过。恢复前会自动下载当前完整备份。'
-      : '这是旧版 JSON 备份，只包含工作台数据；文献追踪和云端附件不在其中。恢复前会自动下载当前完整备份。';
+      : automatic
+        ? '这是云端自动快照：会恢复工作台并合并文献追踪数据；附件仅保存清单，不包含文件本体，也不会删除当前附件。恢复前会自动下载当前完整备份。'
+        : '这是旧版 JSON 备份，只包含工作台数据；文献追踪和云端附件不在其中。恢复前会自动下载当前完整备份。';
     $('#backupPreview').hidden = false;
     $('#backupDefaultWarning').hidden = true;
   }
@@ -1025,6 +1081,11 @@
         renderBackupPreview(backup, file);
         return;
       }
+      if (backup && backup.format === 'academic-research-hub-auto-backup' && backup.version === 1 && backup.workspace && backup.workspace.data && typeof backup.workspace.data === 'object' && !Array.isArray(backup.workspace.data) && backup.journal && Array.isArray(backup.journal.subscriptions) && Array.isArray(backup.journal.articles) && Array.isArray(backup.attachments)) {
+        pendingBackupRestore = { kind: 'automatic', manifest: backup };
+        renderBackupPreview(backup, file);
+        return;
+      }
       throw new Error('备份文件格式无效或版本不受支持');
     }).catch(function (error) { toast(error.message || (isZip ? '无法读取完整备份 ZIP' : '无法读取 JSON 备份')); });
   }
@@ -1042,6 +1103,8 @@
       }).then(function () {
         button.textContent = '正在恢复…';
         if (restore.kind === 'legacy') return api('/api/backup', { method: 'POST', body: JSON.stringify({ backup: restore.manifest }) });
+        if (restore.kind === 'automatic') return window.__academicBackup.restoreJournal(restore.manifest.journal)
+          .then(function () { return api('/api/backup', { method: 'POST', body: JSON.stringify({ backup: restore.manifest.workspace }) }); });
         return window.__academicBackup.restoreJournal(restore.manifest.journal)
           .then(function () { return window.__academicBackup.restoreAttachments(restore.attachments); })
           .then(function () { return api('/api/backup', { method: 'POST', body: JSON.stringify({ backup: restore.manifest.workspace }) }); });
@@ -7316,6 +7379,13 @@
     $('#backupModalClose').addEventListener('click', closeBackupModal);
     $('#backupModalBackdrop').addEventListener('click', closeBackupModal);
     $('#backupExport').addEventListener('click', exportWorkspaceBackup);
+    $('#autoBackupEnabled').addEventListener('change', toggleAutomaticBackup);
+    $('#autoBackupList').addEventListener('click', function (event) {
+      var download = event.target.closest('[data-auto-backup-download]');
+      if (download) { downloadAutomaticBackup(download.dataset.autoBackupDownload); return; }
+      var restore = event.target.closest('[data-auto-backup-restore]');
+      if (restore) previewAutomaticBackup(restore.dataset.autoBackupRestore);
+    });
     $('#backupImport').addEventListener('click', function () { $('#backupFileInput').click(); });
     $('#backupFileInput').addEventListener('change', importWorkspaceBackup);
     $('#backupRestoreCancel').addEventListener('click', cancelBackupRestorePreview);

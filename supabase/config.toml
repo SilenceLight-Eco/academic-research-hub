@@ -1,2 +1,5 @@
 [functions.journal-tracker]
 verify_jwt = false
+
+[functions.automatic-backup]
+verify_jwt = false

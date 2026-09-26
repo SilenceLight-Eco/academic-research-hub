@@ -284,6 +284,30 @@
     }
   }
   window.__academicBackup = {
+    getAutomaticBackupPreferences: async function () {
+      await attachmentSession();
+      var result = await client.from('automatic_backup_preferences').select('enabled,updated_at').maybeSingle();
+      if (result.error) throw result.error;
+      return result.data || { enabled: false, updated_at: null };
+    },
+    setAutomaticBackupEnabled: async function (enabled) {
+      var session = await attachmentSession();
+      var result = await client.from('automatic_backup_preferences').upsert({ user_id: session.user.id, enabled: enabled === true, updated_at: new Date().toISOString() }, { onConflict: 'user_id' }).select('enabled,updated_at').single();
+      if (result.error) throw result.error;
+      return result.data;
+    },
+    listAutomaticBackups: async function () {
+      await attachmentSession();
+      var result = await client.from('automatic_backups').select('id,created_at,workspace_bytes,subscription_count,article_count,attachment_count').order('created_at', { ascending: false }).limit(30);
+      if (result.error) throw result.error;
+      return result.data || [];
+    },
+    getAutomaticBackup: async function (id) {
+      await attachmentSession();
+      var result = await client.from('automatic_backups').select('id,created_at,payload').eq('id', id).maybeSingle();
+      if (result.error) throw result.error;
+      return result.data;
+    },
     exportJournal: async function () {
       await attachmentSession();
       var results = await Promise.all([

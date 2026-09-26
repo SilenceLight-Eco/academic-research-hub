@@ -1428,6 +1428,11 @@
     <button class="auth-close" id="backupModalClose" type="button" aria-label="关闭">×</button>
     <h2 id="backupTitle">工作台数据备份与恢复</h2>
     <p class="auth-desc">完整备份包含工作台、文献追踪文章与期刊，以及云端附件文件；导出为 ZIP，旧版 JSON 仍可恢复。</p>
+    <div class="automatic-backup-panel">
+      <div class="automatic-backup-heading"><div><b>每日云端快照</b><span id="autoBackupStatus">正在读取设置…</span></div><label class="auto-backup-toggle"><input id="autoBackupEnabled" type="checkbox"><span>开启</span></label></div>
+      <p>每天北京时间 08:00 保存工作台与文献追踪数据。附件文件本体不会重复复制；快照不自动清理，可在此下载后用下方恢复功能还原。</p>
+      <div class="auto-backup-list" id="autoBackupList"><span>正在读取快照…</span></div>
+    </div>
     <button class="btn-primary" id="backupExport" type="button">导出完整备份</button>
     <button class="backup-restore-button" id="backupImport" type="button">从备份文件恢复</button>
     <input id="backupFileInput" type="file" accept=".zip,.json,application/zip,application/json" hidden>
