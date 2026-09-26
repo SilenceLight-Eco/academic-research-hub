@@ -7101,7 +7101,6 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .variable-trash-row b { color:var(--text-secondary); font-size:11px; }
 .variable-trash-row span { margin-top:4px; color:var(--text-muted); font-size:9px; }
 @media (max-width:760px) { .variable-entry-split { grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:8px; } .variable-measure-reference { padding:9px; } }
-@media (max-width:480px) { .variable-entry-split { grid-template-columns:1fr; gap:0; } }
 .variable-trash-row button { margin-left:3px; padding:4px 6px; border:1px solid var(--hairline); border-radius:4px; background:transparent; color:var(--text-secondary); cursor:pointer; font-size:10px; }
 .variable-trash-row button[data-variable-purge] { color:#bc4444; }
 .tracker-visible-count { display:inline-flex; align-items:center; margin-left:7px; padding:3px 8px; border:1px solid var(--hairline-soft); border-radius:999px; color:var(--text-muted); font:500 10px/1.3 "Noto Sans SC",sans-serif; vertical-align:middle; }
