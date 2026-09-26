@@ -8,7 +8,7 @@
   <link rel="apple-touch-icon" href="icon-180.png">
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#174e4a">
-  <link rel="stylesheet" href="style.css?v=20260926-5">
+  <link rel="stylesheet" href="style.css?v=20260926-7">
   <style>.sidebar-nav .retired-content{display:none!important}</style>
 </head>
 <body>
@@ -378,12 +378,11 @@
         <div class="variable-workspace">
           <aside class="variable-list-pane"><label class="variable-search"><span>检索变量</span><input id="variableSearch" type="search" placeholder="名称、定义、来源或参考文献"></label><div id="variableCategories" class="variable-category-list"></div><div id="variableList" class="variable-list"></div></aside>
           <section class="variable-editor" id="variableEditor">
-            <div class="variable-title-row"><input id="variableName" placeholder="变量名称（双击新建）" aria-label="变量名称；双击新建同角色变量" title="双击此处新建同角色变量"><button id="variableDelete" type="button" title="移入回收站">×</button></div>
+            <div class="variable-title-row"><input id="variableName" placeholder="变量名称（双击新建）" aria-label="变量名称；双击新建同角色变量" title="双击此处新建同角色变量"><button id="variableDuplicate" class="variable-duplicate-button" type="button" title="基于当前变量新建一份相同副本">复制变量</button><button id="variableDelete" type="button" title="移入回收站">×</button></div>
             <div class="variable-role-heading"><span>研究角色（可多选）</span><div id="variableRoleOptions" class="variable-role-options"></div></div>
-            <div class="variable-meta"><div class="variable-reference-field"><label for="variablePaper">参考文献</label><div class="variable-reference-row"><input id="variablePaper" list="variableReferenceOptions" placeholder="选择或填写作者、年份、DOI、文献标题；双击新建同角色变量" title="双击此处新建同角色变量"><datalist id="variableReferenceOptions"></datalist><button id="variableReferenceNew" type="button" title="新建参考文献并加入文献库">＋新建</button></div></div></div>
             <label class="variable-field">概念定义<textarea id="variableDefinition" placeholder="变量的理论含义与研究语境；双击新建同角色变量" title="双击此处新建同角色变量"></textarea></label>
-            <div class="variable-split"><label class="variable-field">操作化与计算方式<textarea id="variableMeasure" placeholder="指标构造、计算公式、赋值规则或处理方式；双击新建同角色变量" title="双击此处新建同角色变量"></textarea></label><label class="variable-field">数据来源与口径<textarea id="variableSource" placeholder="数据来源、样本范围、频率及口径说明；双击新建同角色变量" title="双击此处新建同角色变量"></textarea></label></div>
-            <label class="variable-field">备注与文献依据<textarea id="variableNotes" placeholder="参考文献、替代指标、识别注意事项等；双击新建同角色变量" title="双击此处新建同角色变量"></textarea></label>
+            <label class="variable-field">数据来源与口径<textarea id="variableSource" placeholder="数据来源、样本范围、频率及口径说明；双击新建同角色变量" title="双击此处新建同角色变量"></textarea></label>
+            <section class="variable-measure-reference"><div class="variable-measure-reference-title">衡量方式与参考文献</div><div id="variableMeasureReferences"></div><button id="variableMeasureReferenceAdd" class="variable-measure-reference-add" type="button">＋新增衡量方式与参考文献</button><datalist id="variableReferenceOptions"></datalist></section>
             <div class="variable-save-status" id="variableSaveStatus" aria-live="polite">选择或新建变量后编辑，修改会自动保存。</div><div id="variableProjectLinks"></div>
           </section>
         </div>
@@ -1443,8 +1442,8 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-  <script src="static-api.js?v=20260926-2"></script>
-  <script src="app.js?v=20260926-5"></script>
+  <script src="static-api.js?v=20260926-3"></script>
+  <script src="app.js?v=20260926-7"></script>
   <script src="attachments.js?v=20260925-1"></script>
 </body>
 </html>

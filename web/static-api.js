@@ -523,7 +523,31 @@
         variableLibrary.trash = Array.isArray(variableLibrary.trash) ? variableLibrary.trash : [];
         if (method === 'GET') return response({ ok: true, variableLibrary: variableLibrary });
         var variableRoles = ['被解释变量', '核心解释变量', '机制变量', '调节变量', '经济后果变量', '异质性分析变量', '其他'];
-        if (body.action === 'create') { var createRoles = (Array.isArray(body.role) ? body.role : [body.role]).filter(function (role, index, all) { return variableRoles.indexOf(role) >= 0 && all.indexOf(role) === index; }); variableLibrary.items.unshift({ id: nowId(), name: '新变量', role: createRoles.length ? createRoles : ['被解释变量'], symbol: '', unit: '', paper: '', definition: '', measure: '', source: '', notes: '', updated: nowText() }); }
+        var duplicateId = null;
+        if (body.action === 'create') { var createRoles = (Array.isArray(body.role) ? body.role : [body.role]).filter(function (role, index, all) { return variableRoles.indexOf(role) >= 0 && all.indexOf(role) === index; }); variableLibrary.items.unshift({ id: nowId(), name: '新变量', role: createRoles.length ? createRoles : ['被解释变量'], symbol: '', unit: '', paper: '', definition: '', measure: '', measureReferences: [], source: '', notes: '', updated: nowText() }); }
+        if (body.action === 'duplicate') {
+          var sourceVariable = variableLibrary.items.filter(function (item) { return String(item.id) === String(body.id); })[0];
+          if (!sourceVariable) return response({ ok: false, error: '找不到要复制的变量' }, 404);
+          var currentVariable = body.currentVariable || {};
+          if (String(currentVariable.id) === String(sourceVariable.id)) {
+            sourceVariable.name = String(currentVariable.name || sourceVariable.name || '未命名变量').trim().slice(0, 200);
+            var duplicateRoles = (Array.isArray(currentVariable.role) ? currentVariable.role : [currentVariable.role]).filter(function (role, index, all) { return variableRoles.indexOf(role) >= 0 && all.indexOf(role) === index; });
+            if (duplicateRoles.length) sourceVariable.role = duplicateRoles;
+            sourceVariable.paper = String(currentVariable.paper || '').trim().slice(0, 500);
+            sourceVariable.definition = String(currentVariable.definition || '').slice(0, 20000);
+            sourceVariable.measure = String(currentVariable.measure || '').slice(0, 20000);
+            if (Array.isArray(currentVariable.measureReferences)) sourceVariable.measureReferences = currentVariable.measureReferences.slice(0, 100).map(function (entry) { return { measure: String((entry || {}).measure || '').slice(0, 20000), paper: String((entry || {}).paper || '').trim().slice(0, 500) }; });
+            sourceVariable.source = String(currentVariable.source || '').slice(0, 20000);
+            sourceVariable.notes = String(currentVariable.notes || '').slice(0, 20000);
+            sourceVariable.updated = nowText();
+          }
+          var clonedVariable = JSON.parse(JSON.stringify(sourceVariable));
+          clonedVariable.id = nowId();
+          clonedVariable.name = String(sourceVariable.name || '未命名变量') + '（副本）';
+          clonedVariable.updated = nowText();
+          variableLibrary.items.unshift(clonedVariable);
+          duplicateId = clonedVariable.id;
+        }
         if (body.action === 'save') variableLibrary.items.forEach(function (item) {
           if (String(item.id) !== String(body.id)) return;
           item.name = String(body.name || '未命名变量').trim().slice(0, 200);
@@ -534,6 +558,7 @@
           item.paper = String(body.paper || '').trim().slice(0, 500);
           item.definition = String(body.definition || '').slice(0, 20000);
           item.measure = String(body.measure || '').slice(0, 20000);
+          if (Array.isArray(body.measureReferences)) item.measureReferences = body.measureReferences.slice(0, 100).map(function (entry) { return { measure: String((entry || {}).measure || '').slice(0, 20000), paper: String((entry || {}).paper || '').trim().slice(0, 500) }; });
           item.source = String(body.source || '').slice(0, 20000);
           item.notes = String(body.notes || '').slice(0, 20000);
           item.updated = nowText();
@@ -549,7 +574,7 @@
         if (body.action === 'purge') variableLibrary.trash = variableLibrary.trash.filter(function (entry) { return String(entry.id) !== String(body.id); });
         if (body.action === 'purge-all') variableLibrary.trash = [];
         await saveWorkspace(data, dataRevision);
-        return response({ ok: true, variableLibrary: variableLibrary });
+        return response({ ok: true, variableLibrary: variableLibrary, duplicateId: duplicateId });
       }
       if (path === '/api/research-projects' && method === 'POST' && body.action === 'save' && Array.isArray(body.links)) {
         var linkTypes = ['paper', 'reference', 'variable', 'knowledge', 'note'];
