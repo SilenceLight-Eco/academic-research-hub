@@ -77,6 +77,7 @@
     referenceShowMerged: false,
     referenceAuditGroups: [],
     referenceDoiBatchEntries: [],
+    referenceDoiBatchController: null,
     journalTracker: { subscriptions: [], articles: [], articleCount: 0, refreshLogs: [] },
     journalTrackerLoaded: false,
     journalTrackerLoading: false,
@@ -7675,6 +7676,7 @@
     $('#refFetchDoi').addEventListener('click', fetchReferenceDoi);
     $('#refBatchDoi').addEventListener('click', fetchReferenceDoiBatch);
     $('#refDoiBatchPreview').addEventListener('click', function (event) {
+      if (event.target.closest('[data-ref-doi-batch-stop]')) { if (state.referenceDoiBatchController) state.referenceDoiBatchController.abort(); event.target.closest('[data-ref-doi-batch-stop]').textContent = '正在停止…'; return; }
       if (event.target.closest('[data-ref-doi-batch-cancel]')) { $('#refDoiBatchPreview').hidden = true; state.referenceDoiBatchEntries = []; return; }
       if (event.target.closest('[data-ref-doi-batch-apply]')) applyReferenceDoiBatch();
     });
@@ -8886,7 +8888,12 @@
     if (!String(reference.url || '').trim() && url) proposed.url = url;
     return proposed;
   }
-  function renderReferenceDoiBatchPreview(failures) {
+  function renderReferenceDoiBatchProgress(current, total) {
+    var panel = $('#refDoiBatchPreview');
+    panel.innerHTML = '<div class="ref-doi-batch-head"><strong>正在查询 DOI 元数据</strong><span>第 ' + current + '/' + total + ' 篇；单篇超时后会自动跳过</span></div><div class="ref-doi-batch-progress"><span style="width:' + Math.round(current / total * 100) + '%"></span></div><div class="ref-doi-batch-actions"><button type="button" data-ref-doi-batch-stop>停止查询</button></div>';
+    panel.hidden = false;
+  }
+  function renderReferenceDoiBatchPreview(failures, stopped) {
     var panel = $('#refDoiBatchPreview'), fieldLabels = { title: '标题', authors: '作者', year: '年份', source: '期刊/出版社', locator: '卷期/页码', url: '原文链接' };
     var entries = state.referenceDoiBatchEntries;
     var rows = entries.map(function (entry) {
@@ -8894,7 +8901,7 @@
       return '<label class="ref-doi-batch-item"><input type="checkbox" data-ref-doi-batch-id="' + escapeHtml(String(entry.id)) + '" checked><span><strong>' + escapeHtml(entry.title || '未命名文献') + '</strong><small>DOI：' + escapeHtml(entry.doi) + '</small><ul>' + changes + '</ul></span></label>';
     }).join('');
     var failureHtml = failures && failures.length ? '<p class="ref-doi-batch-errors">' + failures.length + ' 篇未能查询：' + escapeHtml(failures.slice(0, 5).join('、')) + (failures.length > 5 ? '等' : '') + '</p>' : '';
-    panel.innerHTML = '<div class="ref-doi-batch-head"><strong>DOI 补全预览</strong><span>仅补空白字段，不覆盖已有内容；共找到 ' + entries.length + ' 篇可补全</span></div>' + failureHtml + (rows ? '<div class="ref-doi-batch-list">' + rows + '</div><div class="ref-doi-batch-actions"><button type="button" data-ref-doi-batch-cancel>取消</button><button type="button" data-ref-doi-batch-apply>应用勾选项</button></div>' : '<p class="ref-doi-batch-empty">没有查到可补充的字段。</p><div class="ref-doi-batch-actions"><button type="button" data-ref-doi-batch-cancel>关闭</button></div>');
+    panel.innerHTML = '<div class="ref-doi-batch-head"><strong>DOI 补全预览' + (stopped ? '（已停止）' : '') + '</strong><span>仅补空白字段，不覆盖已有内容；共找到 ' + entries.length + ' 篇可补全</span></div>' + failureHtml + (rows ? '<div class="ref-doi-batch-list">' + rows + '</div><div class="ref-doi-batch-actions"><button type="button" data-ref-doi-batch-cancel>取消</button><button type="button" data-ref-doi-batch-apply>应用勾选项</button></div>' : '<p class="ref-doi-batch-empty">没有查到可补充的字段。</p><div class="ref-doi-batch-actions"><button type="button" data-ref-doi-batch-cancel>关闭</button></div>');
     panel.hidden = false;
   }
   async function fetchReferenceDoiBatch() {
@@ -8904,20 +8911,27 @@
     if (candidates.length > 20) toast('本次先查询前 20 篇；可缩小筛选范围后继续');
     candidates = candidates.slice(0, 20);
     var button = $('#refBatchDoi'), requester = window.__nativeFetch || window.fetch.bind(window), failures = [];
-    button.disabled = true; state.referenceDoiBatchEntries = []; $('#refDoiBatchPreview').hidden = true;
+    var batchController = new AbortController(); state.referenceDoiBatchController = batchController;
+    button.disabled = true; state.referenceDoiBatchEntries = []; renderReferenceDoiBatchProgress(0, candidates.length);
     try {
       for (var index = 0; index < candidates.length; index += 1) {
-        var reference = candidates[index]; button.textContent = '查询中 ' + (index + 1) + '/' + candidates.length;
+        if (batchController.signal.aborted) break;
+        var reference = candidates[index]; button.textContent = '查询中 ' + (index + 1) + '/' + candidates.length; renderReferenceDoiBatchProgress(index + 1, candidates.length);
+        var requestController = new AbortController(), timedOut = false;
+        var timeoutId = setTimeout(function (controller) { return function () { timedOut = true; controller.abort(); }; }(requestController), 10000);
+        var cancelCurrentRequest = function (controller) { return function () { controller.abort(); }; }(requestController);
+        batchController.signal.addEventListener('abort', cancelCurrentRequest, { once: true });
         try {
-          var response = await requester('https://api.crossref.org/works/' + encodeURIComponent(normalizeReferenceDoi(reference.doi)));
+          var response = await requester('https://api.crossref.org/works/' + encodeURIComponent(normalizeReferenceDoi(reference.doi)), { signal: requestController.signal });
           if (!response.ok) throw new Error('not found');
           var result = await response.json(), fields = referenceDoiProposals(reference, result.message || {});
           if (Object.keys(fields).length) state.referenceDoiBatchEntries.push({ id: reference.id, title: reference.title, doi: reference.doi, fields: fields });
-        } catch (_) { failures.push(reference.title || reference.doi); }
+        } catch (_) { if (!batchController.signal.aborted) failures.push((reference.title || reference.doi) + (timedOut ? '（超时）' : '（查询失败）')); }
+        finally { clearTimeout(timeoutId); batchController.signal.removeEventListener('abort', cancelCurrentRequest); }
         if (index < candidates.length - 1) await new Promise(function (resolve) { setTimeout(resolve, 300); });
       }
-      renderReferenceDoiBatchPreview(failures);
-    } finally { button.disabled = false; button.textContent = '批量补全 DOI'; }
+      renderReferenceDoiBatchPreview(failures, batchController.signal.aborted);
+    } finally { state.referenceDoiBatchController = null; button.disabled = false; button.textContent = '批量补全 DOI'; }
   }
   function applyReferenceDoiBatch() {
     var panel = $('#refDoiBatchPreview'), selectedIds = Array.from(panel.querySelectorAll('[data-ref-doi-batch-id]:checked')).map(function (input) { return input.dataset.refDoiBatchId; });

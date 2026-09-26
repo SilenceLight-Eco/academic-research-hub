@@ -6820,6 +6820,8 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .ref-doi-batch[hidden] { display:none; }
 .ref-doi-batch-head { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:6px 14px; margin-bottom:9px; }
 .ref-doi-batch-head strong { color:var(--text); font:600 13px "Noto Sans SC",sans-serif; }
+.ref-doi-batch-progress { height:4px; overflow:hidden; border-radius:99px; background:var(--hairline-soft); }
+.ref-doi-batch-progress span { display:block; height:100%; border-radius:inherit; background:var(--accent); transition:width .2s ease; }
 .ref-doi-batch-head span,.ref-doi-batch-errors,.ref-doi-batch-empty { color:var(--text-muted); font-size:11px; }
 .ref-doi-batch-errors { margin:0 0 8px; }
 .ref-doi-batch-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; max-height:340px; overflow:auto; }
