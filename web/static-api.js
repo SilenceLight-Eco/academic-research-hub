@@ -161,11 +161,11 @@
     versions.unshift(snapshot);
     item.versions = versions.slice(0, 10);
   }
-  function currentPayload() { return workspace || { todos: [], journal: [], publications: [], academicRecords: { funding: [], awards: [], conferences: [] }, knowledgeBase: { folders: [], docs: [] }, noteStudio: { notes: [], trash: [] }, promptLibrary: { prompts: [], trash: [] }, researchProjects: { projects: [], trash: [] }, variableLibrary: { items: [], trash: [] }, dataCodeLibrary: { items: [], trash: [] }, studyProgress: {}, graduationConfig: {}, browser: {}, researchHub: {} }; }
+  function currentPayload() { return workspace || { todos: [], journal: [], publications: [], academicRecords: { funding: [], awards: [], conferences: [] }, academicRecordDrafts: {}, knowledgeBase: { folders: [], docs: [] }, noteStudio: { notes: [], trash: [] }, promptLibrary: { prompts: [], trash: [] }, researchProjects: { projects: [], trash: [] }, variableLibrary: { items: [], trash: [] }, dataCodeLibrary: { items: [], trash: [] }, studyProgress: {}, graduationConfig: {}, browser: {}, researchHub: {} }; }
   function browserSnapshot() { var result = {}; focusKeys.forEach(function (k) { result[k] = localStorage.getItem(k); }); return result; }
   function researchSnapshot() { var result = {}; researchHubKeys.forEach(function (k) { result[k] = localStorage.getItem(k); }); return result; }
   function graduation(pubs, config) { var items = (pubs || []).filter(function (p) { return p.type === 'c_journal'; }); var settings = config || {}; var required = Math.max(0, Number(settings.required) || 2); var achieved = settings.achieved == null ? items.length : Math.max(0, Number(settings.achieved) || 0); var label = 'C刊/SCI论文'; return { c_journal: { label: label, required: required, achieved: achieved, remaining: Math.max(0, required - achieved), complete: achieved >= required, items: items } }; }
-  function overview() { var payload = currentPayload(); var defaults = { configured: false, label: '学业进度', stage: '', percent: 0, start: '', end: '', remain_days: 0 }; return { field_name: 'Academic Research Hub', phd: Object.assign(defaults, payload.studyProgress || {}), graduation: graduation(payload.publications, payload.graduationConfig), academic_records: payload.academicRecords || { funding: [], awards: [], conferences: [] }, sections: [], tree: { name: '浏览器版不访问本地文件', children: [], count: 0 } }; }
+  function overview() { var payload = currentPayload(); var defaults = { configured: false, label: '学业进度', stage: '', percent: 0, start: '', end: '', remain_days: 0 }; return { field_name: 'Academic Research Hub', phd: Object.assign(defaults, payload.studyProgress || {}), graduation: graduation(payload.publications, payload.graduationConfig), academic_records: payload.academicRecords || { funding: [], awards: [], conferences: [] }, academic_record_drafts: payload.academicRecordDrafts || {}, sections: [], tree: { name: '浏览器版不访问本地文件', children: [], count: 0 } }; }
   // Read the persisted browser session first. Unlike getUser(), this does not
   // depend on a network round-trip during a page refresh.
   async function getUser() { await window.__academicAuthReady; var result = await client.auth.getSession(); return result.data.session ? result.data.session.user : null; }
@@ -290,6 +290,7 @@
     workspace.journal = Array.isArray(workspace.journal) ? workspace.journal : [];
     workspace.publications = Array.isArray(workspace.publications) ? workspace.publications : [];
     workspace.academicRecords = workspace.academicRecords || { funding: [], awards: [], conferences: [] };
+    workspace.academicRecordDrafts = workspace.academicRecordDrafts && typeof workspace.academicRecordDrafts === 'object' ? workspace.academicRecordDrafts : {};
     workspace.knowledgeBase = workspace.knowledgeBase || { folders: [], docs: [] };
     workspace.knowledgeBase.folders = Array.isArray(workspace.knowledgeBase.folders) ? workspace.knowledgeBase.folders : [];
     workspace.knowledgeBase.docs = Array.isArray(workspace.knowledgeBase.docs) ? workspace.knowledgeBase.docs : [];
@@ -747,9 +748,12 @@
       }
       if (path === '/api/academic-records') {
         var records = data.academicRecords || (data.academicRecords = { funding: [], awards: [], conferences: [] });
-        if (body.action === 'add' && ['funding', 'awards', 'conferences'].indexOf(body.kind) >= 0 && String(body.title || '').trim()) records[body.kind].unshift({ id: nowId(), title: String(body.title).trim(), meta: String(body.meta || '').trim(), details: body.details && typeof body.details === 'object' ? body.details : {}, date: dateText() });
+        var recordDrafts = data.academicRecordDrafts || (data.academicRecordDrafts = {});
+        if (body.action === 'save-draft' && ['funding', 'awards', 'conferences'].indexOf(body.kind) >= 0) recordDrafts[body.kind] = body.draft && typeof body.draft === 'object' ? body.draft : {};
+        if (body.action === 'clear-draft' && ['funding', 'awards', 'conferences'].indexOf(body.kind) >= 0) delete recordDrafts[body.kind];
+        if (body.action === 'add' && ['funding', 'awards', 'conferences'].indexOf(body.kind) >= 0 && String(body.title || '').trim()) { records[body.kind].unshift({ id: nowId(), title: String(body.title).trim(), meta: String(body.meta || '').trim(), details: body.details && typeof body.details === 'object' ? body.details : {}, date: dateText() }); delete recordDrafts[body.kind]; }
         if (body.action === 'delete') ['funding', 'awards', 'conferences'].forEach(function (kind) { records[kind] = records[kind].filter(function (item) { return item.id !== body.id; }); });
-        await saveWorkspace(data, dataRevision); return response({ ok: true, records: records });
+        await saveWorkspace(data, dataRevision); return response({ ok: true, records: records, drafts: recordDrafts });
       }
       if (path === '/api/knowledge-base') {
         var kb = data.knowledgeBase || (data.knowledgeBase = { folders: [], docs: [] });

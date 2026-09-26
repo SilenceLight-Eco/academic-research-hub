@@ -6473,19 +6473,29 @@
     });
   }
 
+  function persistTrackerFeed(body, automatic) {
+    return journalTrackerRequest({ action: 'set-feed', id: body.id, feedUrl: body.feedUrl }).then(function (result) {
+      applyJournalTrackerData(result);
+      if (!automatic) toast(body.feedUrl ? 'RSS 地址已保存并开始同步' : '已清除 RSS 地址，将使用 Crossref 后备');
+    });
+  }
+
+  function queueTrackerFeedAutoSave(input) {
+    if (!input) return;
+    var body = { id: input.dataset.trackerFeedInput, feedUrl: input.value.trim() };
+    queueAutoSave('tracker-feed:' + body.id, body, persistTrackerFeed);
+  }
+
   function saveTrackerFeed(id, button) {
     var input = $('[data-tracker-feed-input="' + CSS.escape(String(id)) + '"]');
     if (!input) return;
-    var feedUrl = input.value.trim();
-    button.disabled = true;
-    button.textContent = '保存中…';
-    journalTrackerRequest({ action: 'set-feed', id: id, feedUrl: feedUrl }).then(function (result) {
-      applyJournalTrackerData(result);
-      toast(feedUrl ? 'RSS 地址已保存并开始同步' : '已清除 RSS 地址，将使用 Crossref 后备');
-    }).catch(function (error) {
-      toast((error && error.message) || '保存 RSS 地址失败');
-      button.disabled = false;
-      button.textContent = '保存 RSS';
+    if (button) { button.disabled = true; button.textContent = '保存中…'; }
+    saveImmediately('tracker-feed:' + id, { id: id, feedUrl: input.value.trim() }, persistTrackerFeed).then(function () {
+      var slot = autoSaveSlots['tracker-feed:' + id];
+      if (slot && slot.dirty) {
+        toast('RSS 地址暂未同步成功，将自动重试');
+        if (button) { button.disabled = false; button.textContent = '保存 RSS'; }
+      }
     });
   }
 
@@ -6965,6 +6975,10 @@
       var button = event.target.closest('[data-tracker-remove]');
       if (button) removeTrackerJournal(button.dataset.trackerRemove);
     });
+    $('#trackerSubscriptions').addEventListener('input', function (event) {
+      var feedInput = event.target.closest('[data-tracker-feed-input]');
+      if (feedInput) queueTrackerFeedAutoSave(feedInput);
+    });
     $('#trackerSubscriptions').addEventListener('change', function (event) { var categorySelect = event.target.closest('[data-tracker-category]'); if (!categorySelect) return; var selectedCategory = categorySelect.value; if (selectedCategory === '__new_category__') { var name = window.prompt('输入新的期刊分类名称（最多 60 个字符）：'); if (name === null) { renderJournalTracker(); return; } selectedCategory = name.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 60); if (!selectedCategory || selectedCategory === '未分类' || selectedCategory === '__new_category__') { renderJournalTracker(); toast('请输入有效的分类名称'); return; } } saveTrackerJournalCategory(categorySelect.dataset.trackerCategory, selectedCategory); });
     $('#trackerAddCategory').addEventListener('change', function () {
       var selectedCategory = this.value;
@@ -7118,6 +7132,10 @@
     $('#progressModalClose').addEventListener('click', closeProgressModal);
     $('#progressModalBackdrop').addEventListener('click', closeProgressModal);
     $('#progressForm').addEventListener('submit', saveStudyDates);
+    ['progressStart', 'progressEnd'].forEach(function (id) {
+      $('#' + id).addEventListener('input', queueStudyProgressAutoSave);
+      $('#' + id).addEventListener('change', queueStudyProgressAutoSave);
+    });
 
     // 天气：点击右上角角标打开模态框
     var weatherChip = $('#weatherChip');
@@ -7283,6 +7301,14 @@
       var button = event.target.closest('[data-variable-import-undo]');
       if (button) undoVariableCsvImport(button.dataset.variableImportUndo);
     });
+    $('#dcSave').addEventListener('click', saveDataCodeItem);
+    dataCodeFields().forEach(function (id) {
+      $('#' + id).addEventListener('input', queueDataCodeAutoSave);
+      $('#' + id).addEventListener('change', queueDataCodeAutoSave);
+    });
+    $$('.dc-repro [data-dc-check]').forEach(function (checkbox) {
+      checkbox.addEventListener('change', function () { renderDataCodeProgress(); queueDataCodeAutoSave(); });
+    });
     $('#variableSave').addEventListener('click', saveVariable);
     $('#variableDelete').addEventListener('click', trashVariable);
     $('#variableTrash').addEventListener('click', function () { state.variableTrashOpen = !state.variableTrashOpen; renderVariableLibrary(); });
@@ -7373,9 +7399,15 @@
       var add = e.target.closest('[data-academic-add]');
       if (add) { academicEditorKind = add.dataset.academicAdd || ''; renderAcademicRecords(); return; }
       var cancel = e.target.closest('[data-academic-cancel]');
-      if (cancel) { academicEditorKind = ''; renderAcademicRecords(); return; }
+      if (cancel) { var openForm = cancel.closest('[data-academic-form]'); if (openForm) queueAcademicRecordAutoSave(openForm); flushAllAutoSaves(); academicEditorKind = ''; renderAcademicRecords(); return; }
       var remove = e.target.closest('[data-academic-delete]');
       if (remove) deleteAcademicRecord(parseInt(remove.dataset.academicDelete));
+    }); grid.addEventListener('input', function (e) {
+      var form = e.target.closest('[data-academic-form]');
+      if (form) queueAcademicRecordAutoSave(form);
+    }); grid.addEventListener('change', function (e) {
+      var form = e.target.closest('[data-academic-form]');
+      if (form) queueAcademicRecordAutoSave(form);
     }); grid.addEventListener('dblclick', function (e) {
       if (e.target.closest('button, input, textarea, select, form')) return;
       var card = e.target.closest('.academic-record-card');
@@ -8072,23 +8104,46 @@
     $('#progressModal').hidden = false;
   }
 
-  function closeProgressModal() { $('#progressModal').hidden = true; $('#progressError').hidden = true; }
+  function closeProgressModal(alreadySaved) {
+    if (!alreadySaved) { queueStudyProgressAutoSave(); flushAllAutoSaves(); }
+    $('#progressModal').hidden = true;
+    $('#progressError').hidden = true;
+  }
+
+  function readStudyProgressPayload() {
+    var start = $('#progressStart').value;
+    var end = $('#progressEnd').value;
+    if (!start || !end || Date.parse(end) <= Date.parse(start)) return null;
+    var remainDays = Math.max(0, Math.ceil((new Date(end).getTime() - Date.now()) / 86400000));
+    var elapsedDays = Math.max(0, Math.floor((Date.now() - new Date(start).getTime()) / 86400000));
+    var totalDays = Math.max(1, Math.ceil((new Date(end).getTime() - new Date(start).getTime()) / 86400000));
+    var percent = Math.max(0, Math.min(100, Math.round(elapsedDays / totalDays * 100)));
+    return { label: '学业进度', stage: '', percent: percent, start: start, end: end, elapsed_days: elapsedDays, remain_days: remainDays };
+  }
+
+  function persistStudyProgress(body, automatic) {
+    return api('/api/study-progress', { method: 'POST', body: JSON.stringify(body) }).then(function (res) {
+      if (!res.ok) throw new Error(res.error || '学习时间保存失败');
+      state.overview.phd = res.phd;
+      renderOverview();
+      if (!automatic) { closeProgressModal(true); toast('学习时间已保存'); }
+    });
+  }
+
+  function queueStudyProgressAutoSave() {
+    var body = readStudyProgressPayload();
+    if (body) queueAutoSave('study-progress', body, persistStudyProgress);
+  }
 
   function saveStudyDates(event) {
     event.preventDefault();
-    var start = $('#progressStart').value;
-    var end = $('#progressEnd').value;
+    var body = readStudyProgressPayload();
     var error = $('#progressError');
-    if (!start || !end || Date.parse(end) <= Date.parse(start)) { error.textContent = '预计毕业日期必须晚于入学日期'; error.hidden = false; return; }
-    var remainDays = 0;
-    var elapsedDays = 0;
-    remainDays = Math.max(0, Math.ceil((new Date(end).getTime() - Date.now()) / 86400000));
-    elapsedDays = Math.max(0, Math.floor((Date.now() - new Date(start).getTime()) / 86400000));
-    var totalDays = Math.max(1, Math.ceil((new Date(end).getTime() - new Date(start).getTime()) / 86400000));
-    var percent = Math.max(0, Math.min(100, Math.round(elapsedDays / totalDays * 100)));
-    api('/api/study-progress', { method: 'POST', body: JSON.stringify({ label: '学业进度', stage: '', percent: percent, start: start, end: end, elapsed_days: elapsedDays, remain_days: remainDays }) }).then(function (res) {
-      if (!res.ok) { toast(res.error || '请先登录后保存'); return; }
-      state.overview.phd = res.phd; renderOverview(); closeProgressModal(); toast('学习时间已保存');
+    if (!body) { error.textContent = '预计毕业日期必须晚于入学日期'; error.hidden = false; return; }
+    error.hidden = true;
+    saveImmediately('study-progress', body, persistStudyProgress).then(function () {
+      var slot = autoSaveSlots['study-progress'];
+      if (slot && slot.dirty) { error.textContent = '保存失败，日期仍待同步；请检查网络后重试。'; error.hidden = false; }
     });
   }
 
@@ -8131,32 +8186,60 @@
       }).join('');
       var editor = '';
       if (academicEditorKind === group.key) {
-        var fields = '<label>名称<input name="title" required maxlength="160" placeholder="填写' + group.title + '名称"></label>';
-        if (group.key === 'conferences') fields += '<label>会议地点<input name="location" maxlength="160" placeholder="如：北京"></label><label>会议时间<input name="time" maxlength="80" placeholder="如：2026-09-19"></label><label>报告论文/题目<input name="paper" maxlength="240" placeholder="填写报告论文或题目"></label>';
-        else fields += '<label>补充说明<input name="meta" maxlength="240" placeholder="可填写单位、等级、项目编号或角色"></label>';
-        editor = '<form class="academic-record-editor" data-academic-form data-academic-kind="' + group.key + '"><div class="academic-editor-fields">' + fields + '</div><div class="academic-editor-actions"><button type="submit">保存</button><button type="button" data-academic-cancel>取消</button></div></form>';
+        var savedDraft = ((state.overview || {}).academic_record_drafts || {})[group.key] || {};
+        var savedDetails = savedDraft.details || {};
+        var fields = '<label>名称<input name="title" required maxlength="160" placeholder="填写' + group.title + '名称" value="' + escapeHtml(savedDraft.title || '') + '"></label>';
+        if (group.key === 'conferences') fields += '<label>会议地点<input name="location" maxlength="160" placeholder="如：北京" value="' + escapeHtml(savedDetails.location || '') + '"></label><label>会议时间<input name="time" maxlength="80" placeholder="如：2026-09-19" value="' + escapeHtml(savedDetails.time || '') + '"></label><label>报告论文/题目<input name="paper" maxlength="240" placeholder="填写报告论文或题目" value="' + escapeHtml(savedDetails.paper || '') + '"></label>';
+        else fields += '<label>补充说明<input name="meta" maxlength="240" placeholder="可填写单位、等级、项目编号或角色" value="' + escapeHtml(savedDraft.meta || '') + '"></label>';
+        editor = '<form class="academic-record-editor" data-academic-form data-academic-kind="' + group.key + '"><div class="academic-editor-fields">' + fields + '</div><small class="academic-record-autosave">填写内容会自动保存为草稿，提交后登记。</small><div class="academic-editor-actions"><button type="submit">保存</button><button type="button" data-academic-cancel>取消</button></div></form>';
       }
       return '<article class="academic-record-card academic-' + group.key + '" data-academic-kind="' + group.key + '"><div class="academic-record-top"><div><div class="academic-record-kicker">' + group.title + '</div><div class="academic-record-count">' + items.length + '</div></div><span class="academic-record-hint">' + group.hint + '</span></div>' + (editor || (latest ? '<ul class="academic-record-list">' + latest + '</ul>' : '<div class="academic-record-empty">尚未登记</div>')) + (editor ? '' : '<button class="academic-record-add" type="button" data-academic-add="' + group.key + '">' + group.add + '</button>') + '</article>';
     }).join('');
     roots.forEach(function (root) { root.innerHTML = markup; });
   }
 
-  function saveAcademicRecord(form) {
+  function readAcademicRecordDraft(form) {
     var kind = form.dataset.academicKind;
     var title = (form.elements.title.value || '').trim();
-    if (!title) { form.elements.title.focus(); return; }
     var details = kind === 'conferences' ? {
       location: (form.elements.location.value || '').trim(),
       time: (form.elements.time.value || '').trim(),
       paper: (form.elements.paper.value || '').trim()
     } : {};
     var meta = kind === 'conferences' ? [details.location, details.time, details.paper].filter(Boolean).join(' · ') : (form.elements.meta.value || '').trim();
-    api('/api/academic-records', { method: 'POST', body: JSON.stringify({ action: 'add', kind: kind, title: title, meta: meta, details: details }) }).then(function (res) {
-      if (!res.ok) { toast(res.error || '请先登录后登记'); return; }
+    return { kind: kind, title: title, meta: meta, details: details };
+  }
+
+  function persistAcademicRecord(body, automatic) {
+    return api('/api/academic-records', { method: 'POST', body: JSON.stringify(body) }).then(function (res) {
+      if (!res.ok) throw new Error(res.error || '学术履历保存失败');
       state.overview.academic_records = res.records;
-      academicEditorKind = '';
-      renderAcademicRecords();
-      toast(kind === 'conferences' ? '已登记学术会议' : '已登记学术履历');
+      state.overview.academic_record_drafts = res.drafts || {};
+      if (body.action === 'add') {
+        academicEditorKind = '';
+        renderAcademicRecords();
+        if (!automatic) toast(body.kind === 'conferences' ? '已登记学术会议' : '已登记学术履历');
+      }
+    });
+  }
+
+  function queueAcademicRecordAutoSave(form) {
+    if (!form) return;
+    var draft = readAcademicRecordDraft(form);
+    var hasContent = Boolean(draft.title || draft.meta || draft.details.location || draft.details.time || draft.details.paper);
+    var body = { action: hasContent ? 'save-draft' : 'clear-draft', kind: draft.kind, draft: draft };
+    if (hasContent) state.overview.academic_record_drafts[draft.kind] = draft;
+    else delete state.overview.academic_record_drafts[draft.kind];
+    queueAutoSave('academic-record-draft:' + draft.kind, body, persistAcademicRecord);
+  }
+
+  function saveAcademicRecord(form) {
+    var draft = readAcademicRecordDraft(form);
+    if (!draft.title) { form.elements.title.focus(); return; }
+    var body = Object.assign({ action: 'add' }, draft);
+    saveImmediately('academic-record-draft:' + draft.kind, body, persistAcademicRecord).then(function () {
+      var slot = autoSaveSlots['academic-record-draft:' + draft.kind];
+      if (slot && slot.dirty) toast('保存失败，草稿仍待同步；请检查网络后重试');
     });
   }
 
