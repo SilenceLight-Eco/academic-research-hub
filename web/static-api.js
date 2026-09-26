@@ -524,6 +524,18 @@
         if (method === 'GET') return response({ ok: true, variableLibrary: variableLibrary });
         var variableRoles = ['被解释变量', '核心解释变量', '机制变量', '调节变量', '经济后果变量', '异质性分析变量', '其他'];
         var duplicateId = null;
+        if (body.action === 'reorder' && Array.isArray(body.ids)) {
+          var variableOrderIds = body.ids.slice(0, 5000).map(String);
+          var variableOrderSeen = Object.create(null);
+          var reorderedVariables = [];
+          variableOrderIds.forEach(function (id) {
+            if (variableOrderSeen[id]) return;
+            var orderedVariable = variableLibrary.items.filter(function (item) { return String(item.id) === id; })[0];
+            if (orderedVariable) { reorderedVariables.push(orderedVariable); variableOrderSeen[id] = true; }
+          });
+          variableLibrary.items.forEach(function (item) { if (!variableOrderSeen[String(item.id)]) reorderedVariables.push(item); });
+          variableLibrary.items = reorderedVariables;
+        }
         if (body.action === 'create') { var createRoles = (Array.isArray(body.role) ? body.role : [body.role]).filter(function (role, index, all) { return variableRoles.indexOf(role) >= 0 && all.indexOf(role) === index; }); variableLibrary.items.unshift({ id: nowId(), name: '新变量', role: createRoles.length ? createRoles : ['被解释变量'], symbol: '', unit: '', paper: '', definition: '', measure: '', measureReferences: [], source: '', notes: '', updated: nowText() }); }
         if (body.action === 'duplicate') {
           var sourceVariable = variableLibrary.items.filter(function (item) { return String(item.id) === String(body.id); })[0];
