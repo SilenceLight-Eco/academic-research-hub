@@ -7151,10 +7151,12 @@
     $('#variableImport').addEventListener('click', function () { if (state.variableTrashOpen) { toast('请先退出回收站再导入'); return; } $('#variableImportFile').click(); });
     $('#variableImportFile').addEventListener('change', importVariableCsvFile);
     $('#variableImportDuplicateToggle').addEventListener('change', renderVariableImportPreview);
+    $('#variableImportUpdateToggle').addEventListener('change', renderVariableImportPreview);
     $('#variableImportMapping').addEventListener('change', function (event) {
       var select = event.target.closest('[data-variable-import-field]');
       if (!select || !pendingVariableCsvImport) return;
       pendingVariableCsvImport.mapping[select.dataset.variableImportField] = Number(select.value);
+      $('#variableImportUpdateToggle').checked = false;
       renderVariableImportPreview();
     });
     $('#variableImportIssuesDownload').addEventListener('click', downloadVariableImportIssues);
@@ -8631,6 +8633,7 @@
       };
       renderVariableImportMapping();
       $('#variableImportDuplicateToggle').checked = false;
+      $('#variableImportUpdateToggle').checked = false;
       $('#variableImportModal').hidden = false;
       renderVariableImportPreview();
     }).catch(function (error) { toast((error && error.message) || 'CSV 导入失败'); });
@@ -8649,6 +8652,26 @@
       if (select) select.value = String(data.mapping[key]);
     });
   }
+  function getVariableImportChanges(group, current) {
+    function short(value) {
+      value = String(value == null || value === '' ? '（空）' : value).replace(/\s+/g, ' ');
+      return value.length > 70 ? value.slice(0, 67) + '…' : value;
+    }
+    function referenceText(entries) {
+      return (entries || []).map(function (entry) { return [entry.measure, entry.source, entry.paper].filter(Boolean).join(' / '); }).filter(Boolean).join('；') || '（空）';
+    }
+    var changes = [];
+    function compare(label, before, after) {
+      if (before !== after) changes.push({ label: label, before: short(before), after: short(after) });
+    }
+    compare('变量名称', String(current.name || ''), group.name);
+    compare('研究角色', normalizeVariableRoles(current.role)[0], group.role);
+    compare('概念定义', String(current.definition || ''), group.definition);
+    var oldEntries = normalizedVariableMeasureReferences(current).map(function (entry) { return { role: normalizeVariableRoles(entry.role)[0], source: entry.source, measure: entry.measure, paper: entry.paper }; });
+    var newEntries = group.entries.map(function (entry) { return { role: normalizeVariableRoles(entry.role)[0], source: entry.source, measure: entry.measure, paper: entry.paper }; });
+    if (JSON.stringify(oldEntries) !== JSON.stringify(newEntries)) compare('衡量方式/数据来源/参考文献', referenceText(oldEntries), referenceText(newEntries));
+    return changes;
+  }
   function renderVariableImportPreview() {
     if (!pendingVariableCsvImport) return;
     var data = pendingVariableCsvImport;
@@ -8665,38 +8688,59 @@
       var definition = value('definition'), source = value('source'), measure = value('measure'), paper = value('paper'), externalId = value('id');
       var key = externalId ? 'id:' + externalId : 'fallback:' + [name, role, definition].join('\u001f');
       var group = byKey[key];
-      if (!group) { group = byKey[key] = { name: name.slice(0, 200), role: role, definition: definition.slice(0, 20000), entries: [], sourceRecords: [] }; groups.push(group); }
+      if (!group) { group = byKey[key] = { id: externalId, name: name.slice(0, 200), role: role, definition: definition.slice(0, 20000), entries: [], sourceRecords: [] }; groups.push(group); }
       group.sourceRecords.push(record.record);
       group.entries.push({ role: [group.role], source: source.slice(0, 20000), measure: measure.slice(0, 20000), paper: paper.slice(0, 500) });
     });
     if (groups.length > 500) fatal.push('变量数量超过 500 个，请拆分文件后再导入。');
     if (groups.some(function (group) { return group.entries.length > 100; })) fatal.push('单个变量的衡量记录超过 100 条，请拆分文件后再导入。');
     if (!groups.length) fatal.push('没有识别到有效变量；请检查或调整“变量名称”列映射。');
-    var existingKeys = Object.create(null);
-    (state.variableLibrary.items || []).forEach(function (item) { existingKeys[[String(item.name || '').trim().toLocaleLowerCase(), normalizeVariableRoles(item.role)[0]].join('\u001f')] = true; });
+    var existingKeys = Object.create(null), existingById = Object.create(null);
+    (state.variableLibrary.items || []).forEach(function (item) {
+      existingKeys[[String(item.name || '').trim().toLocaleLowerCase(), normalizeVariableRoles(item.role)[0]].join('\u001f')] = true;
+      existingById[String(item.id)] = item;
+    });
     var seenKeys = Object.create(null);
     groups.forEach(function (group) {
       var key = [group.name.trim().toLocaleLowerCase(), group.role].join('\u001f');
-      group.duplicate = !!existingKeys[key] || !!seenKeys[key];
+      group.updateTarget = group.id ? existingById[String(group.id)] || null : null;
+      group.updateChanges = group.updateTarget ? getVariableImportChanges(group, group.updateTarget) : [];
+      group.duplicate = !group.updateTarget && (!!existingKeys[key] || !!seenKeys[key]);
       seenKeys[key] = true;
     });
     data.groups = groups;
     data.issues = issues;
     data.fatal = fatal;
     var duplicates = groups.filter(function (group) { return group.duplicate; });
+    var updates = groups.filter(function (group) { return group.updateTarget && group.updateChanges.length; });
+    var unchanged = groups.filter(function (group) { return group.updateTarget && !group.updateChanges.length; });
     var includeDuplicates = $('#variableImportDuplicateToggle').checked;
-    var importable = groups.filter(function (group) { return includeDuplicates || !group.duplicate; });
-    $('#variableImportSummary').textContent = '识别到 ' + groups.length + ' 个变量、' + groups.reduce(function (sum, group) { return sum + group.entries.length; }, 0) + ' 条衡量记录；重复 ' + duplicates.length + ' 个，需检查 ' + issues.length + ' 行。';
+    var includeUpdates = $('#variableImportUpdateToggle').checked;
+    var importable = groups.filter(function (group) {
+      if (group.updateTarget) return includeUpdates && group.updateChanges.length > 0;
+      return includeDuplicates || !group.duplicate;
+    });
+    var newCount = importable.filter(function (group) { return !group.updateTarget; }).length;
+    var updateCount = importable.filter(function (group) { return !!group.updateTarget; }).length;
+    $('#variableImportSummary').textContent = '识别到 ' + groups.length + ' 个变量、' + groups.reduce(function (sum, group) { return sum + group.entries.length; }, 0) + ' 条衡量记录；新增 ' + groups.filter(function (group) { return !group.updateTarget && !group.duplicate; }).length + ' 个，ID 匹配更新 ' + updates.length + ' 个，重复 ' + duplicates.length + ' 个，需检查 ' + issues.length + ' 行。' + (unchanged.length ? '另有 ' + unchanged.length + ' 个 ID 匹配项内容未变化。' : '');
+    var updateDetails = updates.slice(0, 8).map(function (group) {
+      return '<div class="variable-import-update-item"><strong>' + escapeHtml(group.name) + '</strong><span>' + group.updateChanges.map(function (change) { return escapeHtml(change.label + '：' + change.before + ' → ' + change.after); }).join('；') + '</span></div>';
+    }).join('');
+    $('#variableImportUpdateSummary').innerHTML = updateDetails + (updates.length > 8 ? '<div class="variable-import-update-item">另有 ' + (updates.length - 8) + ' 个 ID 匹配项，勾选后也将更新。</div>' : '');
+    $('#variableImportUpdateSummary').hidden = !updates.length;
     $('#variableImportIssuesSummary').textContent = fatal.concat(issues.slice(0, 5).map(function (issue) { return 'CSV 记录 ' + issue.record + '：' + issue.message; })).join('；') + (issues.length > 5 ? '；另有 ' + (issues.length - 5) + ' 行问题或警告' : '');
     $('#variableImportIssuesSummary').hidden = !fatal.length && !issues.length;
     $('#variableImportIssuesDownload').hidden = !issues.length;
+    $('#variableImportUpdateOption').hidden = !updates.length;
     $('#variableImportDuplicateWarning').hidden = !duplicates.length;
     $('#variableImportDuplicateWarning').textContent = duplicates.length ? (includeDuplicates ? '已选择同时导入重复项；不会覆盖已有变量。' : '重复项默认跳过，不会覆盖已有变量。可勾选下方选项强制导入。') : '未发现与现有变量重名且角色相同的条目。';
-    $('#variableImportConfirm').textContent = fatal.length ? '暂不可导入' : (importable.length ? '导入 ' + importable.length + ' 个变量' : '没有可导入项');
+    $('#variableImportConfirm').textContent = fatal.length ? '暂不可导入' : (importable.length ? '新增 ' + newCount + ' · 更新 ' + updateCount : '没有可导入项');
     $('#variableImportConfirm').disabled = fatal.length > 0 || importable.length === 0;
     var visible = groups.slice(0, 80);
     $('#variableImportRows').innerHTML = visible.map(function (group) {
-      return '<tr><td>' + escapeHtml(group.name) + '</td><td>' + escapeHtml(group.role) + '</td><td>' + group.entries.length + '</td><td><span class="variable-import-status' + (group.duplicate ? ' is-duplicate' : '') + '">' + (group.duplicate ? '重复' : '新增') + '</span></td></tr>';
+      var label = group.updateTarget ? (group.updateChanges.length ? 'ID 匹配 · 更新' : 'ID 匹配 · 无变化') : (group.duplicate ? '重复' : '新增');
+      var statusClass = group.updateTarget ? ' is-update' : (group.duplicate ? ' is-duplicate' : '');
+      return '<tr><td>' + escapeHtml(group.name) + '</td><td>' + escapeHtml(group.role) + '</td><td>' + group.entries.length + '</td><td><span class="variable-import-status' + statusClass + '">' + label + '</span></td></tr>';
     }).join('');
     $('#variableImportMore').hidden = groups.length <= visible.length;
     $('#variableImportMore').textContent = groups.length > visible.length ? '仅预览前 ' + visible.length + ' 项；其余 ' + (groups.length - visible.length) + ' 项也会按相同规则处理。' : '';
@@ -8721,12 +8765,15 @@
     if (!pendingVariableCsvImport) return;
     var allGroups = pendingVariableCsvImport.groups;
     var includeDuplicates = $('#variableImportDuplicateToggle').checked;
+    var includeUpdates = $('#variableImportUpdateToggle').checked;
     var groups = allGroups.filter(function (group) { return includeDuplicates || !group.duplicate; });
+    groups = groups.filter(function (group) { return !group.updateTarget || (includeUpdates && group.updateChanges.length > 0); });
     if (!groups.length) return;
     var button = $('#variableImportConfirm');
     button.disabled = true;
     button.textContent = '正在导入…';
-    api('/api/variable-library', { method: 'POST', body: JSON.stringify({ action: 'import', items: groups.map(function (group) { return { name: group.name, role: group.role, definition: group.definition, measureReferences: group.entries }; }) }) }).then(function (res) {
+    var updateIds = groups.filter(function (group) { return !!group.updateTarget; }).map(function (group) { return String(group.id); });
+    api('/api/variable-library', { method: 'POST', body: JSON.stringify({ action: 'import', updateExisting: includeUpdates, updateIds: updateIds, items: groups.map(function (group) { return { id: group.id || '', name: group.name, role: group.role, definition: group.definition, measureReferences: group.entries }; }) }) }).then(function (res) {
       if (!res.ok) throw new Error(res.error || 'CSV 导入失败');
       state.variableLibrary = Object.assign({ items: [], trash: [] }, res.variableLibrary || {});
       state.variableId = res.importedIds && res.importedIds[0] || null;
@@ -8735,7 +8782,9 @@
       state.variableQuery = '';
       closeVariableImportPreview();
       renderVariableLibrary();
-      toast('已导入 ' + groups.length + ' 个变量' + (allGroups.length > groups.length ? '，跳过 ' + (allGroups.length - groups.length) + ' 个重复项' : ''));
+      var updatedCount = groups.filter(function (group) { return !!group.updateTarget; }).length;
+      var addedCount = groups.length - updatedCount;
+      toast('已新增 ' + addedCount + ' 个、更新 ' + updatedCount + ' 个变量' + (allGroups.length > groups.length ? '，跳过 ' + (allGroups.length - groups.length) + ' 项' : ''));
     }).catch(function (error) {
       button.disabled = false;
       renderVariableImportPreview();

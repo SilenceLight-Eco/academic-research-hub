@@ -601,25 +601,30 @@ html, body {
 .auth-close { position: absolute; right: 14px; top: 12px; border: 0; background: transparent; color: var(--text-secondary); font-size: 24px; cursor: pointer; }
 .auth-error { color: #c74b4b; font-size: 13px; }
 .variable-import-modal { z-index: 120; }
-.variable-import-card { width: min(860px, calc(100vw - 32px)); max-height: min(90vh, 900px); box-sizing: border-box; grid-template-rows: auto auto auto auto auto auto minmax(120px,1fr) auto auto auto; overflow:hidden; }
+.variable-import-card { width: min(860px, calc(100vw - 32px)); max-height: min(90vh, 900px); box-sizing: border-box; display:flex; flex-direction:column; overflow:auto; }
 .variable-import-card h2 { color:var(--text); font-size:20px; }
 .variable-import-card .auth-desc { color:var(--text-secondary); font-size:13px; line-height:1.65; }
 .variable-import-warning { margin:0; padding:9px 11px; border-radius:7px; background:var(--accent-dim); color:var(--text-secondary); font-size:12px; }
+.variable-import-updates { max-height:140px; overflow:auto; padding:8px 10px; border-left:3px solid #43816b; border-radius:4px; background:rgba(67,129,107,.09); color:var(--text-secondary); font-size:11px; line-height:1.55; }
+.variable-import-update-item { display:grid; grid-template-columns:minmax(100px, .35fr) minmax(0,1fr); gap:8px; padding:3px 0; }
+.variable-import-update-item strong { color:var(--text); overflow-wrap:anywhere; }
+.variable-import-update-item span { overflow-wrap:anywhere; }
 .variable-import-mapping { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }
 .variable-import-map-field { display:grid!important; min-width:0; gap:4px!important; color:var(--text-muted)!important; font-size:11px!important; }
 .variable-import-map-field select { width:100%; min-width:0; padding:7px 8px; border:1px solid var(--hairline); border-radius:6px; background:var(--input-bg); color:var(--text); font:inherit; font-size:12px; }
 .variable-import-issues { margin:0; padding:8px 10px; max-height:70px; overflow:auto; border-left:3px solid #bd7b25; border-radius:4px; background:rgba(189,123,37,.09); color:var(--text-secondary); font-size:11px; line-height:1.55; }
 .variable-import-issues-download { justify-self:start; padding:6px 9px; border:1px solid var(--hairline); border-radius:6px; background:var(--glass-strong); color:var(--text-secondary); cursor:pointer; font:inherit; font-size:11px; }
-.variable-import-table-wrap { min-height:120px; overflow:auto; border:1px solid var(--hairline-soft); border-radius:8px; }
+.variable-import-table-wrap { flex:1 1 180px; min-height:120px; max-height:40vh; overflow:auto; border:1px solid var(--hairline-soft); border-radius:8px; }
 .variable-import-table { width:100%; border-collapse:collapse; font-size:12px; text-align:left; }
 .variable-import-table th,.variable-import-table td { padding:9px 11px; border-bottom:1px solid var(--hairline-soft); }
 .variable-import-table th { position:sticky; top:0; background:var(--card-bg); color:var(--text-muted); font-weight:600; }
 .variable-import-table td:first-child { max-width:380px; overflow-wrap:anywhere; }
 .variable-import-status { display:inline-flex; padding:3px 8px; border-radius:999px; background:rgba(54,132,91,.12); color:#35835b; font-size:11px; }
 .variable-import-status.is-duplicate { background:rgba(190,133,48,.14); color:#a46b16; }
+.variable-import-status.is-update { background:rgba(67,129,107,.14); color:#34775f; }
 .variable-import-more { margin:0; color:var(--text-muted); font-size:11px; }
-.variable-import-duplicate-toggle { display:flex!important; grid-template-columns:auto 1fr; align-items:center; gap:8px!important; color:var(--text-secondary); font-size:12px!important; }
-.variable-import-duplicate-toggle input { width:15px; height:15px; margin:0; accent-color:var(--accent); }
+.variable-import-duplicate-toggle,.variable-import-update-toggle { display:flex!important; grid-template-columns:auto 1fr; align-items:center; gap:8px!important; color:var(--text-secondary); font-size:12px!important; }
+.variable-import-duplicate-toggle input,.variable-import-update-toggle input { flex:none; width:15px; height:15px; margin:0; accent-color:var(--accent); }
 .variable-import-actions { display:flex; justify-content:flex-end; gap:8px; }
 .variable-import-actions button { min-width:94px; padding:8px 12px; border:1px solid var(--hairline); border-radius:7px; background:var(--glass-strong); color:var(--text-secondary); cursor:pointer; font:inherit; font-size:12px; }
 .variable-import-actions .btn-primary { border-color:var(--accent); background:var(--accent); color:#fff; }

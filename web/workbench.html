@@ -1351,12 +1351,14 @@
     <h2 id="variableImportTitle">导入变量预览</h2>
     <p class="auth-desc" id="variableImportSummary"></p>
     <div class="variable-import-mapping" id="variableImportMapping" aria-label="CSV 字段映射"></div>
+    <div class="variable-import-updates" id="variableImportUpdateSummary" hidden></div>
     <p class="variable-import-issues" id="variableImportIssuesSummary" role="status" hidden></p>
     <button class="variable-import-issues-download" id="variableImportIssuesDownload" type="button" hidden>下载问题行 CSV</button>
     <p class="variable-import-warning" id="variableImportDuplicateWarning" hidden></p>
     <div class="variable-import-table-wrap"><table class="variable-import-table"><thead><tr><th>变量名称</th><th>研究角色</th><th>衡量记录</th><th>状态</th></tr></thead><tbody id="variableImportRows"></tbody></table></div>
     <p class="variable-import-more" id="variableImportMore" hidden></p>
     <label class="variable-import-duplicate-toggle"><input id="variableImportDuplicateToggle" type="checkbox"> 即使重复也导入（不会覆盖已有变量）</label>
+    <label class="variable-import-update-toggle" id="variableImportUpdateOption" hidden><input id="variableImportUpdateToggle" type="checkbox"> 确认按变量 ID 更新匹配项（勾选后才会覆盖所列字段）</label>
     <div class="variable-import-actions"><button id="variableImportCancel" type="button">取消</button><button class="btn-primary" id="variableImportConfirm" type="button">导入</button></div>
   </section>
 </div>
@@ -1457,8 +1459,8 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-  <script src="static-api.js?v=20260926-7"></script>
-  <script src="app.js?v=20260926-17"></script>
+  <script src="static-api.js?v=20260926-9"></script>
+  <script src="app.js?v=20260926-19"></script>
   <script src="attachments.js?v=20260925-1"></script>
 </body>
 </html>

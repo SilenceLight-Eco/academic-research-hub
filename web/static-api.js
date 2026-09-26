@@ -526,16 +526,32 @@
         var duplicateId = null;
         var importedIds = [];
         if (body.action === 'import' && Array.isArray(body.items)) {
+          var requestedUpdateIds = body.updateExisting && Array.isArray(body.updateIds) ? Array.from(new Set(body.updateIds.slice(0, 500).map(String))) : [];
+          var missingUpdateIds = requestedUpdateIds.filter(function (id) { return !variableLibrary.items.some(function (item) { return String(item.id) === id; }); });
+          if (missingUpdateIds.length) return response({ ok: false, error: '部分待更新变量已在预览后发生变化，请重新导入并检查预览' }, 409);
           var importedVariables = body.items.slice(0, 500).map(function (source) {
             source = source || {};
             var role = variableRoles.indexOf(source.role) >= 0 ? source.role : '其他';
             var entries = (Array.isArray(source.measureReferences) ? source.measureReferences : []).slice(0, 100).map(function (entry) { entry = entry || {}; return { role: [role], source: String(entry.source || '').slice(0, 20000), measure: String(entry.measure || '').slice(0, 20000), paper: String(entry.paper || '').trim().slice(0, 500) }; });
             if (!entries.length) entries.push({ role: [role], source: '', measure: '', paper: '' });
             var first = entries[0];
+            var existingVariable = source.id != null && requestedUpdateIds.indexOf(String(source.id)) >= 0 ? variableLibrary.items.filter(function (item) { return String(item.id) === String(source.id); })[0] : null;
+            if (existingVariable) {
+              existingVariable.name = String(source.name || existingVariable.name || '未命名变量').trim().slice(0, 200);
+              existingVariable.role = [role];
+              existingVariable.paper = first.paper;
+              existingVariable.definition = String(source.definition || '').slice(0, 20000);
+              existingVariable.measure = first.measure;
+              existingVariable.measureReferences = entries;
+              existingVariable.source = first.source;
+              existingVariable.updated = nowText();
+              importedIds.push(existingVariable.id);
+              return null;
+            }
             var id = nowId();
             importedIds.push(id);
             return { id: id, name: String(source.name || '未命名变量').trim().slice(0, 200), role: [role], symbol: '', unit: '', paper: first.paper, definition: String(source.definition || '').slice(0, 20000), measure: first.measure, measureReferences: entries, source: first.source, notes: '', updated: nowText() };
-          });
+          }).filter(Boolean);
           variableLibrary.items = importedVariables.concat(variableLibrary.items);
         }
         if (body.action === 'reorder' && Array.isArray(body.ids)) {
