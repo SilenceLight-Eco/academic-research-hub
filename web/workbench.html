@@ -374,7 +374,7 @@
       </section>
 
       <section class="panel" id="panel-variable-library">
-        <div class="variable-head"><div><div class="card-dot"></div><div class="card-label">变量库</div><p>按研究角色整理变量定义、计量方式、数据来源与关联研究，支持自动同步。</p></div><div class="variable-actions"><button type="button" id="variableImport">导入 CSV</button><button type="button" id="variableTemplate" title="模板含一条示例记录，导入前请修改或删除">下载 CSV 模板</button><button type="button" id="variableExport">导出 CSV</button><button type="button" id="variableTrash">回收站</button><button type="button" id="variableSave">立即保存</button><input id="variableImportFile" type="file" accept=".csv,text/csv" hidden></div></div>
+        <div class="variable-head"><div><div class="card-dot"></div><div class="card-label">变量库</div><p>按研究角色整理变量定义、计量方式、数据来源与关联研究，支持自动同步。</p></div><div class="variable-actions"><button type="button" id="variableImport">导入 CSV</button><button type="button" id="variableTemplate" title="模板含一条示例记录，导入前请修改或删除">下载 CSV 模板</button><button type="button" id="variableExport">导出 CSV</button><button type="button" id="variableImportUndo" disabled title="尚无可撤销的 CSV 导入">撤销最近导入</button><button type="button" id="variableTrash">回收站</button><button type="button" id="variableSave">立即保存</button><input id="variableImportFile" type="file" accept=".csv,text/csv" hidden></div></div>
         <div class="variable-workspace">
           <aside class="variable-list-pane"><label class="variable-search"><span>检索变量</span><input id="variableSearch" type="search" placeholder="名称、定义、来源或参考文献"></label><div id="variableCategories" class="variable-category-list"></div><div id="variableList" class="variable-list"></div></aside>
           <section class="variable-editor" id="variableEditor">
@@ -1459,8 +1459,8 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-  <script src="static-api.js?v=20260926-9"></script>
-  <script src="app.js?v=20260926-19"></script>
+  <script src="static-api.js?v=20260926-10"></script>
+  <script src="app.js?v=20260926-20"></script>
   <script src="attachments.js?v=20260925-1"></script>
 </body>
 </html>

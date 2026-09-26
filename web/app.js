@@ -7166,6 +7166,7 @@
     $('#variableImportModal').addEventListener('click', function (event) { if (event.target === $('#variableImportBackdrop')) closeVariableImportPreview(); });
     $('#variableTemplate').addEventListener('click', downloadVariableCsvTemplate);
     $('#variableExport').addEventListener('click', exportVariableCsv);
+    $('#variableImportUndo').addEventListener('click', undoVariableCsvImport);
     $('#variableSave').addEventListener('click', saveVariable);
     $('#variableDelete').addEventListener('click', trashVariable);
     $('#variableTrash').addEventListener('click', function () { state.variableTrashOpen = !state.variableTrashOpen; renderVariableLibrary(); });
@@ -8791,6 +8792,42 @@
       toast((error && error.message) || 'CSV 导入失败');
     });
   }
+  function undoVariableCsvImport() {
+    var library = state.variableLibrary || {}, undo = library.importUndo;
+    if (!undo || state.variableImportUndoPending) return;
+    var createdCount = Array.isArray(undo.created) ? undo.created.length : 0;
+    var updatedCount = Array.isArray(undo.updated) ? undo.updated.length : 0;
+    if (!confirm('撤销最近一次 CSV 导入？\n新增的 ' + createdCount + ' 个变量将移入回收站；更新的 ' + updatedCount + ' 个变量将恢复导入前内容。若相关变量后来被修改，系统会为避免覆盖而停止撤销。')) return;
+    state.variableImportUndoPending = true;
+    var panel = $('#panel-variable-library');
+    var workspace = $('.variable-workspace', panel), actions = $('.variable-actions', panel);
+    panel.setAttribute('aria-busy', 'true');
+    if (workspace) workspace.inert = true;
+    if (actions) actions.inert = true;
+    renderVariableLibrary();
+    flushAllAutoSaves(true);
+    autoSaveChain.catch(function () {}).then(function () {
+      if (hasUnsavedChanges()) throw new Error('仍有变量修改未能保存，请解决同步问题后再撤销');
+      return api('/api/variable-library', { method: 'POST', body: JSON.stringify({ action: 'undo-import' }) });
+    }).then(function (res) {
+      if (!res.ok) throw new Error(res.error || '撤销导入失败');
+      state.variableLibrary = Object.assign({ items: [], trash: [] }, res.variableLibrary || {});
+      state.variableImportUndoPending = false;
+      panel.removeAttribute('aria-busy');
+      if (workspace) workspace.inert = false;
+      if (actions) actions.inert = false;
+      renderVariableLibrary();
+      var undone = res.undone || {};
+      toast('已撤销：' + (undone.createdMovedToTrash || 0) + ' 个新增变量移入回收站，' + (undone.updatedRestored || 0) + ' 个变量恢复到导入前内容');
+    }).catch(function (error) {
+      state.variableImportUndoPending = false;
+      panel.removeAttribute('aria-busy');
+      if (workspace) workspace.inert = false;
+      if (actions) actions.inert = false;
+      renderVariableLibrary();
+      toast((error && error.message) || '撤销导入失败');
+    });
+  }
   function normalizedVariableMeasureReferences(item) {
     if (!item) return [{ role: ['被解释变量'], source: '', measure: '', paper: '' }];
     var entries = Array.isArray(item.measureReferences) ? item.measureReferences : [];
@@ -8815,6 +8852,13 @@
   function renderVariableLibrary() {
     var library = state.variableLibrary || { items: [], trash: [] }, items = library.items || [], trash = library.trash || [];
     var list = $('#variableList'), categories = $('#variableCategories');
+    var importUndoButton = $('#variableImportUndo');
+    if (importUndoButton) {
+      var importUndo = library.importUndo;
+      importUndoButton.disabled = !importUndo || state.variableImportUndoPending;
+      importUndoButton.title = importUndo ? '最近导入时间：' + (importUndo.createdAt || '未知') + '；新增项移入回收站，更新项恢复导入前内容' : '尚无可撤销的 CSV 导入';
+      importUndoButton.textContent = importUndo ? '撤销导入（' + ((importUndo.created || []).length + (importUndo.updated || []).length) + '）' : '撤销最近导入';
+    }
     $('#variableTrash').textContent = state.variableTrashOpen ? '返回变量库' : '回收站' + (trash.length ? ' (' + trash.length + ')' : '');
     $('#variableSearch').value = state.variableQuery || '';
     if (state.variableTrashOpen) {

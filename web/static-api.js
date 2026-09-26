@@ -49,6 +49,19 @@
   function response(data, status) { return new Response(JSON.stringify(data), { status: status || 200, headers: { 'Content-Type': 'application/json' } }); }
   function nowId() { return Date.now(); }
   function nowText() { return new Date().toLocaleString('sv-SE').slice(0, 16).replace('T', ' '); }
+  function variableImportFields(item) {
+    var fields = {};
+    ['name', 'role', 'paper', 'definition', 'measure', 'measureReferences', 'source'].forEach(function (key) {
+      fields[key] = item && Object.prototype.hasOwnProperty.call(item, key) ? cloneValue(item[key]) : { __variableImportMissing: true };
+    });
+    return fields;
+  }
+  function variableImportFingerprint(value) {
+    var text = JSON.stringify(value);
+    var hashA = 2166136261, hashB = 5381;
+    for (var i = 0; i < text.length; i += 1) { var code = text.charCodeAt(i); hashA = Math.imul(hashA ^ code, 16777619); hashB = Math.imul(hashB ^ code, 2246822519); }
+    return text.length + ':' + (hashA >>> 0).toString(36) + ':' + (hashB >>> 0).toString(36);
+  }
   function dateText() { return new Date().toISOString().slice(0, 10); }
   function nextRevision(previous) {
     var timestamp = Date.now();
@@ -529,6 +542,7 @@
           var requestedUpdateIds = body.updateExisting && Array.isArray(body.updateIds) ? Array.from(new Set(body.updateIds.slice(0, 500).map(String))) : [];
           var missingUpdateIds = requestedUpdateIds.filter(function (id) { return !variableLibrary.items.some(function (item) { return String(item.id) === id; }); });
           if (missingUpdateIds.length) return response({ ok: false, error: '部分待更新变量已在预览后发生变化，请重新导入并检查预览' }, 409);
+          var undoCreated = [], undoUpdated = [];
           var importedVariables = body.items.slice(0, 500).map(function (source) {
             source = source || {};
             var role = variableRoles.indexOf(source.role) >= 0 ? source.role : '其他';
@@ -537,6 +551,7 @@
             var first = entries[0];
             var existingVariable = source.id != null && requestedUpdateIds.indexOf(String(source.id)) >= 0 ? variableLibrary.items.filter(function (item) { return String(item.id) === String(source.id); })[0] : null;
             if (existingVariable) {
+              var beforeFields = variableImportFields(existingVariable);
               existingVariable.name = String(source.name || existingVariable.name || '未命名变量').trim().slice(0, 200);
               existingVariable.role = [role];
               existingVariable.paper = first.paper;
@@ -545,14 +560,55 @@
               existingVariable.measureReferences = entries;
               existingVariable.source = first.source;
               existingVariable.updated = nowText();
+              undoUpdated.push({ id: String(existingVariable.id), before: beforeFields, afterFingerprint: variableImportFingerprint(variableImportFields(existingVariable)) });
               importedIds.push(existingVariable.id);
               return null;
             }
             var id = nowId();
+            while (variableLibrary.items.some(function (item) { return String(item.id) === String(id); }) || variableLibrary.trash.some(function (entry) { return String(entry.item && entry.item.id) === String(id); }) || importedIds.some(function (existingId) { return String(existingId) === String(id); })) id += 1;
             importedIds.push(id);
-            return { id: id, name: String(source.name || '未命名变量').trim().slice(0, 200), role: [role], symbol: '', unit: '', paper: first.paper, definition: String(source.definition || '').slice(0, 20000), measure: first.measure, measureReferences: entries, source: first.source, notes: '', updated: nowText() };
+            var createdVariable = { id: id, name: String(source.name || '未命名变量').trim().slice(0, 200), role: [role], symbol: '', unit: '', paper: first.paper, definition: String(source.definition || '').slice(0, 20000), measure: first.measure, measureReferences: entries, source: first.source, notes: '', updated: nowText() };
+            undoCreated.push({ id: String(id), fingerprint: variableImportFingerprint(createdVariable) });
+            return createdVariable;
           }).filter(Boolean);
           variableLibrary.items = importedVariables.concat(variableLibrary.items);
+          variableLibrary.importUndo = { createdAt: nowText(), created: undoCreated, updated: undoUpdated };
+        }
+        if (body.action === 'undo-import') {
+          var importUndo = variableLibrary.importUndo;
+          if (!importUndo || (!Array.isArray(importUndo.created) && !Array.isArray(importUndo.updated))) return response({ ok: false, error: '没有可撤销的 CSV 导入记录' }, 404);
+          var createdUndo = Array.isArray(importUndo.created) ? importUndo.created : [];
+          var updatedUndo = Array.isArray(importUndo.updated) ? importUndo.updated : [];
+          var changedCreated = createdUndo.some(function (entry) {
+            var item = variableLibrary.items.filter(function (candidate) { return String(candidate.id) === String(entry.id); })[0];
+            return !!item && variableImportFingerprint(item) !== entry.fingerprint;
+          });
+          var changedUpdated = updatedUndo.some(function (entry) {
+            var item = variableLibrary.items.filter(function (candidate) { return String(candidate.id) === String(entry.id); })[0];
+            return !item || variableImportFingerprint(variableImportFields(item)) !== entry.afterFingerprint;
+          });
+          if (changedCreated || changedUpdated) return response({ ok: false, error: '导入后有相关变量被修改或移入回收站，为避免覆盖新内容，撤销已停止；未更改任何数据' }, 409);
+          var movedToTrash = 0;
+          createdUndo.forEach(function (entry) {
+            var item = variableLibrary.items.filter(function (candidate) { return String(candidate.id) === String(entry.id); })[0];
+            if (!item) return;
+            var trashId = nowId();
+            while (variableLibrary.trash.some(function (candidate) { return String(candidate.id) === String(trashId); })) trashId += 1;
+            variableLibrary.trash.unshift({ id: trashId, item: item, deletedAt: nowText() });
+            variableLibrary.items = variableLibrary.items.filter(function (candidate) { return String(candidate.id) !== String(entry.id); });
+            movedToTrash += 1;
+          });
+          updatedUndo.forEach(function (entry) {
+            var item = variableLibrary.items.filter(function (candidate) { return String(candidate.id) === String(entry.id); })[0];
+            Object.keys(entry.before || {}).forEach(function (key) {
+              var value = entry.before[key];
+              if (value && value.__variableImportMissing === true) delete item[key];
+              else item[key] = cloneValue(value);
+            });
+            item.updated = nowText();
+          });
+          variableLibrary.importUndo = null;
+          var undoneCounts = { createdMovedToTrash: movedToTrash, updatedRestored: updatedUndo.length };
         }
         if (body.action === 'reorder' && Array.isArray(body.ids)) {
           var variableOrderIds = body.ids.slice(0, 5000).map(String);
@@ -618,7 +674,7 @@
         if (body.action === 'purge') variableLibrary.trash = variableLibrary.trash.filter(function (entry) { return String(entry.id) !== String(body.id); });
         if (body.action === 'purge-all') variableLibrary.trash = [];
         await saveWorkspace(data, dataRevision);
-        return response({ ok: true, variableLibrary: variableLibrary, duplicateId: duplicateId, importedIds: importedIds });
+        return response({ ok: true, variableLibrary: variableLibrary, duplicateId: duplicateId, importedIds: importedIds, undone: undoneCounts || null });
       }
       if (path === '/api/research-projects' && method === 'POST' && body.action === 'save' && Array.isArray(body.links)) {
         var linkTypes = ['paper', 'reference', 'variable', 'knowledge', 'note'];
