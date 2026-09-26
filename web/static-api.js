@@ -524,6 +524,20 @@
         if (method === 'GET') return response({ ok: true, variableLibrary: variableLibrary });
         var variableRoles = ['被解释变量', '核心解释变量', '控制变量', '机制变量', '调节变量', '经济后果变量', '异质性分析变量', '其他'];
         var duplicateId = null;
+        var importedIds = [];
+        if (body.action === 'import' && Array.isArray(body.items)) {
+          var importedVariables = body.items.slice(0, 500).map(function (source) {
+            source = source || {};
+            var role = variableRoles.indexOf(source.role) >= 0 ? source.role : '其他';
+            var entries = (Array.isArray(source.measureReferences) ? source.measureReferences : []).slice(0, 100).map(function (entry) { entry = entry || {}; return { role: [role], source: String(entry.source || '').slice(0, 20000), measure: String(entry.measure || '').slice(0, 20000), paper: String(entry.paper || '').trim().slice(0, 500) }; });
+            if (!entries.length) entries.push({ role: [role], source: '', measure: '', paper: '' });
+            var first = entries[0];
+            var id = nowId();
+            importedIds.push(id);
+            return { id: id, name: String(source.name || '未命名变量').trim().slice(0, 200), role: [role], symbol: '', unit: '', paper: first.paper, definition: String(source.definition || '').slice(0, 20000), measure: first.measure, measureReferences: entries, source: first.source, notes: '', updated: nowText() };
+          });
+          variableLibrary.items = importedVariables.concat(variableLibrary.items);
+        }
         if (body.action === 'reorder' && Array.isArray(body.ids)) {
           var variableOrderIds = body.ids.slice(0, 5000).map(String);
           var variableOrderSeen = Object.create(null);
@@ -588,7 +602,7 @@
         if (body.action === 'purge') variableLibrary.trash = variableLibrary.trash.filter(function (entry) { return String(entry.id) !== String(body.id); });
         if (body.action === 'purge-all') variableLibrary.trash = [];
         await saveWorkspace(data, dataRevision);
-        return response({ ok: true, variableLibrary: variableLibrary, duplicateId: duplicateId });
+        return response({ ok: true, variableLibrary: variableLibrary, duplicateId: duplicateId, importedIds: importedIds });
       }
       if (path === '/api/research-projects' && method === 'POST' && body.action === 'save' && Array.isArray(body.links)) {
         var linkTypes = ['paper', 'reference', 'variable', 'knowledge', 'note'];

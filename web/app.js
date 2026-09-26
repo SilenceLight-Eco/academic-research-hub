@@ -7148,6 +7148,9 @@
     ['projectTitle', 'projectCategory', 'projectStatus', 'projectProgress', 'projectStart', 'projectEnd', 'projectGoal', 'projectMembers', 'projectMilestones', 'projectResources'].forEach(function (id) { $('#' + id).addEventListener('input', function () { renderProjectSummary(); queueResearchProjectAutoSave(); }); });
     $('#projectStatus').addEventListener('change', function () { renderProjectSummary(); queueResearchProjectAutoSave(); });
     $('#variableDuplicate').addEventListener('click', duplicateVariable);
+    $('#variableImport').addEventListener('click', function () { if (state.variableTrashOpen) { toast('请先退出回收站再导入'); return; } $('#variableImportFile').click(); });
+    $('#variableImportFile').addEventListener('change', importVariableCsvFile);
+    $('#variableExport').addEventListener('click', exportVariableCsv);
     $('#variableSave').addEventListener('click', saveVariable);
     $('#variableDelete').addEventListener('click', trashVariable);
     $('#variableTrash').addEventListener('click', function () { state.variableTrashOpen = !state.variableTrashOpen; renderVariableLibrary(); });
@@ -8524,6 +8527,95 @@
     });
   }
   function variableFields() { return ['variableName', 'variableDefinition']; }
+  function csvCell(value) { return '"' + String(value == null ? '' : value).replace(/"/g, '""') + '"'; }
+  function exportVariableCsv() {
+    var headers = ['变量ID', '变量名称', '研究角色', '概念定义', '衡量方式', '数据来源', '参考文献'];
+    var rows = [headers];
+    (state.variableLibrary.items || []).forEach(function (item) {
+      normalizedVariableMeasureReferences(item).forEach(function (entry) {
+        rows.push([item.id, item.name || '', displayVariableRoleText(entry.role), item.definition || '', entry.measure || '', entry.source || '', entry.paper || '']);
+      });
+    });
+    var csv = '\uFEFF' + rows.map(function (row) { return row.map(csvCell).join(','); }).join('\r\n');
+    var url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    var link = document.createElement('a');
+    link.href = url;
+    link.download = '变量库-' + new Date().toISOString().slice(0, 10) + '.csv';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    toast('变量库 CSV 已导出，可用 Excel 打开');
+  }
+  function parseVariableCsv(text) {
+    var rows = [], row = [], cell = '', quoted = false;
+    for (var i = 0; i < text.length; i += 1) {
+      var character = text[i];
+      if (quoted) {
+        if (character === '"' && text[i + 1] === '"') { cell += '"'; i += 1; }
+        else if (character === '"') quoted = false;
+        else cell += character;
+      } else if (character === '"' && !cell) quoted = true;
+      else if (character === ',') { row.push(cell); cell = ''; }
+      else if (character === '\n' || character === '\r') {
+        if (character === '\r' && text[i + 1] === '\n') i += 1;
+        row.push(cell); rows.push(row); row = []; cell = '';
+      } else cell += character;
+    }
+    if (quoted) throw new Error('CSV 文件中的双引号没有正确闭合');
+    if (cell || row.length) { row.push(cell); rows.push(row); }
+    return rows;
+  }
+  function importVariableCsvFile(event) {
+    var file = event.target.files && event.target.files[0];
+    if (!file) return;
+    event.target.value = '';
+    if (file.size > 5 * 1024 * 1024) { toast('CSV 文件不能超过 5 MB'); return; }
+    file.text().then(function (text) {
+      var rows = parseVariableCsv(text.replace(/^\uFEFF/, '')).filter(function (row) { return row.some(function (value) { return String(value || '').trim(); }); });
+      if (rows.length < 2) throw new Error('CSV 中没有可导入的数据行');
+      var headers = rows.shift().map(function (value) { return String(value || '').trim().replace(/^\uFEFF/, '').toLowerCase(); });
+      function column(names) { return headers.findIndex(function (header) { return names.indexOf(header) >= 0; }); }
+      var columns = {
+        id: column(['变量id', '变量编号', 'id']), name: column(['变量名称', '变量名', 'name', 'variable name']), role: column(['研究角色', 'role']),
+        definition: column(['概念定义', '变量定义', 'definition']), measure: column(['衡量方式', '计量方式', 'measure']),
+        source: column(['数据来源', '数据来源与口径', 'source']), paper: column(['参考文献', '文献依据', 'paper', 'reference'])
+      };
+      if (columns.name < 0) throw new Error('找不到“变量名称”列');
+      var groups = [], byKey = Object.create(null);
+      rows.slice(0, 3000).forEach(function (row) {
+        function value(key) { return columns[key] >= 0 ? String(row[columns[key]] || '').trim() : ''; }
+        var name = value('name');
+        if (!name) return;
+        var roleText = value('role').split(/[、;,，；]/)[0].trim();
+        var role = variableRoles.indexOf(roleText) >= 0 ? roleText : '其他';
+        var definition = value('definition');
+        var source = value('source');
+        var measure = value('measure');
+        var paper = value('paper');
+        var externalId = value('id');
+        var key = externalId ? 'id:' + externalId : 'fallback:' + [name, role, definition].join('\u001f');
+        var group = byKey[key];
+        if (!group) { group = byKey[key] = { name: name.slice(0, 200), role: role, definition: definition.slice(0, 20000), entries: [] }; groups.push(group); }
+        group.entries.push({ role: [group.role], source: source.slice(0, 20000), measure: measure.slice(0, 20000), paper: paper.slice(0, 500) });
+      });
+      if (rows.length > 3000) throw new Error('CSV 最多支持导入 3,000 行');
+      if (!groups.length) throw new Error('没有找到有效的变量名称');
+      if (groups.length > 500) throw new Error('一次最多导入 500 个变量');
+      if (groups.some(function (group) { return group.entries.length > 100; })) throw new Error('单个变量最多支持 100 条衡量记录');
+      if (!confirm('将新增 ' + groups.length + ' 个变量（' + rows.length + ' 行衡量记录），不会覆盖已有变量。继续吗？')) return;
+      return api('/api/variable-library', { method: 'POST', body: JSON.stringify({ action: 'import', items: groups.map(function (group) { return { name: group.name, role: group.role, definition: group.definition, measureReferences: group.entries }; }) }) }).then(function (res) {
+        if (!res.ok) throw new Error(res.error || 'CSV 导入失败');
+        state.variableLibrary = Object.assign({ items: [], trash: [] }, res.variableLibrary || {});
+        state.variableId = res.importedIds && res.importedIds[0] || null;
+        state.variableTrashOpen = false;
+        state.variableCategoryFilter = 'all';
+        state.variableQuery = '';
+        renderVariableLibrary();
+        toast('已导入 ' + groups.length + ' 个变量');
+      });
+    }).catch(function (error) { toast((error && error.message) || 'CSV 导入失败'); });
+  }
   function normalizedVariableMeasureReferences(item) {
     if (!item) return [{ role: ['被解释变量'], source: '', measure: '', paper: '' }];
     var entries = Array.isArray(item.measureReferences) ? item.measureReferences : [];
