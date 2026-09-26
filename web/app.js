@@ -74,6 +74,8 @@
     referenceTypeFilter: 'all',
     referenceCitationStyle: 'apa7',
     referenceAuditEnabled: false,
+    referenceShowMerged: false,
+    referenceAuditGroups: [],
     journalTracker: { subscriptions: [], articles: [], articleCount: 0, refreshLogs: [] },
     journalTrackerLoaded: false,
     journalTrackerLoading: false,
@@ -7676,7 +7678,11 @@
     $('#refCopyBibliography').addEventListener('click', copyFilteredReferenceBibliography);
     $('#refDownloadBibliography').addEventListener('click', downloadFilteredReferenceBibliography);
     $('#refQualityCheck').addEventListener('click', function () { state.referenceAuditEnabled = true; renderReferenceQualityAudit(); });
+    $('#refShowMerged').addEventListener('click', function () { state.referenceShowMerged = !state.referenceShowMerged; renderReferenceLibrary(); });
+    $('#refUnmerge').addEventListener('click', function () { unmergeReference(state.referenceId); });
     $('#refQualityAudit').addEventListener('click', function (event) {
+      var mergeButton = event.target.closest('[data-ref-audit-merge]');
+      if (mergeButton) { mergeReferenceAuditGroup(Number(mergeButton.dataset.refAuditMerge)); return; }
       var button = event.target.closest('[data-ref-audit-id]');
       if (!button) return;
       var id = button.dataset.refAuditId;
@@ -8640,7 +8646,7 @@
     var doi = item.doi ? 'https://doi.org/' + item.doi.replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, '') : '';
     var typeCode = { '期刊论文': 'J', '书籍': 'M', '会议论文': 'C', '报告': 'R', '网页': 'EB/OL' }[item.type] || 'J';
     if (state.referenceCitationStyle === 'gb7714-numeric') {
-      var allItems = (state.referenceLibrary.items || []), sourceIndex = allItems.findIndex(function (entry) { return String(entry.id) === String(item.id); });
+      var allItems = (state.referenceLibrary.items || []).filter(function (entry) { return !entry.mergedInto; }), sourceIndex = allItems.findIndex(function (entry) { return String(entry.id) === String(item.id); });
       var number = sourceIndex >= 0 ? sourceIndex + 1 : 1;
       var gb = '[' + number + '] ' + author + '. ' + title + '[' + typeCode + '].';
       if (source) gb += ' ' + source + ',';
@@ -8682,7 +8688,7 @@
       authorText += isChinese ? '、' + second : ' & ' + second;
     }
     if (style === 'gb7714-numeric') {
-      var items = state.referenceLibrary.items || [], index = items.findIndex(function (entry) { return String(entry.id) === String(item.id); });
+      var items = (state.referenceLibrary.items || []).filter(function (entry) { return !entry.mergedInto; }), index = items.findIndex(function (entry) { return String(entry.id) === String(item.id); });
       return '[' + (index >= 0 ? index + 1 : 1) + ']';
     }
     if (style === 'gb7714-author-date') return '（' + authorText + '，' + year + '）';
@@ -8697,10 +8703,13 @@
   function renderReferencePreview() {
     var active = activeReference();
     var citation = referenceCitation(active), bibtex = referenceBibtex(active);
+    var isMergedAlias = !!(active && active.mergedInto);
     $('#refCitationStyle').value = state.referenceCitationStyle;
-    $('#refCitationPreview').textContent = citation || '选择或新建一篇文献后，这里会生成引用。';
-    $('#refInTextCitationPreview').textContent = referenceInTextCitation(active) || '选择文献后，这里会生成文内引用。';
+    $('#refCitationPreview').textContent = isMergedAlias ? '此条目已并入主条目，不参与参考文献表导出。' : citation || '选择或新建一篇文献后，这里会生成引用。';
+    $('#refInTextCitationPreview').textContent = isMergedAlias ? '此条目已并入主条目，请使用主条目生成文内引用。' : referenceInTextCitation(active) || '选择文献后，这里会生成文内引用。';
     $('#refBibtex').textContent = bibtex;
+    $('#refCopyCitation').disabled = isMergedAlias;
+    $('#refCopyInTextCitation').disabled = isMergedAlias;
   }
   function renderReferenceLibrary() {
     var library = state.referenceLibrary || { items: [], trash: [] }, items = library.items || [], trash = library.trash || [], list = $('#refList');
@@ -8708,19 +8717,23 @@
     if (state.referenceTrashOpen) {
       $('#refBibliographyCount').textContent = '回收站内容不参与导出';
       $('#refQualityAudit').hidden = true;
+      $('#refUnmerge').hidden = true;
     }
     if (state.referenceTrashOpen) {
       list.innerHTML = recycleBinToolbar('reference', '文献与引用', trash.length) + (trash.length ? trash.map(function (entry) { return '<div class="ref-trash-row"><div><b>' + escapeHtml((entry.item || {}).title || '未命名文献') + '</b><span>' + escapeHtml(entry.deletedAt || '') + '</span></div><div><button type="button" data-ref-restore="' + entry.id + '">恢复</button><button type="button" data-ref-purge="' + entry.id + '">彻底删除</button></div></div>'; }).join('') : '<div class="ref-empty">回收站为空</div>');
       referenceFields().forEach(function (id) { $('#' + id).value = ''; $('#' + id).disabled = true; }); $('#refDelete').hidden = true; renderReferencePreview(); renderProjectBacklinks('reference', null, $('.ref-editor')); return;
     }
     var visible = filteredReferenceItems();
-    $('#refBibliographyCount').textContent = '当前筛选：' + visible.length + ' 篇';
+    var exportableCount = visible.filter(function (item) { return !item.mergedInto; }).length;
+    var mergedCount = visible.length - exportableCount;
+    $('#refBibliographyCount').textContent = '当前筛选：' + exportableCount + ' 篇可导出' + (mergedCount ? ' · ' + mergedCount + ' 个已合并项' : '');
+    $('#refShowMerged').textContent = state.referenceShowMerged ? '隐藏已合并项' : '显示已合并项';
     if (!visible.some(function (item) { return String(item.id) === String(state.referenceId); })) state.referenceId = visible[0] ? visible[0].id : null;
     var active = activeReference();
-    list.innerHTML = '<div class="ref-list-label">我的文献 <span>' + visible.length + '/' + items.length + '</span></div>' + (visible.length ? visible.map(function (item) { return '<button type="button" class="ref-list-item' + (String(item.id) === String(state.referenceId) ? ' is-active' : '') + '" data-ref-id="' + item.id + '"><b>' + escapeHtml(item.title || '未命名文献') + '</b><span>' + escapeHtml(item.authors || '作者待补充') + ' · ' + escapeHtml(item.year || '年份待补充') + '</span><i>' + escapeHtml(item.type || '期刊论文') + '</i></button>'; }).join('') : '<div class="ref-empty">还没有匹配的文献<br>点击右上角新建或导入 BibTeX</div>');
+    list.innerHTML = '<div class="ref-list-label">我的文献 <span>' + visible.length + '/' + items.length + '</span></div>' + (visible.length ? visible.map(function (item) { var mergedTarget = item.mergedInto ? (items.filter(function (entry) { return String(entry.id) === String(item.mergedInto); })[0] || {}).title : ''; return '<button type="button" class="ref-list-item' + (String(item.id) === String(state.referenceId) ? ' is-active' : '') + (item.mergedInto ? ' is-merged-alias' : '') + '" data-ref-id="' + escapeHtml(String(item.id)) + '"><b>' + escapeHtml(item.title || '未命名文献') + '</b><span>' + escapeHtml(item.authors || '作者待补充') + ' · ' + escapeHtml(item.year || '年份待补充') + '</span><i>' + escapeHtml(item.mergedInto ? '已并入：' + (mergedTarget || '主条目') : (item.type || '期刊论文')) + '</i></button>'; }).join('') : '<div class="ref-empty">还没有匹配的文献<br>点击右上角新建或导入 BibTeX</div>');
     $('#refProject').innerHTML = '<option value="">未关联</option>' + ((state.researchProjects && state.researchProjects.projects) || []).map(function (project) { return '<option value="' + project.id + '">' + escapeHtml(project.title || '未命名项目') + '</option>'; }).join('');
     $('#refKnowledge').innerHTML = '<option value="">未关联</option>' + ((state.knowledgeBase && state.knowledgeBase.docs) || []).map(function (doc) { return '<option value="' + doc.id + '">' + escapeHtml(doc.title || '未命名文档') + '</option>'; }).join('');
-    referenceFields().forEach(function (id) { $('#' + id).disabled = !active; }); $('#refDelete').hidden = !active;
+    referenceFields().forEach(function (id) { $('#' + id).disabled = !active; }); $('#refDelete').hidden = !active; $('#refUnmerge').hidden = !(active && active.mergedInto);
     $('#refTitle').value = active ? active.title || '' : ''; $('#refAuthors').value = active ? active.authors || '' : ''; $('#refYear').value = active ? active.year || '' : ''; $('#refType').value = active ? active.type || '期刊论文' : '期刊论文'; $('#refSource').value = active ? active.source || '' : ''; $('#refLocator').value = active ? active.locator || '' : ''; $('#refTags').value = active ? active.tags || '' : ''; $('#refDoi').value = active ? active.doi || '' : ''; $('#refUrl').value = active ? active.url || '' : ''; $('#refProject').value = active ? String(active.projectId || '') : ''; $('#refKnowledge').value = active ? String(active.knowledgeDocId || '') : ''; $('#refNotes').value = active ? active.notes || '' : '';
     renderReferencePreview();
     renderProjectBacklinks('reference', active && active.id, $('.ref-editor'));
@@ -8730,11 +8743,11 @@
     var items = (state.referenceLibrary && state.referenceLibrary.items) || [], needle = (state.referenceQuery || '').trim().toLowerCase();
     return items.filter(function (item) {
       var content = [item.title, item.authors, item.tags, item.source, item.doi].join(' ').toLowerCase();
-      return (!needle || content.indexOf(needle) >= 0) && (state.referenceTypeFilter === 'all' || item.type === state.referenceTypeFilter);
+      return (state.referenceShowMerged || !item.mergedInto) && (!needle || content.indexOf(needle) >= 0) && (state.referenceTypeFilter === 'all' || item.type === state.referenceTypeFilter);
     });
   }
   function referenceBibliographyItems() {
-    var items = filteredReferenceItems().slice();
+    var items = filteredReferenceItems().filter(function (item) { return !item.mergedInto; }).slice();
     if (state.referenceCitationStyle !== 'gb7714-numeric') {
       items.sort(function (left, right) {
         var a = String(left.authors || '作者未知').split(/[；;]+/)[0].trim();
@@ -8793,16 +8806,55 @@
   function renderReferenceQualityAudit() {
     var panel = $('#refQualityAudit');
     if (!panel || state.referenceTrashOpen) return;
-    var items = filteredReferenceItems(), duplicates = findReferenceDuplicates(items);
+    var items = filteredReferenceItems().filter(function (item) { return !item.mergedInto; }), duplicates = findReferenceDuplicates(items);
+    state.referenceAuditGroups = duplicates;
     var incomplete = items.map(function (item) { return { item: item, missing: missingReferenceFields(item) }; }).filter(function (entry) { return entry.missing.length; });
     var duplicateHtml = duplicates.length ? duplicates.map(function (group) {
-      return '<li>疑似重复：' + group.map(function (item) { return '<button type="button" data-ref-audit-id="' + escapeHtml(String(item.id)) + '">' + escapeHtml(item.title || '未命名文献') + '</button>'; }).join(' <span>↔</span> ') + '</li>';
+      var groupIndex = duplicates.indexOf(group);
+      return '<li class="ref-audit-duplicate"><strong>第 ' + (groupIndex + 1) + ' 组 · 选择要保留的主条目</strong><div class="ref-merge-choices">' + group.map(function (item, itemIndex) { return '<label><input type="radio" name="ref-merge-primary-' + groupIndex + '" value="' + escapeHtml(String(item.id)) + '"' + (itemIndex === 0 ? ' checked' : '') + '><span>' + escapeHtml(item.title || '未命名文献') + ' · ' + escapeHtml(item.authors || '作者待补充') + ' · ' + escapeHtml(item.year || '年份待补充') + '</span><button type="button" data-ref-audit-id="' + escapeHtml(String(item.id)) + '">查看</button></label>'; }).join('') + '</div><button type="button" class="ref-audit-merge" data-ref-audit-merge="' + groupIndex + '">将本组合并到所选主条目</button></li>';
     }).join('') : '<li class="ref-audit-clean">未发现重复项</li>';
     var incompleteHtml = incomplete.length ? incomplete.map(function (entry) {
       return '<li><button type="button" data-ref-audit-id="' + escapeHtml(String(entry.item.id)) + '">' + escapeHtml(entry.item.title || '未命名文献') + '</button><span>缺少：' + escapeHtml(entry.missing.join('、')) + '</span></li>';
     }).join('') : '<li class="ref-audit-clean">关键字段完整</li>';
-    panel.innerHTML = '<div class="ref-audit-head"><strong>质量检查</strong><span>' + items.length + ' 篇 · ' + duplicates.length + ' 组疑似重复 · ' + incomplete.length + ' 篇缺少关键字段</span></div><p>范围与当前搜索、类型筛选一致。检查仅作提醒，不会自动合并或删除文献。</p><div class="ref-audit-columns"><section><h4>疑似重复</h4><ul>' + duplicateHtml + '</ul></section><section><h4>缺少关键字段</h4><ul>' + incompleteHtml + '</ul></section></div>';
+    panel.innerHTML = '<div class="ref-audit-head"><strong>质量检查</strong><span>' + items.length + ' 篇 · ' + duplicates.length + ' 组疑似重复 · ' + incomplete.length + ' 篇缺少关键字段</span></div><p>范围与当前搜索、类型筛选一致。合并会保留原条目为可恢复别名，不删除其附件或关联；主条目已有字段优先，空字段按组内顺序补齐。</p><div class="ref-audit-columns"><section><h4>疑似重复</h4><ul>' + duplicateHtml + '</ul></section><section><h4>缺少关键字段</h4><ul>' + incompleteHtml + '</ul></section></div>';
     panel.hidden = false;
+  }
+  function mergeReferenceAuditGroup(groupIndex) {
+    var group = state.referenceAuditGroups[groupIndex];
+    if (!group || group.length < 2) { toast('这组记录已变化，请重新检查'); return; }
+    var choice = $('#refQualityAudit').querySelector('input[name="ref-merge-primary-' + groupIndex + '"]:checked');
+    var primary = group.filter(function (item) { return choice && String(item.id) === String(choice.value); })[0];
+    if (!primary) { toast('请先选择合并后保留的主条目'); return; }
+    var duplicates = group.filter(function (item) { return String(item.id) !== String(primary.id); });
+    var conflictFields = { title: '标题', authors: '作者', year: '年份', type: '类型', source: '期刊/出版社', locator: '卷期/页码', doi: 'DOI', url: '原文链接', projectId: '关联项目', knowledgeDocId: '关联知识库' };
+    var conflicts = Object.keys(conflictFields).filter(function (key) {
+      var base = String(primary[key] || '').trim();
+      return base && duplicates.some(function (item) { var other = String(item[key] || '').trim(); return other && other.toLowerCase() !== base.toLowerCase(); });
+    }).map(function (key) { return conflictFields[key]; });
+    var message = '将 ' + duplicates.length + ' 篇重复项并入：' + (primary.title || '未命名文献') + '。\n\n主条目优先；主条目为空时按列表顺序补入首个非空值。标签和阅读笔记合并。原重复项完整保留为“已并入”别名，可恢复独立状态；附件、项目关联和知识库关联仍留在原条目上。';
+    if (conflicts.length) message += '\n\n字段存在差异（主条目值优先）：' + conflicts.join('、');
+    if (!confirm(message)) return;
+    afterCurrentEditorSaved('references', function () {
+      return api('/api/references', { method: 'POST', body: JSON.stringify({ action: 'merge-duplicates', primaryId: primary.id, duplicateIds: duplicates.map(function (item) { return item.id; }) }) }).then(function (res) {
+        if (!res.ok) throw new Error(res.error || '合并失败');
+        state.referenceLibrary = res.referenceLibrary;
+        state.referenceId = primary.id;
+        state.referenceShowMerged = true;
+        renderReferenceLibrary();
+        toast('已合并 ' + Number(res.mergedCount || duplicates.length) + ' 篇；原条目仍可恢复');
+      }).catch(function (error) { toast(error.message || '合并失败，请重试'); });
+    });
+  }
+  function unmergeReference(id) {
+    var active = activeReference();
+    if (!active || !active.mergedInto || String(active.id) !== String(id)) { toast('请选择一条已合并的文献'); return; }
+    if (!confirm('将此条目恢复为独立文献？主条目中已补入的字段不会回滚，原附件和关联保持不变。')) return;
+    api('/api/references', { method: 'POST', body: JSON.stringify({ action: 'unmerge', id: id }) }).then(function (res) {
+      if (!res.ok) throw new Error(res.error || '恢复失败');
+      state.referenceLibrary = res.referenceLibrary;
+      renderReferenceLibrary();
+      toast('已恢复为独立文献');
+    }).catch(function (error) { toast(error.message || '恢复失败，请重试'); });
   }
   function readReferencePayload() { return { action: 'save', id: state.referenceId, title: $('#refTitle').value, authors: $('#refAuthors').value, year: $('#refYear').value, type: $('#refType').value, source: $('#refSource').value, locator: $('#refLocator').value, tags: $('#refTags').value, doi: $('#refDoi').value, url: $('#refUrl').value, projectId: $('#refProject').value, knowledgeDocId: $('#refKnowledge').value, notes: $('#refNotes').value }; }
   function persistReference(body, automatic) { return api('/api/references', { method: 'POST', body: JSON.stringify(body) }).then(function (res) { if (!res.ok) throw new Error(res.error || '保存失败'); state.referenceLibrary = res.referenceLibrary; if (!automatic) { renderReferenceLibrary(); toast('文献已同步保存'); } }); }

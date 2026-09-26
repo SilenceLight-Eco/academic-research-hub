@@ -6804,6 +6804,18 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .ref-audit-columns li button { padding:0; border:0; background:none; color:var(--accent); cursor:pointer; font:inherit; text-align:left; text-decoration:underline; text-underline-offset:2px; }
 .ref-audit-columns li span { color:var(--text-muted); }
 .ref-audit-columns .ref-audit-clean { color:var(--text-muted); }
+.ref-audit-duplicate { margin:0 0 12px; padding:9px 10px; border:1px solid var(--hairline-soft); border-radius:7px; background:var(--glass-strong); list-style:none; }
+.ref-audit-duplicate > strong { display:block; margin-bottom:7px; color:var(--text); font-size:11px; font-weight:600; }
+.ref-merge-choices { display:grid; gap:5px; }
+.ref-merge-choices label { display:grid; grid-template-columns:15px minmax(0,1fr) auto; align-items:center; gap:7px; min-width:0; padding:6px 7px; border-radius:5px; color:var(--text-secondary); font-size:11px; }
+.ref-merge-choices label:has(input:checked) { background:var(--accent-dim); color:var(--accent); }
+.ref-merge-choices input { margin:0; accent-color:var(--accent); }
+.ref-merge-choices label span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ref-merge-choices label button { padding:3px 6px; border:1px solid var(--hairline); border-radius:5px; background:transparent; color:var(--text-secondary); cursor:pointer; font:inherit; }
+.ref-audit-columns .ref-audit-merge { margin-top:8px; padding:6px 9px; border:1px solid var(--accent); border-radius:6px; background:var(--accent-dim); color:var(--accent); cursor:pointer; font:600 11px "Noto Sans SC",sans-serif; }
+.ref-list-item.is-merged-alias { opacity:.72; }
+.ref-list-item.is-merged-alias b { text-decoration:line-through; text-decoration-color:var(--text-muted); }
+.ref-preview>button:disabled { opacity:.48; cursor:not-allowed; }
 @media (max-width:760px) { .ref-audit-columns { grid-template-columns:1fr; } }
 .ref-style-picker { display:grid; gap:6px; margin:0 0 16px; color:var(--text-muted); font-size:11px; }
 .ref-style-picker select { width:100%; min-width:0; box-sizing:border-box; padding:8px 9px; border:1px solid var(--hairline); border-radius:7px; background:var(--glass-strong); color:var(--text); font:12px "Noto Sans SC",sans-serif; }

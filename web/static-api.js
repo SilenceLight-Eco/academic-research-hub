@@ -825,6 +825,40 @@
         await saveWorkspace(data, dataRevision);
         return response({ ok: true, variableLibrary: variableLibrary, duplicateId: duplicateId, importedIds: importedIds, undone: undoneCounts || null });
       }
+      if (path === '/api/references' && method === 'POST' && (body.action === 'merge-duplicates' || body.action === 'unmerge')) {
+        var mergeLibrary = data.referenceLibrary || (data.referenceLibrary = { items: [], trash: [] });
+        mergeLibrary.items = Array.isArray(mergeLibrary.items) ? mergeLibrary.items : [];
+        mergeLibrary.trash = Array.isArray(mergeLibrary.trash) ? mergeLibrary.trash : [];
+        if (body.action === 'unmerge') {
+          var unmergeItem = mergeLibrary.items.find(function (item) { return String(item.id) === String(body.id); });
+          if (!unmergeItem || !unmergeItem.mergedInto) return response({ ok: false, error: '找不到已合并的文献' }, 404);
+          delete unmergeItem.mergedInto; delete unmergeItem.mergedAt; unmergeItem.updated = nowText();
+          await saveWorkspace(data, dataRevision);
+          return response({ ok: true, referenceLibrary: mergeLibrary });
+        }
+        var primaryRef = mergeLibrary.items.find(function (item) { return String(item.id) === String(body.primaryId); });
+        var mergeIds = Array.isArray(body.duplicateIds) ? Array.from(new Set(body.duplicateIds.map(String))).filter(function (id) { return id && id !== String(body.primaryId); }).slice(0, 50) : [];
+        var duplicateRefs = mergeLibrary.items.filter(function (item) { return mergeIds.indexOf(String(item.id)) >= 0; });
+        if (!primaryRef || primaryRef.mergedInto) return response({ ok: false, error: '主条目不存在或已是合并别名' }, 409);
+        if (!mergeIds.length || duplicateRefs.length !== mergeIds.length || duplicateRefs.some(function (item) { return item.mergedInto; })) return response({ ok: false, error: '重复项已变化，请重新检查后再合并' }, 409);
+        var mergeFields = ['title', 'authors', 'year', 'type', 'source', 'locator', 'doi', 'url', 'projectId', 'knowledgeDocId'];
+        function meaningfulReferenceValue(key, value) { var text = String(value || '').trim(); return !!text && !(key === 'title' && text === '未命名文献'); }
+        function mergeReferenceTags(values) {
+          var result = [], seen = Object.create(null);
+          values.join('；').split(/[；;,，]+/).forEach(function (tag) { var clean = tag.trim(); var key = clean.toLocaleLowerCase(); if (clean && !seen[key]) { seen[key] = true; result.push(clean); } });
+          return result.join('；');
+        }
+        duplicateRefs.forEach(function (duplicate) {
+          mergeFields.forEach(function (key) { if (!meaningfulReferenceValue(key, primaryRef[key]) && meaningfulReferenceValue(key, duplicate[key])) primaryRef[key] = duplicate[key]; });
+          primaryRef.tags = mergeReferenceTags([primaryRef.tags || '', duplicate.tags || '']);
+          var primaryNotes = String(primaryRef.notes || '').trim(), duplicateNotes = String(duplicate.notes || '').trim();
+          if (duplicateNotes && duplicateNotes !== primaryNotes && primaryNotes.indexOf(duplicateNotes) < 0) primaryRef.notes = (primaryNotes ? primaryNotes + '\n\n' : '') + '—— 合并自：' + String(duplicate.title || '未命名文献') + ' ——\n' + duplicateNotes;
+          duplicate.mergedInto = String(primaryRef.id); duplicate.mergedAt = nowText(); duplicate.updated = nowText();
+        });
+        primaryRef.updated = nowText();
+        await saveWorkspace(data, dataRevision);
+        return response({ ok: true, referenceLibrary: mergeLibrary, mergedCount: duplicateRefs.length });
+      }
       if (path === '/api/research-projects' && method === 'POST' && body.action === 'save' && Array.isArray(body.links)) {
         var linkTypes = ['paper', 'reference', 'variable', 'knowledge', 'note'];
         var validLinks = body.links.slice(0, 100).filter(function (link) {
