@@ -6649,8 +6649,10 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .global-save-state[data-state="saved"] i { background:var(--accent); }
 .global-save-state[data-state="error"] { color:#bc4444; }
 .global-save-state[data-state="error"] i { background:#bc4444; }
+.global-save-state[data-state="offline"] { color:#bc4444; }
+.global-save-state[data-state="offline"] i { background:#bc4444; }
 @keyframes autosavePulse { 50% { opacity:.35; transform:scale(.8); } }
-@media (max-width:900px) { .global-save-state { min-width:0; }.global-save-state span { display:none; } }
+@media (max-width:900px) { .global-save-state { min-width:0; max-width:132px; font-size:9px; }.global-save-state span { display:block; overflow:hidden; text-overflow:ellipsis; } }
 .backup-open-button { padding:7px 10px; border:1px solid var(--hairline); border-radius:7px; background:var(--glass-strong); color:var(--text-secondary); cursor:pointer; font:11px "Noto Sans SC",sans-serif; white-space:nowrap; }
 .backup-open-button:hover,.backup-restore-button:hover { border-color:var(--accent); color:var(--accent); }
 .backup-card { width:min(430px,calc(100vw - 40px)); }

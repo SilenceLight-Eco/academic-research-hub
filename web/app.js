@@ -418,6 +418,8 @@
   var autoSaveChain = Promise.resolve();
   var autoSaveRunning = 0;
   var AUTO_SAVE_INTERVAL = 180000;
+  var AUTO_SAVE_RETRY_BASE = 5000;
+  var AUTO_SAVE_RETRY_MAX = 300000;
   var activeVersionHistory = null;
   var manualSaveStatusTimers = Object.create(null);
 
@@ -425,8 +427,33 @@
     var target = $('#globalSaveState');
     if (!target) return;
     target.dataset.state = status || 'idle';
+    target.title = text;
+    target.setAttribute('aria-label', text);
     var label = $('span', target);
     if (label) label.textContent = text;
+  }
+
+  function saveStateAfterSuccess() {
+    var time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    setGlobalSaveState((account ? '已同步到云端 ' : '已保存在本机 ') + time, 'saved');
+  }
+
+  function retryAutoSave(key, slot, revision) {
+    if (!slot || !slot.dirty || slot.revision !== revision || slot.timer || activeWorkspaceConflict) return;
+    slot.retryAttempt = (slot.retryAttempt || 0) + 1;
+    var delay = Math.min(AUTO_SAVE_RETRY_MAX, AUTO_SAVE_RETRY_BASE * Math.pow(2, Math.min(slot.retryAttempt - 1, 6)));
+    slot.retryScheduled = true;
+    slot.timer = setTimeout(function () {
+      slot.timer = null;
+      slot.retryScheduled = false;
+      if (!slot.dirty || activeWorkspaceConflict) return;
+      if (navigator.onLine === false) {
+        setGlobalSaveState('离线 · 修改暂存本机，联网后重试', 'offline');
+        retryAutoSave(key, slot, slot.revision);
+        return;
+      }
+      runAutoSave(key, slot.revision, slot.payload, slot.persist, true);
+    }, delay);
   }
 
   function hasPendingAutoSave() {
@@ -447,49 +474,53 @@
       var slot = autoSaveSlots[key];
       if (slot) {
         slot.inFlight = Math.max(0, (slot.inFlight || 0) - 1);
-        if (slot.revision === revision) slot.dirty = false;
+        if (slot.revision === revision) { slot.dirty = false; slot.retryAttempt = 0; }
       }
       if (slot && slot.revision === revision && !hasPendingAutoSave() && !hasUnsavedChanges()) {
-        var time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-        setGlobalSaveState((automatic ? '已自动保存 ' : '已保存 ') + time, 'saved');
+        saveStateAfterSuccess();
       }
     }, function () {
       autoSaveRunning = Math.max(0, autoSaveRunning - 1);
       var slot = autoSaveSlots[key];
       if (slot) slot.inFlight = Math.max(0, (slot.inFlight || 0) - 1);
-      setGlobalSaveState('保存失败，请检查网络', 'error');
+      setGlobalSaveState(navigator.onLine === false ? '离线 · 修改暂存本机，联网后重试' : '同步失败 · 将自动重试', navigator.onLine === false ? 'offline' : 'error');
+      retryAutoSave(key, slot, revision);
     });
     return autoSaveChain;
   }
 
   function queueAutoSave(key, payload, persist) {
-    var slot = autoSaveSlots[key] || { revision: 0, timer: null, inFlight: 0, dirty: false };
+    var slot = autoSaveSlots[key] || { revision: 0, timer: null, inFlight: 0, dirty: false, retryAttempt: 0 };
+    if (slot.retryScheduled && slot.timer) { clearTimeout(slot.timer); slot.timer = null; slot.retryScheduled = false; slot.retryAttempt = 0; }
     slot.revision += 1;
     slot.payload = payload;
     slot.persist = persist;
     slot.dirty = true;
     if (!slot.timer) slot.timer = setTimeout(function () {
       slot.timer = null;
+      slot.retryScheduled = false;
       runAutoSave(key, slot.revision, slot.payload, slot.persist, true);
     }, AUTO_SAVE_INTERVAL);
     autoSaveSlots[key] = slot;
-    setGlobalSaveState('有更改待保存', 'pending');
+    setGlobalSaveState(navigator.onLine === false ? '离线 · 修改暂存本机，联网后重试' : '有更改待保存', navigator.onLine === false ? 'offline' : 'pending');
   }
 
   function flushAllAutoSaves(forceInFlight) {
     Object.keys(autoSaveSlots).forEach(function (key) {
       var slot = autoSaveSlots[key];
       if (!slot.dirty || !slot.persist || (slot.inFlight && !forceInFlight)) return;
-      if (slot.timer) { clearTimeout(slot.timer); slot.timer = null; }
+      if (slot.timer) { clearTimeout(slot.timer); slot.timer = null; slot.retryScheduled = false; }
       runAutoSave(key, slot.revision, slot.payload, slot.persist, true);
     });
   }
 
   function saveImmediately(key, payload, persist) {
-    var slot = autoSaveSlots[key] || { revision: 0, timer: null, inFlight: 0, dirty: false };
+    var slot = autoSaveSlots[key] || { revision: 0, timer: null, inFlight: 0, dirty: false, retryAttempt: 0 };
     slot.revision += 1;
     if (slot.timer) clearTimeout(slot.timer);
     slot.timer = null;
+    slot.retryScheduled = false;
+    slot.retryAttempt = 0;
     slot.payload = payload;
     slot.persist = persist;
     slot.dirty = true;
@@ -622,7 +653,15 @@
     return api('/api/sync', { method: 'POST', body: JSON.stringify({ data: {
       todos: state.todos, journal: state.journal,
       researchHub: researchHubSnapshot()
-    } }) }).catch(function () {}).then(function () { syncDataInFlight = false; });
+    } }) }).then(function (result) {
+      if (!result || result.ok === false) throw new Error((result && result.error) || '云端同步失败');
+      if (!hasPendingAutoSave() && !hasUnsavedChanges() && !activeWorkspaceConflict) {
+        var time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+        setGlobalSaveState('云端同步正常 ' + time, 'saved');
+      }
+    }).catch(function () {
+      if (!activeWorkspaceConflict && !hasPendingAutoSave()) setGlobalSaveState(navigator.onLine === false ? '离线 · 修改暂存本机，联网后重试' : '云端同步失败 · 1 分钟后自动重试', navigator.onLine === false ? 'offline' : 'error');
+    }).then(function () { syncDataInFlight = false; });
   }
 
   function pullCloudData() {
@@ -652,6 +691,8 @@
     account = user || null;
     var button = $('#accountButton');
     if (button) button.textContent = account ? account.email : '登录同步';
+    if (account) setGlobalSaveState(navigator.onLine === false ? '离线 · 修改暂存本机，联网后重试' : '正在检查云端同步…', navigator.onLine === false ? 'offline' : 'saving');
+    else setGlobalSaveState(hasUnsavedChanges() ? '有更改待保存 · 本机模式' : '本机模式 · 登录后可跨设备同步', hasUnsavedChanges() ? 'pending' : 'idle');
     var menuEmail = $('#accountMenuEmail');
     if (menuEmail) menuEmail.textContent = account ? account.email : '';
     if (!account && $('#accountMenu')) $('#accountMenu').hidden = true;
@@ -823,7 +864,11 @@
         if (!result.ok) throw new Error(result.error || '登录失败');
         setAccount(result.user); closeAuth();
         return api('/api/sync').then(function (sync) {
-          if (sync.data && Object.keys(sync.data).length) applySyncData(sync.data); else return syncData();
+          if (sync.data && Object.keys(sync.data).length) {
+            applySyncData(sync.data);
+            var time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+            setGlobalSaveState('云端同步正常 ' + time, 'saved');
+          } else return syncData();
         });
       }).catch(function (err) { error.textContent = err.message || '登录失败'; error.hidden = false; });
   }
@@ -9916,6 +9961,24 @@
     window.addEventListener('beforeunload', handleBeforeUnload);
     window.addEventListener('pageshow', function () { pendingExitFlush = false; exitFlushStarted = false; });
     window.addEventListener('hashchange', applyHash);
+    window.addEventListener('offline', function () {
+      setGlobalSaveState('离线 · 修改暂存本机，联网后重试', 'offline');
+    });
+    window.addEventListener('online', function () {
+      if (activeWorkspaceConflict) return;
+      setGlobalSaveState('网络已恢复 · 正在重试同步…', 'saving');
+      Object.keys(autoSaveSlots).forEach(function (key) {
+        var slot = autoSaveSlots[key];
+        if (!slot.dirty || !slot.persist || slot.inFlight) return;
+        if (slot.timer) clearTimeout(slot.timer);
+        slot.timer = null;
+        slot.retryScheduled = false;
+        runAutoSave(key, slot.revision, slot.payload, slot.persist, true);
+      });
+      if (account) syncAndPullCloudData();
+      else if (!hasPendingAutoSave() && !hasUnsavedChanges()) setGlobalSaveState('本机模式 · 登录后可跨设备同步', 'idle');
+    });
+    if (navigator.onLine === false) setGlobalSaveState('离线 · 修改暂存本机，联网后重试', 'offline');
   }
 
   // ===== 初始化 =====
