@@ -536,7 +536,8 @@
             sourceVariable.paper = String(currentVariable.paper || '').trim().slice(0, 500);
             sourceVariable.definition = String(currentVariable.definition || '').slice(0, 20000);
             sourceVariable.measure = String(currentVariable.measure || '').slice(0, 20000);
-            if (Array.isArray(currentVariable.measureReferences)) sourceVariable.measureReferences = currentVariable.measureReferences.slice(0, 100).map(function (entry) { return { measure: String((entry || {}).measure || '').slice(0, 20000), paper: String((entry || {}).paper || '').trim().slice(0, 500) }; });
+            if (Array.isArray(currentVariable.measureReferences)) sourceVariable.measureReferences = currentVariable.measureReferences.slice(0, 100).map(function (entry) { entry = entry || {}; var entryRoles = (Array.isArray(entry.role) ? entry.role : [entry.role]).filter(function (role, index, all) { return variableRoles.indexOf(role) >= 0 && all.indexOf(role) === index; }); return { role: entryRoles.length ? entryRoles : ['其他'], source: String(entry.source || '').slice(0, 20000), measure: String(entry.measure || '').slice(0, 20000), paper: String(entry.paper || '').trim().slice(0, 500) }; });
+            if (sourceVariable.measureReferences.length) { sourceVariable.role = sourceVariable.measureReferences[0].role; sourceVariable.source = sourceVariable.measureReferences[0].source; sourceVariable.measure = sourceVariable.measureReferences[0].measure; sourceVariable.paper = sourceVariable.measureReferences[0].paper; }
             sourceVariable.source = String(currentVariable.source || '').slice(0, 20000);
             sourceVariable.notes = String(currentVariable.notes || '').slice(0, 20000);
             sourceVariable.updated = nowText();
@@ -558,7 +559,8 @@
           item.paper = String(body.paper || '').trim().slice(0, 500);
           item.definition = String(body.definition || '').slice(0, 20000);
           item.measure = String(body.measure || '').slice(0, 20000);
-          if (Array.isArray(body.measureReferences)) item.measureReferences = body.measureReferences.slice(0, 100).map(function (entry) { return { measure: String((entry || {}).measure || '').slice(0, 20000), paper: String((entry || {}).paper || '').trim().slice(0, 500) }; });
+          if (Array.isArray(body.measureReferences)) item.measureReferences = body.measureReferences.slice(0, 100).map(function (entry) { entry = entry || {}; var entryRoles = (Array.isArray(entry.role) ? entry.role : [entry.role]).filter(function (role, index, all) { return variableRoles.indexOf(role) >= 0 && all.indexOf(role) === index; }); return { role: entryRoles.length ? entryRoles : ['其他'], source: String(entry.source || '').slice(0, 20000), measure: String(entry.measure || '').slice(0, 20000), paper: String(entry.paper || '').trim().slice(0, 500) }; });
+          if (item.measureReferences.length) { item.role = item.measureReferences[0].role; item.source = item.measureReferences[0].source; item.measure = item.measureReferences[0].measure; item.paper = item.measureReferences[0].paper; }
           item.source = String(body.source || '').slice(0, 20000);
           item.notes = String(body.notes || '').slice(0, 20000);
           item.updated = nowText();

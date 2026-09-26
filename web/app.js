@@ -7157,18 +7157,21 @@
     $('#variableList').addEventListener('click', function (event) { var restore = event.target.closest('[data-variable-restore]'); if (restore) { restoreVariable(restore.dataset.variableRestore); return; } var purge = event.target.closest('[data-variable-purge]'); if (purge) { purgeVariable(purge.dataset.variablePurge); return; } var collapse = event.target.closest('[data-variable-collapse]'); if (collapse) { toggleVariableRole(collapse.dataset.variableCollapse, collapse); return; } var item = event.target.closest('[data-variable-id]'); if (!item) return; state.variableId = item.dataset.variableId; renderVariableLibrary(); });
     $('#variableEditor').addEventListener('dblclick', function (event) {
       if (state.variableTrashOpen || state.variableCreating || state.variableCreatePending) return;
-      var field = event.target.closest('#variableName, #variableDefinition, #variableSource, [data-variable-paper], [data-variable-measure]');
+      var field = event.target.closest('#variableName, #variableDefinition, [data-variable-source], [data-variable-paper], [data-variable-measure]');
       if (!field) return;
       event.preventDefault();
       state.variableCreatePending = true;
       var active = activeVariable();
-      var roles = active ? normalizeVariableRoles(active.role) : null;
+      var roles = active ? normalizeVariableMeasureReferences(active)[0].role : null;
       var saveCurrent = active ? saveVariable() : Promise.resolve();
       saveCurrent.then(function () { return newVariable(roles); }).catch(function (error) { toast((error && error.message) || '请先保存当前变量后再新建'); }).then(function () { state.variableCreatePending = false; });
     });
-    ['variableName', 'variableDefinition', 'variableSource'].forEach(function (id) { $('#' + id).addEventListener('input', queueVariableAutoSave); $('#' + id).addEventListener('change', queueVariableAutoSave); });
-    $('#variableMeasureReferences').addEventListener('input', function (event) { if (event.target.matches('[data-variable-measure], [data-variable-paper]')) queueVariableAutoSave(); });
-    $('#variableMeasureReferences').addEventListener('change', function (event) { if (event.target.matches('[data-variable-measure], [data-variable-paper]')) queueVariableAutoSave(); });
+    ['variableName', 'variableDefinition'].forEach(function (id) { $('#' + id).addEventListener('input', queueVariableAutoSave); $('#' + id).addEventListener('change', queueVariableAutoSave); });
+    $('#variableMeasureReferences').addEventListener('input', function (event) { if (event.target.matches('[data-variable-source], [data-variable-measure], [data-variable-paper]')) queueVariableAutoSave(); });
+    $('#variableMeasureReferences').addEventListener('change', function (event) {
+      if (event.target.matches('[data-variable-role]') && !$$('[data-variable-role="' + event.target.dataset.variableRole + '"]:checked', $('#variableMeasureReferences')).length) event.target.checked = true;
+      if (event.target.matches('[data-variable-role], [data-variable-source], [data-variable-measure], [data-variable-paper]')) queueVariableAutoSave();
+    });
     $('#variableMeasureReferenceAdd').addEventListener('click', addVariableMeasureReference);
     $('#variableMeasureReferences').addEventListener('click', function (event) {
       var createReference = event.target.closest('[data-variable-reference-new]');
@@ -7176,7 +7179,6 @@
       var removeReference = event.target.closest('[data-variable-reference-remove]');
       if (removeReference) removeVariableMeasureReference(Number(removeReference.dataset.variableReferenceRemove));
     });
-    $('#variableRoleOptions').addEventListener('change', function (event) { if (!selectedVariableRoles().length && event.target.matches('input[name="variable-role"]')) event.target.checked = true; queueVariableAutoSave(); });
     $('#refNew').addEventListener('click', newReference);
     $('#refSave').addEventListener('click', saveReference);
     $('#refDelete').addEventListener('click', trashReference);
@@ -8320,7 +8322,7 @@
       appendProjectExportField(lines, '变量标识', item.symbol);
       appendProjectExportField(lines, '定义', item.definition);
       appendProjectExportField(lines, '数据来源', item.source);
-      appendProjectExportField(lines, '衡量方式与参考文献', normalizedVariableMeasureReferences(item).map(function (entry, index) { return '衡量方式 ' + (index + 1) + '：' + (entry.measure || '未填写') + (entry.paper ? '；参考文献：' + entry.paper : ''); }).join('\n'));
+      appendProjectExportField(lines, '衡量方式与参考文献', normalizedVariableMeasureReferences(item).map(function (entry) { return '研究角色：' + displayVariableRoleText(entry.role) + '；数据来源：' + (entry.source || '未填写') + '；衡量方式：' + (entry.measure || '未填写') + '；参考文献：' + (entry.paper || '未填写'); }).join('\n'));
     });
     [['knowledge', '知识库文档'], ['note', '公众号笔记']].forEach(function (group) {
       lines.push('', '### ' + group[1]);
@@ -8481,7 +8483,6 @@
     return roles.length ? roles : ['其他'];
   }
   function displayVariableRoleText(role) { return normalizeVariableRoles(role).join('、'); }
-  function selectedVariableRoles() { return $$('#variableRoleOptions input[name="variable-role"]:checked').map(function (input) { return input.value; }); }
   function toggleVariableRole(role, button) { variableCollapsedRoles[role] = !variableCollapsedRoles[role]; try { localStorage.setItem(variableCollapsedStorageKey, JSON.stringify(variableCollapsedRoles)); } catch (_) {} if (button) { var collapsed = variableCollapsedRoles[role], group = button.closest('.variable-role-group'), items = group && group.querySelector('.variable-role-items'); button.classList.toggle('is-collapsed', collapsed); button.setAttribute('aria-expanded', String(!collapsed)); if (items) items.hidden = collapsed; } }
   function loadVariableLibrary() {
     return api('/api/variable-library').then(function (res) {
@@ -8497,19 +8498,24 @@
     });
   }
   function activeVariable() { return (state.variableLibrary.items || []).filter(function (item) { return String(item.id) === String(state.variableId); })[0] || null; }
-  function variableFields() { return ['variableName', 'variableDefinition', 'variableSource']; }
+  function variableFields() { return ['variableName', 'variableDefinition']; }
   function normalizedVariableMeasureReferences(item) {
-    if (!item) return [{ measure: '', paper: '' }];
+    if (!item) return [{ role: ['被解释变量'], source: '', measure: '', paper: '' }];
     var entries = Array.isArray(item.measureReferences) ? item.measureReferences : [];
-    if (!entries.length) entries = [{ measure: item.measure || '', paper: item.paper || '' }];
-    return entries.map(function (entry) { return { measure: String(entry.measure || ''), paper: String(entry.paper || '') }; });
+    if (!entries.length) entries = [{ role: item.role, source: item.source || '', measure: item.measure || '', paper: item.paper || '' }];
+    var fallbackRole = normalizeVariableRoles(item.role), fallbackSource = String(item.source || '');
+    return entries.map(function (entry, index) { entry = entry || {}; return { role: normalizeVariableRoles(entry.role || (index === 0 ? fallbackRole : fallbackRole)), source: String(entry.source != null ? entry.source : (index === 0 ? fallbackSource : '')), measure: String(entry.measure || ''), paper: String(entry.paper || '') }; });
   }
   function renderVariableMeasureReferences(entries, disabled) {
     var container = $('#variableMeasureReferences');
     if (!container) return;
-    entries = Array.isArray(entries) && entries.length ? entries : [{ measure: '', paper: '' }];
+    entries = Array.isArray(entries) && entries.length ? entries : [{ role: ['被解释变量'], source: '', measure: '', paper: '' }];
     container.innerHTML = entries.map(function (entry, index) {
-      return '<section class="variable-measure-reference-entry"><div class="variable-measure-reference-entry-head"><span>衡量方式 ' + (index + 1) + '</span>' + (entries.length > 1 ? '<button type="button" data-variable-reference-remove="' + index + '" aria-label="删除第 ' + (index + 1) + ' 组衡量方式与参考文献" title="删除此组"' + (disabled ? ' disabled' : '') + '>×</button>' : '') + '</div><label class="variable-field">衡量方式<textarea data-variable-measure="' + index + '" placeholder="指标构造、计算公式、赋值规则或处理方式"' + (disabled ? ' disabled' : '') + '>' + escapeHtml(entry.measure) + '</textarea></label><div class="variable-reference-field"><label for="variablePaper' + index + '">参考文献</label><div class="variable-reference-row"><input id="variablePaper' + index + '" data-variable-paper="' + index + '" list="variableReferenceOptions" placeholder="选择或填写作者、年份、DOI、文献标题"' + (disabled ? ' disabled' : '') + '><button type="button" data-variable-reference-new="' + index + '" title="新建参考文献并关联到这一衡量方式"' + (disabled ? ' disabled' : '') + '>＋新建</button></div></div></section>';
+      var selectedRoles = normalizeVariableRoles(entry.role);
+      var roles = '<div class="variable-entry-role"><span>研究角色（可多选）</span><div class="variable-role-options">' + variableRoles.map(function (role) { return '<label class="variable-role-option"><input type="checkbox" data-variable-role="' + index + '" value="' + escapeHtml(role) + '"' + (selectedRoles.indexOf(role) >= 0 ? ' checked' : '') + (disabled ? ' disabled' : '') + '><span>' + escapeHtml(role) + '</span></label>'; }).join('') + '</div></div>';
+      var source = '<label class="variable-field">数据来源<textarea data-variable-source="' + index + '" placeholder="数据来源、样本范围、频率及口径说明" title="双击新建同研究角色变量"' + (disabled ? ' disabled' : '') + '>' + escapeHtml(entry.source) + '</textarea></label>';
+      var measure = '<label class="variable-field">衡量方式<textarea data-variable-measure="' + index + '" placeholder="指标构造、计算公式、赋值规则或处理方式" title="双击新建同研究角色变量"' + (disabled ? ' disabled' : '') + '>' + escapeHtml(entry.measure) + '</textarea></label>';
+      return '<section class="variable-measure-reference-entry">' + (entries.length > 1 ? '<div class="variable-measure-reference-entry-head"><button type="button" data-variable-reference-remove="' + index + '" aria-label="删除此记录组" title="删除此组"' + (disabled ? ' disabled' : '') + '>×</button></div>' : '') + roles + '<div class="variable-entry-split">' + source + measure + '</div><div class="variable-reference-field"><label for="variablePaper' + index + '">参考文献</label><div class="variable-reference-row"><input id="variablePaper' + index + '" data-variable-paper="' + index + '" list="variableReferenceOptions" placeholder="选择或填写作者、年份、DOI、文献标题"' + (disabled ? ' disabled' : '') + '><button type="button" data-variable-reference-new="' + index + '" title="新建参考文献并关联到这一记录"' + (disabled ? ' disabled' : '') + '>＋新建</button></div></div></section>';
     }).join('');
     $$('.variable-measure-reference-entry', container).forEach(function (row, index) { var input = $('[data-variable-paper]', row); if (input) input.value = entries[index].paper; });
     $('#variableMeasureReferenceAdd').disabled = Boolean(disabled);
@@ -8523,7 +8529,6 @@
       categories.innerHTML = '';
       list.innerHTML = trash.length ? trash.map(function (entry) { var item = entry.item || {}; return '<div class="variable-trash-row"><div><b>' + escapeHtml(item.name || '未命名变量') + '</b><span>' + escapeHtml(displayVariableRoleText(item.role)) + ' · ' + escapeHtml(entry.deletedAt || '') + '</span></div><div><button type="button" data-variable-restore="' + escapeHtml(entry.id) + '">恢复</button><button type="button" data-variable-purge="' + escapeHtml(entry.id) + '">彻底删除</button></div></div>'; }).join('') : '<div class="variable-empty">回收站为空</div>';
       variableFields().forEach(function (id) { $('#' + id).value = ''; $('#' + id).disabled = true; $('#' + id).readOnly = true; });
-      $('#variableRoleOptions').innerHTML = variableRoles.map(function (role) { return '<label class="variable-role-option"><input type="checkbox" name="variable-role" value="' + escapeHtml(role) + '" disabled><span>' + escapeHtml(role) + '</span></label>'; }).join('');
       renderVariableMeasureReferences([], true);
       $('#variableDelete').hidden = true;
       $('#variableDuplicate').hidden = true;
@@ -8533,14 +8538,14 @@
     }
     var query = (state.variableQuery || '').trim().toLowerCase();
     var visible = items.filter(function (item) {
-      if (state.variableCategoryFilter !== 'all' && normalizeVariableRoles(item.role).indexOf(state.variableCategoryFilter) < 0) return false;
-      var pairedSearch = (Array.isArray(item.measureReferences) ? item.measureReferences : []).map(function (entry) { return [entry.measure, entry.paper].join(' '); }).join(' ');
+      if (state.variableCategoryFilter !== 'all' && !normalizedVariableMeasureReferences(item).some(function (entry) { return normalizeVariableRoles(entry.role).indexOf(state.variableCategoryFilter) >= 0; })) return false;
+      var pairedSearch = normalizedVariableMeasureReferences(item).map(function (entry) { return [displayVariableRoleText(entry.role), entry.source, entry.measure, entry.paper].join(' '); }).join(' ');
       return !query || [item.name, item.symbol, displayVariableRoleText(item.role), item.definition, item.measure, item.source, item.paper, pairedSearch, item.notes].join(' ').toLowerCase().indexOf(query) >= 0;
     });
     if (!visible.some(function (item) { return String(item.id) === String(state.variableId); })) state.variableId = visible[0] ? visible[0].id : null;
     categories.innerHTML = '<button type="button" class="variable-category is-active" data-variable-category="all">全部变量 <span>' + items.length + '</span></button>';
     list.innerHTML = visible.length || !query ? '<div class="variable-list-label">研究角色</div>' + variableRoles.map(function (role) {
-      var group = visible.filter(function (item) { return normalizeVariableRoles(item.role).indexOf(role) >= 0; });
+      var group = visible.filter(function (item) { return normalizedVariableMeasureReferences(item).some(function (entry) { return normalizeVariableRoles(entry.role).indexOf(role) >= 0; }); });
       if (!group.length && query) return '';
       var collapsed = !!variableCollapsedRoles[role];
       return '<section class="variable-role-group"><div class="variable-role-heading-row"><button type="button" class="variable-role-title' + (collapsed ? ' is-collapsed' : '') + '" data-variable-collapse="' + escapeHtml(role) + '" title="单击折叠或展开" aria-expanded="' + (!collapsed) + '"><span>' + escapeHtml(role) + '</span><span class="variable-role-count">' + group.length + '</span><span class="variable-role-chevron" aria-hidden="true">⌄</span></button></div><div class="variable-role-items"' + (collapsed ? ' hidden' : '') + '>' + (group.length ? group.map(function (item) {
@@ -8552,12 +8557,9 @@
     $('#variableDelete').hidden = !active;
     $('#variableDuplicate').hidden = !active;
     $('#variableName').value = active ? active.name || '' : '';
-    var activeRoles = active ? normalizeVariableRoles(active.role) : [];
-    $('#variableRoleOptions').innerHTML = variableRoles.map(function (role) { return '<label class="variable-role-option"><input type="checkbox" name="variable-role" value="' + escapeHtml(role) + '"' + (activeRoles.indexOf(role) >= 0 ? ' checked' : '') + (!active ? ' disabled' : '') + '><span>' + escapeHtml(role) + '</span></label>'; }).join('');
     $('#variableReferenceOptions').innerHTML = ((state.referenceLibrary && state.referenceLibrary.items) || []).map(function (reference) { return reference.title ? '<option value="' + escapeHtml(reference.title) + '"></option>' : ''; }).join('');
     $('#variableDefinition').value = active ? active.definition || '' : '';
     renderVariableMeasureReferences(normalizedVariableMeasureReferences(active), !active);
-    $('#variableSource').value = active ? active.source || '' : '';
     $('#variableSaveStatus').textContent = active ? '修改会自动保存；双击右侧变量名称或内容字段可新建同角色变量。最近保存：' + (active.updated || '尚未保存') : '双击右侧变量名称或下方任一内容字段即可新建；左侧研究角色只用于分组和折叠。';
     renderProjectBacklinks('variable', active && active.id, $('#variableProjectLinks'));
   }
@@ -8579,13 +8581,14 @@
     return $$('[data-variable-measure]', $('#variableMeasureReferences')).map(function (field) {
       var index = field.dataset.variableMeasure;
       var reference = $('[data-variable-paper="' + index + '"]', $('#variableMeasureReferences'));
-      return { measure: field.value, paper: reference ? reference.value : '' };
+      var source = $('[data-variable-source="' + index + '"]', $('#variableMeasureReferences'));
+      return { role: $$('[data-variable-role="' + index + '"]:checked', $('#variableMeasureReferences')).map(function (input) { return input.value; }), source: source ? source.value : '', measure: field.value, paper: reference ? reference.value : '' };
     });
   }
   function addVariableMeasureReference() {
     if (!state.variableId || state.variableTrashOpen) return;
     var entries = readVariableMeasureReferences();
-    entries.push({ measure: '', paper: '' });
+    entries.push({ role: entries.length ? entries[entries.length - 1].role : ['被解释变量'], source: '', measure: '', paper: '' });
     renderVariableMeasureReferences(entries, false);
     var next = $('[data-variable-measure="' + (entries.length - 1) + '"]', $('#variableMeasureReferences'));
     if (next) next.focus();
@@ -8594,7 +8597,7 @@
   function removeVariableMeasureReference(index) {
     if (!state.variableId || state.variableTrashOpen) return;
     var entries = readVariableMeasureReferences();
-    if (entries.length <= 1) entries[0] = { measure: '', paper: '' };
+    if (entries.length <= 1) entries[0] = { role: ['被解释变量'], source: '', measure: '', paper: '' };
     else entries.splice(index, 1);
     renderVariableMeasureReferences(entries, false);
     queueVariableAutoSave();
@@ -8602,7 +8605,8 @@
   function readVariablePayload() {
     var measureReferences = readVariableMeasureReferences();
     var active = activeVariable();
-    return { action: 'save', id: state.variableId, name: $('#variableName').value, role: selectedVariableRoles(), paper: measureReferences[0] ? measureReferences[0].paper : '', definition: $('#variableDefinition').value, measure: measureReferences[0] ? measureReferences[0].measure : '', measureReferences: measureReferences, source: $('#variableSource').value, notes: active ? active.notes || '' : '' };
+    var first = measureReferences[0] || { role: ['被解释变量'], source: '', measure: '', paper: '' };
+    return { action: 'save', id: state.variableId, name: $('#variableName').value, role: first.role, paper: first.paper, definition: $('#variableDefinition').value, measure: first.measure, measureReferences: measureReferences, source: first.source, notes: active ? active.notes || '' : '' };
   }
   function duplicateVariable() {
     var active = activeVariable();
@@ -9915,7 +9919,7 @@
     items = items.concat(cmdkSearchGroup((data.knowledge || {}).docs, '知识库', 'title', ['content'], needle, function (item) { openCmdkRecord('knowledge-base', item, 'knowledge'); }));
     items = items.concat(cmdkSearchGroup((data.notes || {}).notes, '笔记', 'title', ['markdown'], needle, function (item) { openCmdkRecord('note-studio', item, 'notes'); }));
     items = items.concat(cmdkSearchGroup((data.references || {}).items, '文献与引用', 'title', ['authors', 'year', 'source', 'doi', 'tags', 'notes'], needle, function (item) { openCmdkRecord('references', item, 'references'); }));
-    var searchableVariables = ((data.variables || {}).items || []).map(function (item) { var copied = Object.assign({}, item); copied.measureReferenceText = (Array.isArray(item.measureReferences) ? item.measureReferences : []).map(function (entry) { return [entry.measure, entry.paper].join(' '); }).join(' '); return copied; });
+    var searchableVariables = ((data.variables || {}).items || []).map(function (item) { var copied = Object.assign({}, item); copied.measureReferenceText = (Array.isArray(item.measureReferences) ? item.measureReferences : []).map(function (entry) { return [entry.role, entry.source, entry.measure, entry.paper].join(' '); }).join(' '); return copied; });
     items = items.concat(cmdkSearchGroup(searchableVariables, '变量库', 'name', ['symbol', 'role', 'definition', 'measure', 'source', 'paper', 'measureReferenceText', 'notes'], needle, function (item) { openCmdkRecord('variable-library', item, 'variables'); }));
     items = items.concat(cmdkSearchGroup((data.projects || {}).projects, '研究项目', 'title', ['category', 'goal', 'milestones', 'resources', 'members'], needle, function (item) { openCmdkRecord('research-projects', item, 'projects'); }));
     items = items.concat(cmdkSearchGroup((data.prompts || {}).prompts, '提示词', 'title', ['category', 'tags', 'body'], needle, function (item) { openCmdkRecord('prompt-library', item, 'prompts'); }));
