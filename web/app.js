@@ -9221,7 +9221,7 @@
     state.variableCreating = true;
     return api('/api/variable-library', { method: 'POST', body: JSON.stringify({ action: 'create', role: requestedRoles }) }).then(function (res) {
       if (!res.ok) { toast(res.error || '新建变量失败'); return; }
-      state.variableLibrary = res.variableLibrary; state.variableTrashOpen = false; state.variableCategoryFilter = 'all'; state.variableQuery = ''; state.variableId = res.variableLibrary.items[0].id;
+      state.variableLibrary = res.variableLibrary; state.variableTrashOpen = false; state.variableCategoryFilter = 'all'; state.variableQuery = ''; state.variableId = res.variableLibrary.items[res.variableLibrary.items.length - 1].id;
       variableCollapsedRoles[requestedRole] = false;
       try { localStorage.setItem(variableCollapsedStorageKey, JSON.stringify(variableCollapsedRoles)); } catch (_) {}
       renderVariableLibrary(); $('#variableName').focus(); $('#variableName').select();

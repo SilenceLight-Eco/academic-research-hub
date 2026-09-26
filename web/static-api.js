@@ -647,7 +647,7 @@
           variableLibrary.items.forEach(function (item) { if (!variableOrderSeen[String(item.id)]) reorderedVariables.push(item); });
           variableLibrary.items = reorderedVariables;
         }
-        if (body.action === 'create') { var createRoles = (Array.isArray(body.role) ? body.role : [body.role]).filter(function (role, index, all) { return variableRoles.indexOf(role) >= 0 && all.indexOf(role) === index; }); variableLibrary.items.unshift({ id: nowId(), name: '新变量', role: createRoles.length ? createRoles : ['被解释变量'], symbol: '', unit: '', paper: '', definition: '', measure: '', measureReferences: [], source: '', notes: '', updated: nowText() }); }
+        if (body.action === 'create') { var createRoles = (Array.isArray(body.role) ? body.role : [body.role]).filter(function (role, index, all) { return variableRoles.indexOf(role) >= 0 && all.indexOf(role) === index; }); variableLibrary.items.push({ id: nowId(), name: '新变量', role: createRoles.length ? createRoles : ['被解释变量'], symbol: '', unit: '', paper: '', definition: '', measure: '', measureReferences: [], source: '', notes: '', updated: nowText() }); }
         if (body.action === 'duplicate') {
           var sourceVariable = variableLibrary.items.filter(function (item) { return String(item.id) === String(body.id); })[0];
           if (!sourceVariable) return response({ ok: false, error: '找不到要复制的变量' }, 404);
