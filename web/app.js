@@ -73,6 +73,7 @@
     referenceQuery: '',
     referenceTypeFilter: 'all',
     referenceCitationStyle: 'apa7',
+    referenceAuditEnabled: false,
     journalTracker: { subscriptions: [], articles: [], articleCount: 0, refreshLogs: [] },
     journalTrackerLoaded: false,
     journalTrackerLoading: false,
@@ -7674,6 +7675,14 @@
     $('#refCopyBibtex').addEventListener('click', function () { copyReference(referenceBibtex(activeReference()), 'BibTeX'); });
     $('#refCopyBibliography').addEventListener('click', copyFilteredReferenceBibliography);
     $('#refDownloadBibliography').addEventListener('click', downloadFilteredReferenceBibliography);
+    $('#refQualityCheck').addEventListener('click', function () { state.referenceAuditEnabled = true; renderReferenceQualityAudit(); });
+    $('#refQualityAudit').addEventListener('click', function (event) {
+      var button = event.target.closest('[data-ref-audit-id]');
+      if (!button) return;
+      var id = button.dataset.refAuditId;
+      if (String(id) === String(state.referenceId)) return;
+      afterCurrentEditorSaved('references', function () { state.referenceId = id; renderReferenceLibrary(); });
+    });
     $('#refCitationStyle').addEventListener('change', function () {
       state.referenceCitationStyle = this.value;
       try { localStorage.setItem('academic-workbench-reference-citation-style-v1', this.value); } catch (_) {}
@@ -8696,7 +8705,10 @@
   function renderReferenceLibrary() {
     var library = state.referenceLibrary || { items: [], trash: [] }, items = library.items || [], trash = library.trash || [], list = $('#refList');
     $('#refTrash').textContent = state.referenceTrashOpen ? '返回文献库' : '回收站' + (trash.length ? ' (' + trash.length + ')' : '');
-    if (state.referenceTrashOpen) $('#refBibliographyCount').textContent = '回收站内容不参与导出';
+    if (state.referenceTrashOpen) {
+      $('#refBibliographyCount').textContent = '回收站内容不参与导出';
+      $('#refQualityAudit').hidden = true;
+    }
     if (state.referenceTrashOpen) {
       list.innerHTML = recycleBinToolbar('reference', '文献与引用', trash.length) + (trash.length ? trash.map(function (entry) { return '<div class="ref-trash-row"><div><b>' + escapeHtml((entry.item || {}).title || '未命名文献') + '</b><span>' + escapeHtml(entry.deletedAt || '') + '</span></div><div><button type="button" data-ref-restore="' + entry.id + '">恢复</button><button type="button" data-ref-purge="' + entry.id + '">彻底删除</button></div></div>'; }).join('') : '<div class="ref-empty">回收站为空</div>');
       referenceFields().forEach(function (id) { $('#' + id).value = ''; $('#' + id).disabled = true; }); $('#refDelete').hidden = true; renderReferencePreview(); renderProjectBacklinks('reference', null, $('.ref-editor')); return;
@@ -8712,6 +8724,7 @@
     $('#refTitle').value = active ? active.title || '' : ''; $('#refAuthors').value = active ? active.authors || '' : ''; $('#refYear').value = active ? active.year || '' : ''; $('#refType').value = active ? active.type || '期刊论文' : '期刊论文'; $('#refSource').value = active ? active.source || '' : ''; $('#refLocator').value = active ? active.locator || '' : ''; $('#refTags').value = active ? active.tags || '' : ''; $('#refDoi').value = active ? active.doi || '' : ''; $('#refUrl').value = active ? active.url || '' : ''; $('#refProject').value = active ? String(active.projectId || '') : ''; $('#refKnowledge').value = active ? String(active.knowledgeDocId || '') : ''; $('#refNotes').value = active ? active.notes || '' : '';
     renderReferencePreview();
     renderProjectBacklinks('reference', active && active.id, $('.ref-editor'));
+    if (state.referenceAuditEnabled) renderReferenceQualityAudit();
   }
   function filteredReferenceItems() {
     var items = (state.referenceLibrary && state.referenceLibrary.items) || [], needle = (state.referenceQuery || '').trim().toLowerCase();
@@ -8746,9 +8759,54 @@
     document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url);
     toast('已下载参考文献表（' + items.length + ' 篇）');
   }
+  function normalizeReferenceDoi(value) {
+    return String(value || '').trim().replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, '').replace(/^doi:\s*/i, '').replace(/[\s?#].*$/, '').toLowerCase();
+  }
+  function normalizeReferenceTitle(value) {
+    return String(value || '').toLocaleLowerCase().replace(/[\s\p{P}\p{S}]+/gu, '').trim();
+  }
+  function findReferenceDuplicates(items) {
+    var parent = items.map(function (_, index) { return index; });
+    function root(index) { while (parent[index] !== index) { parent[index] = parent[parent[index]]; index = parent[index]; } return index; }
+    function join(left, right) { var a = root(left), b = root(right); if (a !== b) parent[b] = a; }
+    var buckets = Object.create(null);
+    items.forEach(function (item, index) {
+      var doi = normalizeReferenceDoi(item.doi), title = normalizeReferenceTitle(item.title), year = String(item.year || '').replace(/\D/g, '').slice(0, 4);
+      var keys = [];
+      if (doi) keys.push('doi:' + doi);
+      if (title.length >= 8 && year) keys.push('title-year:' + title + ':' + year);
+      keys.forEach(function (key) { if (buckets[key] != null) join(index, buckets[key]); else buckets[key] = index; });
+    });
+    var groups = Object.create(null);
+    items.forEach(function (item, index) { var key = root(index); (groups[key] || (groups[key] = [])).push(item); });
+    return Object.keys(groups).map(function (key) { return groups[key]; }).filter(function (group) { return group.length > 1; });
+  }
+  function missingReferenceFields(item) {
+    var missing = [];
+    if (!String(item.title || '').trim()) missing.push('标题');
+    if (!String(item.authors || '').trim()) missing.push('作者');
+    if (!String(item.year || '').trim()) missing.push('年份');
+    if (['期刊论文', '书籍', '会议论文', '报告'].indexOf(item.type) >= 0 && !String(item.source || '').trim()) missing.push('期刊/出版社');
+    if (item.type === '网页' && !String(item.url || '').trim()) missing.push('网页链接');
+    return missing;
+  }
+  function renderReferenceQualityAudit() {
+    var panel = $('#refQualityAudit');
+    if (!panel || state.referenceTrashOpen) return;
+    var items = filteredReferenceItems(), duplicates = findReferenceDuplicates(items);
+    var incomplete = items.map(function (item) { return { item: item, missing: missingReferenceFields(item) }; }).filter(function (entry) { return entry.missing.length; });
+    var duplicateHtml = duplicates.length ? duplicates.map(function (group) {
+      return '<li>疑似重复：' + group.map(function (item) { return '<button type="button" data-ref-audit-id="' + escapeHtml(String(item.id)) + '">' + escapeHtml(item.title || '未命名文献') + '</button>'; }).join(' <span>↔</span> ') + '</li>';
+    }).join('') : '<li class="ref-audit-clean">未发现重复项</li>';
+    var incompleteHtml = incomplete.length ? incomplete.map(function (entry) {
+      return '<li><button type="button" data-ref-audit-id="' + escapeHtml(String(entry.item.id)) + '">' + escapeHtml(entry.item.title || '未命名文献') + '</button><span>缺少：' + escapeHtml(entry.missing.join('、')) + '</span></li>';
+    }).join('') : '<li class="ref-audit-clean">关键字段完整</li>';
+    panel.innerHTML = '<div class="ref-audit-head"><strong>质量检查</strong><span>' + items.length + ' 篇 · ' + duplicates.length + ' 组疑似重复 · ' + incomplete.length + ' 篇缺少关键字段</span></div><p>范围与当前搜索、类型筛选一致。检查仅作提醒，不会自动合并或删除文献。</p><div class="ref-audit-columns"><section><h4>疑似重复</h4><ul>' + duplicateHtml + '</ul></section><section><h4>缺少关键字段</h4><ul>' + incompleteHtml + '</ul></section></div>';
+    panel.hidden = false;
+  }
   function readReferencePayload() { return { action: 'save', id: state.referenceId, title: $('#refTitle').value, authors: $('#refAuthors').value, year: $('#refYear').value, type: $('#refType').value, source: $('#refSource').value, locator: $('#refLocator').value, tags: $('#refTags').value, doi: $('#refDoi').value, url: $('#refUrl').value, projectId: $('#refProject').value, knowledgeDocId: $('#refKnowledge').value, notes: $('#refNotes').value }; }
   function persistReference(body, automatic) { return api('/api/references', { method: 'POST', body: JSON.stringify(body) }).then(function (res) { if (!res.ok) throw new Error(res.error || '保存失败'); state.referenceLibrary = res.referenceLibrary; if (!automatic) { renderReferenceLibrary(); toast('文献已同步保存'); } }); }
-  function queueReferenceAutoSave() { if (!state.referenceId || state.referenceTrashOpen) return; var body = readReferencePayload(); renderReferencePreview(); queueAutoSave('reference:' + body.id, body, persistReference); }
+  function queueReferenceAutoSave() { if (!state.referenceId || state.referenceTrashOpen) return; var body = readReferencePayload(); renderReferencePreview(); if (state.referenceAuditEnabled) renderReferenceQualityAudit(); queueAutoSave('reference:' + body.id, body, persistReference); }
   function saveReference() { if (!state.referenceId) return; return saveImmediately('reference:' + state.referenceId, readReferencePayload(), persistReference); }
   function newReference() { return afterCurrentEditorSaved('references', function () { return api('/api/references', { method: 'POST', body: JSON.stringify({ action: 'create' }) }).then(function (res) { if (!res.ok) { toast(res.error || '新建失败'); return false; } state.referenceLibrary = res.referenceLibrary; state.referenceTrashOpen = false; state.referenceId = res.referenceLibrary.items[0].id; renderReferenceLibrary(); $('#refTitle').focus(); return true; }); }); }
   function trashReference() { if (!state.referenceId || !confirm('确定将此文献移入回收站吗？')) return; api('/api/references', { method: 'POST', body: JSON.stringify({ action: 'trash', id: state.referenceId }) }).then(function (res) { if (!res.ok) { toast(res.error || '移入回收站失败'); return; } state.referenceLibrary = res.referenceLibrary; state.referenceId = null; renderReferenceLibrary(); toast('文献已移入回收站'); }); }
