@@ -8804,6 +8804,7 @@
     return library.importUndo ? [library.importUndo] : [];
   }
   function openVariableImportHistory() {
+    state.variableImportUndoConflict = null;
     renderVariableImportHistory();
     $('#variableImportHistoryModal').hidden = false;
   }
@@ -8813,15 +8814,32 @@
   function renderVariableImportHistory() {
     var list = $('#variableImportHistoryList'), history = variableImportHistory();
     if (!list) return;
+    var conflict = $('#variableImportHistoryConflict'), lastConflict = state.variableImportUndoConflict;
+    if (conflict) {
+      conflict.hidden = !lastConflict;
+      conflict.innerHTML = lastConflict ? '<strong>' + escapeHtml(lastConflict.message || '此批次无法撤销') + '</strong><ul>' + lastConflict.items.map(function (item) { return '<li><b>' + escapeHtml(item.name || ('变量 ID ' + item.id)) + '</b>：' + escapeHtml(item.reason || '内容发生变化') + '</li>'; }).join('') + '</ul>' : '';
+    }
     if (!history.length) {
       list.innerHTML = '<div class="variable-import-history-empty">暂无可撤销的 CSV 导入记录</div>';
       return;
+    }
+    function namesFor(entries) {
+      return (Array.isArray(entries) ? entries : []).map(function (entry) {
+        var current = (state.variableLibrary && state.variableLibrary.items || []).filter(function (item) { return String(item.id) === String(entry.id); })[0];
+        var trashed = (state.variableLibrary && state.variableLibrary.trash || []).filter(function (item) { return String(item.item && item.item.id) === String(entry.id); })[0];
+        return String(entry.name || current && current.name || trashed && trashed.item && trashed.item.name || ('变量 ID ' + entry.id));
+      });
+    }
+    function listMarkup(label, entries) {
+      var names = namesFor(entries);
+      if (!names.length) return '';
+      return '<details class="variable-import-history-details"><summary>' + label + '变量（' + names.length + '）</summary><ul>' + names.map(function (name) { return '<li>' + escapeHtml(name) + '</li>'; }).join('') + '</ul></details>';
     }
     list.innerHTML = history.map(function (entry, index) {
       var created = Array.isArray(entry.created) ? entry.created.length : 0;
       var updated = Array.isArray(entry.updated) ? entry.updated.length : 0;
       var disabled = Boolean(state.variableImportUndoPending);
-      return '<article class="variable-import-history-row"><div class="variable-import-history-meta"><strong>' + (index === 0 ? '最近一次导入' : '导入记录 ' + (index + 1)) + '</strong><time>' + escapeHtml(entry.createdAt || '时间未知') + '</time><span>新增 ' + created + ' · 更新 ' + updated + '</span></div><button type="button" data-variable-import-undo="' + escapeHtml(entry.id || '') + '"' + (disabled ? ' disabled' : '') + '>撤销此批</button></article>';
+      return '<article class="variable-import-history-row"><div class="variable-import-history-body"><div class="variable-import-history-meta"><strong>' + (index === 0 ? '最近一次导入' : '导入记录 ' + (index + 1)) + '</strong><time>' + escapeHtml(entry.createdAt || '时间未知') + '</time><span>新增 ' + created + ' · 更新 ' + updated + '</span></div>' + listMarkup('新增', entry.created) + listMarkup('更新', entry.updated) + '</div><button type="button" data-variable-import-undo="' + escapeHtml(entry.id || '') + '"' + (disabled ? ' disabled' : '') + '>撤销此批</button></article>';
     }).join('');
   }
   function undoVariableCsvImport(importId) {
@@ -8832,6 +8850,7 @@
     var updatedCount = Array.isArray(undo.updated) ? undo.updated.length : 0;
     if (!confirm('撤销 ' + (undo.createdAt || '所选') + ' 的 CSV 导入？\n新增的 ' + createdCount + ' 个变量将移入回收站；更新的 ' + updatedCount + ' 个变量将恢复导入前内容。若相关变量后来被修改，系统会为避免覆盖而停止撤销。')) return;
     state.variableImportUndoPending = true;
+    state.variableImportUndoConflict = null;
     var panel = $('#panel-variable-library');
     var workspace = $('.variable-workspace', panel), actions = $('.variable-actions', panel);
     panel.setAttribute('aria-busy', 'true');
@@ -8844,7 +8863,11 @@
       if (hasUnsavedChanges()) throw new Error('仍有变量修改未能保存，请解决同步问题后再撤销');
       return api('/api/variable-library', { method: 'POST', body: JSON.stringify({ action: 'undo-import', importId: undo.id || '' }) });
     }).then(function (res) {
-      if (!res.ok) throw new Error(res.error || '撤销导入失败');
+      if (!res.ok) {
+        var failure = new Error(res.error || '撤销导入失败');
+        failure.conflicts = Array.isArray(res.conflicts) ? res.conflicts : [];
+        throw failure;
+      }
       state.variableLibrary = Object.assign({ items: [], trash: [] }, res.variableLibrary || {});
       state.variableImportUndoPending = false;
       panel.removeAttribute('aria-busy');
@@ -8860,6 +8883,8 @@
       if (workspace) workspace.inert = false;
       if (actions) actions.inert = false;
       renderVariableLibrary();
+      renderVariableImportHistory();
+      state.variableImportUndoConflict = error.conflicts && error.conflicts.length ? { message: error.message, items: error.conflicts } : null;
       renderVariableImportHistory();
       toast((error && error.message) || '撤销导入失败');
     });

@@ -560,7 +560,7 @@
               existingVariable.measureReferences = entries;
               existingVariable.source = first.source;
               existingVariable.updated = nowText();
-              undoUpdated.push({ id: String(existingVariable.id), before: beforeFields, afterFingerprint: variableImportFingerprint(variableImportFields(existingVariable)) });
+              undoUpdated.push({ id: String(existingVariable.id), name: existingVariable.name, before: beforeFields, afterFingerprint: variableImportFingerprint(variableImportFields(existingVariable)) });
               importedIds.push(existingVariable.id);
               return null;
             }
@@ -568,7 +568,7 @@
             while (variableLibrary.items.some(function (item) { return String(item.id) === String(id); }) || variableLibrary.trash.some(function (entry) { return String(entry.item && entry.item.id) === String(id); }) || importedIds.some(function (existingId) { return String(existingId) === String(id); })) id += 1;
             importedIds.push(id);
             var createdVariable = { id: id, name: String(source.name || '未命名变量').trim().slice(0, 200), role: [role], symbol: '', unit: '', paper: first.paper, definition: String(source.definition || '').slice(0, 20000), measure: first.measure, measureReferences: entries, source: first.source, notes: '', updated: nowText() };
-            undoCreated.push({ id: String(id), fingerprint: variableImportFingerprint(createdVariable) });
+            undoCreated.push({ id: String(id), name: createdVariable.name, fingerprint: variableImportFingerprint(createdVariable) });
             return createdVariable;
           }).filter(Boolean);
           variableLibrary.items = importedVariables.concat(variableLibrary.items);
@@ -595,15 +595,21 @@
           if (!importUndo || (!Array.isArray(importUndo.created) && !Array.isArray(importUndo.updated))) return response({ ok: false, error: '没有可撤销的 CSV 导入记录' }, 404);
           var createdUndo = Array.isArray(importUndo.created) ? importUndo.created : [];
           var updatedUndo = Array.isArray(importUndo.updated) ? importUndo.updated : [];
-          var changedCreated = createdUndo.some(function (entry) {
+          var importConflicts = [];
+          createdUndo.forEach(function (entry) {
             var item = variableLibrary.items.filter(function (candidate) { return String(candidate.id) === String(entry.id); })[0];
-            return !!item && variableImportFingerprint(item) !== entry.fingerprint;
+            if (item && variableImportFingerprint(item) !== entry.fingerprint) importConflicts.push({ id: String(item.id), name: String(item.name || entry.name || '未命名变量'), reason: '新增后内容已修改' });
           });
-          var changedUpdated = updatedUndo.some(function (entry) {
+          updatedUndo.forEach(function (entry) {
             var item = variableLibrary.items.filter(function (candidate) { return String(candidate.id) === String(entry.id); })[0];
-            return !item || variableImportFingerprint(variableImportFields(item)) !== entry.afterFingerprint;
+            if (!item) {
+              var trashed = variableLibrary.trash.filter(function (candidate) { return String(candidate.item && candidate.item.id) === String(entry.id); })[0];
+              importConflicts.push({ id: String(entry.id), name: String(trashed && trashed.item && trashed.item.name || entry.name || '变量已不存在'), reason: trashed ? '变量已在回收站' : '变量已被删除' });
+            } else if (variableImportFingerprint(variableImportFields(item)) !== entry.afterFingerprint) {
+              importConflicts.push({ id: String(item.id), name: String(item.name || entry.name || '未命名变量'), reason: '导入后字段已修改' });
+            }
           });
-          if (changedCreated || changedUpdated) return response({ ok: false, error: '导入后有相关变量被修改或移入回收站，为避免覆盖新内容，撤销已停止；未更改任何数据' }, 409);
+          if (importConflicts.length) return response({ ok: false, error: '以下变量在导入后已变化，为避免覆盖新内容，本批次撤销已停止；未更改任何数据', conflicts: importConflicts }, 409);
           var movedToTrash = 0;
           createdUndo.forEach(function (entry) {
             var item = variableLibrary.items.filter(function (candidate) { return String(candidate.id) === String(entry.id); })[0];
