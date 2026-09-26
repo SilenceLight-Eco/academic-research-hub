@@ -825,10 +825,62 @@
         await saveWorkspace(data, dataRevision);
         return response({ ok: true, variableLibrary: variableLibrary, duplicateId: duplicateId, importedIds: importedIds, undone: undoneCounts || null });
       }
+      if (path === '/api/references') {
+        var initializedReferenceLibrary = data.referenceLibrary || (data.referenceLibrary = { items: [], trash: [], folders: [] });
+        initializedReferenceLibrary.items = Array.isArray(initializedReferenceLibrary.items) ? initializedReferenceLibrary.items : [];
+        initializedReferenceLibrary.trash = Array.isArray(initializedReferenceLibrary.trash) ? initializedReferenceLibrary.trash : [];
+        initializedReferenceLibrary.folders = Array.isArray(initializedReferenceLibrary.folders) ? initializedReferenceLibrary.folders : [];
+      }
+      if (path === '/api/references' && method === 'POST' && ['folder-create', 'folder-rename', 'folder-delete'].indexOf(body.action) >= 0) {
+        var folderLibrary = data.referenceLibrary || (data.referenceLibrary = { items: [], trash: [], folders: [] });
+        folderLibrary.items = Array.isArray(folderLibrary.items) ? folderLibrary.items : [];
+        folderLibrary.trash = Array.isArray(folderLibrary.trash) ? folderLibrary.trash : [];
+        folderLibrary.folders = Array.isArray(folderLibrary.folders) ? folderLibrary.folders : [];
+        var folderName = String(body.name || '').trim().slice(0, 60);
+        if (body.action === 'folder-create') {
+          if (!folderName) return response({ ok: false, error: '文件夹名称不能为空' }, 400);
+          if (folderLibrary.folders.some(function (folder) { return String(folder.name || '').toLowerCase() === folderName.toLowerCase(); })) return response({ ok: false, error: '同名文件夹已存在' }, 409);
+          var createdReferenceFolder = { id: nowId(), name: folderName, created: nowText(), updated: nowText() };
+          folderLibrary.folders.push(createdReferenceFolder);
+          await saveWorkspace(data, dataRevision);
+          return response({ ok: true, referenceLibrary: folderLibrary, folderId: createdReferenceFolder.id });
+        }
+        var targetReferenceFolder = folderLibrary.folders.find(function (folder) { return String(folder.id) === String(body.id); });
+        if (!targetReferenceFolder) return response({ ok: false, error: '找不到该文件夹' }, 404);
+        if (body.action === 'folder-rename') {
+          if (!folderName) return response({ ok: false, error: '文件夹名称不能为空' }, 400);
+          if (folderLibrary.folders.some(function (folder) { return String(folder.id) !== String(body.id) && String(folder.name || '').toLowerCase() === folderName.toLowerCase(); })) return response({ ok: false, error: '同名文件夹已存在' }, 409);
+          targetReferenceFolder.name = folderName; targetReferenceFolder.updated = nowText();
+        } else {
+          folderLibrary.folders = folderLibrary.folders.filter(function (folder) { return String(folder.id) !== String(body.id); });
+          folderLibrary.items.forEach(function (reference) { if (String(reference.folderId || '') === String(body.id)) { reference.folderId = ''; reference.updated = nowText(); } });
+          folderLibrary.trash.forEach(function (entry) { if (entry.item && String(entry.item.folderId || '') === String(body.id)) entry.item.folderId = ''; });
+        }
+        await saveWorkspace(data, dataRevision);
+        return response({ ok: true, referenceLibrary: folderLibrary });
+      }
+      if (path === '/api/references' && method === 'POST' && body.action === 'create') {
+        var createReferenceLibrary = data.referenceLibrary || (data.referenceLibrary = { items: [], trash: [], folders: [] });
+        createReferenceLibrary.items = Array.isArray(createReferenceLibrary.items) ? createReferenceLibrary.items : [];
+        createReferenceLibrary.trash = Array.isArray(createReferenceLibrary.trash) ? createReferenceLibrary.trash : [];
+        createReferenceLibrary.folders = Array.isArray(createReferenceLibrary.folders) ? createReferenceLibrary.folders : [];
+        var createFolderId = createReferenceLibrary.folders.some(function (folder) { return String(folder.id) === String(body.folderId || ''); }) ? String(body.folderId) : '';
+        var createdReference = { id: nowId(), title: '未命名文献', authors: '', year: '', type: '期刊论文', source: '', locator: '', doi: '', url: '', abstract: '', abstractSource: '', keywords: '', keywordsSource: '', tags: '', folderId: createFolderId, projectId: '', knowledgeDocId: '', notes: '', updated: nowText() };
+        createReferenceLibrary.items.unshift(createdReference);
+        await saveWorkspace(data, dataRevision);
+        return response({ ok: true, referenceLibrary: createReferenceLibrary });
+      }
+      if (path === '/api/references' && method === 'POST' && body.action === 'save') {
+        var folderSaveLibrary = data.referenceLibrary || (data.referenceLibrary = { items: [], trash: [], folders: [] });
+        folderSaveLibrary.folders = Array.isArray(folderSaveLibrary.folders) ? folderSaveLibrary.folders : [];
+        var folderSaveReference = (folderSaveLibrary.items || []).find(function (reference) { return String(reference.id) === String(body.id); });
+        if (folderSaveReference) folderSaveReference.folderId = folderSaveLibrary.folders.some(function (folder) { return String(folder.id) === String(body.folderId || ''); }) ? String(body.folderId) : '';
+      }
       if (path === '/api/references' && method === 'POST' && (body.action === 'merge-duplicates' || body.action === 'unmerge' || body.action === 'batch-enrich')) {
         var mergeLibrary = data.referenceLibrary || (data.referenceLibrary = { items: [], trash: [] });
         mergeLibrary.items = Array.isArray(mergeLibrary.items) ? mergeLibrary.items : [];
         mergeLibrary.trash = Array.isArray(mergeLibrary.trash) ? mergeLibrary.trash : [];
+        mergeLibrary.folders = Array.isArray(mergeLibrary.folders) ? mergeLibrary.folders : [];
         if (body.action === 'unmerge') {
           var unmergeItem = mergeLibrary.items.find(function (item) { return String(item.id) === String(body.id); });
           if (!unmergeItem || !unmergeItem.mergedInto) return response({ ok: false, error: '找不到已合并的文献' }, 404);

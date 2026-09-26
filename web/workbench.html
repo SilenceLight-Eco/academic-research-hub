@@ -8,7 +8,7 @@
   <link rel="apple-touch-icon" href="icon-180.png">
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#174e4a">
-  <link rel="stylesheet" href="style.css?v=20260926-31">
+  <link rel="stylesheet" href="style.css?v=20260926-32">
   <style>.sidebar-nav .retired-content{display:none!important}</style>
 </head>
 <body>
@@ -396,7 +396,24 @@
         <div class="ref-bibliography-actions"><span id="refBibliographyCount">当前筛选：0 篇</span><button type="button" id="refQualityCheck">检查文献质量</button><button type="button" id="refBatchDoi">批量补全文献信息</button><button type="button" id="refShowMerged">显示已合并项</button><button type="button" id="refUnmerge" hidden>恢复所选合并项</button><button type="button" id="refCopyBibliography">复制筛选后的参考文献表</button><button type="button" id="refDownloadBibliography">下载参考文献表</button></div>
         <section class="ref-quality-audit" id="refQualityAudit" hidden aria-live="polite"></section>
         <section class="ref-doi-batch" id="refDoiBatchPreview" hidden aria-live="polite"></section>
-        <div class="ref-workspace"><aside class="ref-list-pane"><div class="ref-search"><input id="refSearch" type="search" placeholder="搜索标题、作者、标签"><select id="refTypeFilter" aria-label="文献类型筛选"><option value="all">全部类型</option><option value="期刊论文">期刊论文</option><option value="书籍">书籍</option><option value="会议论文">会议论文</option><option value="报告">报告</option><option value="网页">网页</option></select></div><div id="refList" class="ref-list"></div></aside><section class="ref-editor"><div class="ref-editor-title"><input id="refTitle" placeholder="文献标题" aria-label="文献标题"><button id="refDelete" type="button" title="移入回收站">×</button></div><div class="ref-grid"><label>作者<input id="refAuthors" placeholder="例如：王小明；Smith, John"></label><label>年份<input id="refYear" inputmode="numeric" maxlength="4" placeholder="2026"></label><label>类型<select id="refType"><option>期刊论文</option><option>书籍</option><option>会议论文</option><option>报告</option><option>网页</option></select></label><label>期刊/出版社<input id="refSource" placeholder="期刊、出版社或会议名称"></label><label>卷(期)/页码<input id="refLocator" placeholder="12(3), 45–68"></label><label>标签<input id="refTags" placeholder="用逗号分隔"></label></div><div class="ref-link-row"><label>DOI<input id="refDoi" placeholder="10.xxxx/xxxxx"></label><button type="button" id="refFetchDoi">DOI 自动补全</button><label>原文链接<input id="refUrl" type="url" placeholder="https://…"></label></div><div class="ref-literature-details"><label>摘要<small id="refAbstractSource"></small><textarea id="refAbstract" placeholder="可通过批量补全文献信息补充，也可手动编辑。"></textarea></label><label>关键词<small id="refKeywordsSource"></small><textarea id="refKeywords" placeholder="作者关键词可手动填写；OpenAlex 主题词会标注为算法标引。"></textarea></label></div><div class="ref-grid"><label>关联研究项目<select id="refProject"><option value="">未关联</option></select></label><label>关联知识库文档<select id="refKnowledge"><option value="">未关联</option></select></label></div><label class="ref-notes">阅读笔记<textarea id="refNotes" placeholder="记录核心观点、可引用结论或与你研究的关系。"></textarea></label></section><aside class="ref-preview"><label class="ref-style-picker">引用格式<select id="refCitationStyle" aria-label="选择引用格式"><option value="apa7">APA 7</option><option value="gb7714-numeric">GB/T 7714—2015 顺序编码制</option><option value="gb7714-author-date">GB/T 7714—2015 著者—出版年制</option></select></label><div class="ref-preview-label">参考文献预览</div><blockquote id="refCitationPreview" class="ref-citation-preview">选择或新建一篇文献后，这里会生成引用。</blockquote><button type="button" id="refCopyCitation">复制参考文献</button><div class="ref-preview-label">文内引用</div><blockquote id="refInTextCitationPreview" class="ref-citation-preview ref-inline-citation">选择文献后，这里会生成文内引用。</blockquote><button type="button" id="refCopyInTextCitation">复制文内引用</button><div class="ref-preview-label">BibTeX</div><pre id="refBibtex" class="ref-bibtex"></pre><button type="button" id="refCopyBibtex">复制 BibTeX</button></aside></div>
+        <div class="ref-workspace">
+          <aside class="ref-list-pane">
+            <div class="ref-search"><input id="refSearch" type="search" placeholder="搜索标题、作者、标签"><select id="refTypeFilter" aria-label="文献类型筛选"><option value="all">全部类型</option><option value="期刊论文">期刊论文</option><option value="书籍">书籍</option><option value="会议论文">会议论文</option><option value="报告">报告</option><option value="网页">网页</option></select></div>
+            <div class="ref-folder-heading"><span>文件夹</span><button type="button" id="refFolderNew" aria-label="新建文件夹" title="新建文件夹">+</button></div>
+            <div id="refFolders" class="ref-folders"></div>
+            <div id="refList" class="ref-list"></div>
+          </aside>
+          <section class="ref-editor">
+            <div class="ref-editor-title"><input id="refTitle" placeholder="文献标题" aria-label="文献标题"><button id="refDelete" type="button" title="移入回收站">×</button></div>
+            <div class="ref-grid"><label>作者<input id="refAuthors" placeholder="例如：王小明；Smith, John"></label><label>年份<input id="refYear" inputmode="numeric" maxlength="4" placeholder="2026"></label><label>类型<select id="refType"><option>期刊论文</option><option>书籍</option><option>会议论文</option><option>报告</option><option>网页</option></select></label><label>期刊/出版社<input id="refSource" placeholder="期刊、出版社或会议名称"></label><label>卷(期)/页码<input id="refLocator" placeholder="12(3), 45–68"></label><label>标签<input id="refTags" placeholder="用逗号分隔"></label></div>
+            <div class="ref-link-row"><label>DOI<input id="refDoi" placeholder="10.xxxx/xxxxx"></label><button type="button" id="refFetchDoi">DOI 自动补全</button><label>原文链接<input id="refUrl" type="url" placeholder="https://…"></label></div>
+            <div class="ref-folder-assignment"><label>所在文件夹<select id="refFolder"><option value="">未分类</option></select></label></div>
+            <div class="ref-literature-details"><label>摘要<small id="refAbstractSource"></small><textarea id="refAbstract" placeholder="可通过批量补全文献信息补充，也可手动编辑。"></textarea></label><label>关键词<small id="refKeywordsSource"></small><textarea id="refKeywords" placeholder="作者关键词可手动填写；OpenAlex 主题词会标注为算法标引。"></textarea></label></div>
+            <div class="ref-grid"><label>关联研究项目<select id="refProject"><option value="">未关联</option></select></label><label>关联知识库文档<select id="refKnowledge"><option value="">未关联</option></select></label></div>
+            <label class="ref-notes">阅读笔记<textarea id="refNotes" placeholder="记录核心观点、可引用结论或与你研究的关系。"></textarea></label>
+          </section>
+          <aside class="ref-preview"><label class="ref-style-picker">引用格式<select id="refCitationStyle" aria-label="选择引用格式"><option value="apa7">APA 7</option><option value="gb7714-numeric">GB/T 7714—2015 顺序编码制</option><option value="gb7714-author-date">GB/T 7714—2015 著者—出版年制</option></select></label><div class="ref-preview-label">参考文献预览</div><blockquote id="refCitationPreview" class="ref-citation-preview">选择或新建一篇文献后，这里会生成引用。</blockquote><button type="button" id="refCopyCitation">复制参考文献</button><div class="ref-preview-label">文内引用</div><blockquote id="refInTextCitationPreview" class="ref-citation-preview ref-inline-citation">选择文献后，这里会生成文内引用。</blockquote><button type="button" id="refCopyInTextCitation">复制文内引用</button><div class="ref-preview-label">BibTeX</div><pre id="refBibtex" class="ref-bibtex"></pre><button type="button" id="refCopyBibtex">复制 BibTeX</button></aside>
+        </div>
       </section>
 
       <section class="panel" id="panel-journal-tracker">
@@ -1495,8 +1512,8 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-<script src="static-api.js?v=20260926-16"></script>
-  <script src="app.js?v=20260926-39"></script>
+<script src="static-api.js?v=20260926-17"></script>
+  <script src="app.js?v=20260926-40"></script>
   <script src="attachments.js?v=20260925-1"></script>
 </body>
 </html>

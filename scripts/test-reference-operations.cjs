@@ -185,3 +185,49 @@ test('batch DOI enrichment only fills approved blank fields and skips aliases', 
   const noOpResponse = await harness.request({ action: 'batch-enrich', entries: [{ id: 'active', fields: { authors: 'Overwrite attempt' } }] });
   assert.equal(noOpResponse.status, 409);
 });
+
+test('reference folders persist, rename safely, and preserve references when deleted', async () => {
+  const harness = createApiHarness({
+    referenceLibrary: {
+      items: [
+        { id: 'paper-a', title: 'Paper A', authors: 'Author A', year: '2023', notes: 'Keep this record' },
+        { id: 'paper-b', title: 'Paper B', authors: 'Author B', year: '2024' }
+      ],
+      trash: []
+    }
+  });
+
+  const createResponse = await harness.request({ action: 'folder-create', name: '识别策略' });
+  const created = await createResponse.json();
+  const folderId = created.folderId;
+  assert.equal(createResponse.status, 200);
+  assert.ok(folderId);
+  assert.equal(created.referenceLibrary.folders[0].name, '识别策略');
+
+  const assignResponse = await harness.request({
+    action: 'save', id: 'paper-a', folderId,
+    title: 'Paper A', authors: 'Author A', year: '2023', type: '期刊论文',
+    source: '', locator: '', doi: '', url: '', abstract: '', keywords: '',
+    abstractSource: '', keywordsSource: '', tags: '', projectId: '', knowledgeDocId: '', notes: 'Keep this record'
+  });
+  const assigned = await assignResponse.json();
+  assert.equal(assignResponse.status, 200);
+  assert.equal(assigned.referenceLibrary.items.find(item => item.id === 'paper-a').folderId, String(folderId));
+
+  const renameResponse = await harness.request({ action: 'folder-rename', id: folderId, name: '因果识别' });
+  const renamed = await renameResponse.json();
+  assert.equal(renameResponse.status, 200);
+  assert.equal(renamed.referenceLibrary.folders[0].name, '因果识别');
+  assert.equal(renamed.referenceLibrary.items.find(item => item.id === 'paper-a').folderId, String(folderId));
+
+  const deleteResponse = await harness.request({ action: 'folder-delete', id: folderId });
+  const deleted = await deleteResponse.json();
+  assert.equal(deleteResponse.status, 200);
+  assert.equal(deleted.referenceLibrary.folders.length, 0);
+  assert.equal(deleted.referenceLibrary.items.find(item => item.id === 'paper-a').folderId, '');
+  assert.equal(deleted.referenceLibrary.items.find(item => item.id === 'paper-a').notes, 'Keep this record');
+
+  const persisted = harness.readWorkspace().referenceLibrary;
+  assert.equal(persisted.folders.length, 0);
+  assert.equal(persisted.items.length, 2);
+});
