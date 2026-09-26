@@ -782,12 +782,21 @@
 
   function logoutAccount() { closeAccountMenu(); api('/api/auth/logout', { method: 'POST' }).then(function () { setAccount(null); toast('已退出登录'); }); }
 
+  var pendingBackupRestore = null;
   function openBackupModal() {
     if (!account) { toast('请先登录后备份账号数据'); openAuth(); return; }
     $('#backupModal').hidden = false;
   }
 
-  function closeBackupModal() { $('#backupModal').hidden = true; $('#backupFileInput').value = ''; }
+  function closeBackupModal() {
+    $('#backupModal').hidden = true;
+    $('#backupFileInput').value = '';
+    pendingBackupRestore = null;
+    $('#backupPreview').hidden = true;
+    $('#backupDefaultWarning').hidden = false;
+    $('#backupRestoreConfirm').disabled = false;
+    $('#backupRestoreConfirm').textContent = '确认覆盖并恢复';
+  }
 
   function showWorkspaceConflict(conflict) {
     if (!conflict || !conflict.localData) return;
@@ -865,10 +874,64 @@
     }).catch(function (error) { toast(error.message || '导出失败，请检查网络'); });
   }
 
+  function countBackupItems(value, keys) {
+    if (!value || typeof value !== 'object') return 0;
+    return keys.reduce(function (total, key) { return total + (Array.isArray(value[key]) ? value[key].length : 0); }, 0);
+  }
+
+  function researchHubBackupPaperCount(snapshot) {
+    var cards = {};
+    try { cards = JSON.parse(snapshot && snapshot['research-hub-cards-v1'] || '{}') || {}; } catch (_) { return null; }
+    return ['research', 'submitted', 'published'].reduce(function (total, key) {
+      var added = cards[key] && cards[key].added;
+      return total + (added && typeof added === 'object' ? Object.keys(added).length : 0);
+    }, 0);
+  }
+
+  function renderBackupPreview(backup, file) {
+    var data = backup.data || {}, lines = [], knownKeys = [];
+    function addLine(label, keys, value, count) {
+      if (!keys.some(function (key) { return Object.prototype.hasOwnProperty.call(data, key); })) return;
+      keys.forEach(function (key) { if (knownKeys.indexOf(key) < 0) knownKeys.push(key); });
+      var size = value == null ? 0 : new Blob([JSON.stringify(value)]).size;
+      var amount = count == null ? (size ? '含设置/数据' : '空') : count + ' 条记录';
+      if (size) amount += ' · ' + (size < 1024 ? size + ' B' : (size / 1024).toFixed(1) + ' KB');
+      lines.push('<li><b>' + escapeHtml(label) + '</b><span>' + escapeHtml(amount) + '</span></li>');
+    }
+    addLine('待办事项', ['todos'], data.todos, Array.isArray(data.todos) ? data.todos.length : 0);
+    addLine('工作日志', ['journal'], data.journal, Array.isArray(data.journal) ? data.journal.length : 0);
+    var paperCount = researchHubBackupPaperCount(data.researchHub);
+    addLine('论文管线', ['researchHub'], data.researchHub, paperCount);
+    addLine('学术履历（基金/获奖/会议）', ['academicRecords', 'academicRecordDrafts'], { records: data.academicRecords, drafts: data.academicRecordDrafts }, countBackupItems(data.academicRecords, ['funding', 'awards', 'conferences']));
+    addLine('知识库', ['knowledgeBase'], data.knowledgeBase, countBackupItems(data.knowledgeBase, ['docs', 'folders', 'trash']));
+    addLine('公众号笔记', ['noteStudio'], data.noteStudio, countBackupItems(data.noteStudio, ['notes', 'trash']));
+    addLine('提示词库', ['promptLibrary'], data.promptLibrary, countBackupItems(data.promptLibrary, ['prompts', 'trash']));
+    addLine('研究项目', ['researchProjects'], data.researchProjects, countBackupItems(data.researchProjects, ['projects', 'trash']));
+    addLine('变量库', ['variableLibrary'], data.variableLibrary, countBackupItems(data.variableLibrary, ['items', 'trash']));
+    addLine('数据与代码', ['dataCodeLibrary'], data.dataCodeLibrary, countBackupItems(data.dataCodeLibrary, ['items', 'trash']));
+    addLine('文献与引用', ['referenceLibrary'], data.referenceLibrary, countBackupItems(data.referenceLibrary, ['items', 'trash']));
+    addLine('学业进度与其他设置', ['studyProgress', 'graduationConfig', 'browser'], { studyProgress: data.studyProgress, graduationConfig: data.graduationConfig, browser: data.browser }, null);
+    var unknownKeys = Object.keys(data).filter(function (key) { return knownKeys.indexOf(key) < 0; });
+    if (unknownKeys.length) addLine('其他数据：' + unknownKeys.join('、'), unknownKeys, unknownKeys.reduce(function (other, key) { other[key] = data[key]; return other; }, {}), null);
+    $('#backupPreviewMeta').textContent = (file ? file.name + ' · ' + (file.size / 1024).toFixed(1) + ' KB' : '备份文件') + (backup.exportedAt ? ' · 导出于 ' + new Date(backup.exportedAt).toLocaleString('zh-CN') : ' · 未记录导出时间');
+    $('#backupPreviewList').innerHTML = lines.length ? lines.join('') : '<li><b>未识别到工作台模块</b><span>请确认备份来源</span></li>';
+    $('#backupPreview').hidden = false;
+    $('#backupDefaultWarning').hidden = true;
+  }
+
+  function cancelBackupRestorePreview() {
+    pendingBackupRestore = null;
+    $('#backupPreview').hidden = true;
+    $('#backupDefaultWarning').hidden = false;
+  }
+
   function importWorkspaceBackup(event) {
     var file = event.target.files && event.target.files[0];
     event.target.value = '';
     if (!file) return;
+    pendingBackupRestore = null;
+    $('#backupPreview').hidden = true;
+    $('#backupDefaultWarning').hidden = false;
     if (file.size > 20000000) { toast('备份文件不能超过 20 MB'); return; }
     var reader = new FileReader();
     reader.onerror = function () { toast('无法读取所选备份文件'); };
@@ -876,19 +939,28 @@
       var backup;
       try { backup = JSON.parse(String(reader.result || '')); } catch (error) { toast('文件不是有效的 JSON 备份'); return; }
       if (!backup || backup.format !== 'academic-research-hub-backup' || backup.version !== 1 || !backup.data || typeof backup.data !== 'object' || Array.isArray(backup.data)) { toast('备份文件格式无效或版本不受支持'); return; }
-      if (!confirm('恢复将替换此账号当前的全部工作台数据。继续前会先自动下载当前数据备份。确定恢复吗？')) return;
-      flushAllAutoSaves();
-      autoSaveChain.then(function () { return api('/api/backup'); }).then(function (current) {
+      pendingBackupRestore = backup;
+      renderBackupPreview(backup, file);
+    };
+    reader.readAsText(file);
+  }
+
+  function restorePendingWorkspaceBackup() {
+    if (!pendingBackupRestore || !account) return;
+    var button = $('#backupRestoreConfirm'), backup = pendingBackupRestore;
+    button.disabled = true;
+    button.textContent = '正在创建恢复点…';
+    flushAllAutoSaves();
+    Promise.all([apiWriteChain.catch(function () {}), autoSaveChain.catch(function () {})]).then(function () { return api('/api/backup'); }).then(function (current) {
         if (!current.ok || !current.data) throw new Error(current.error || '无法创建恢复前备份');
         downloadBackup(current.data, 'before-restore');
+        button.textContent = '正在恢复…';
         return api('/api/backup', { method: 'POST', body: JSON.stringify({ backup: backup }) });
       }).then(function (result) {
         if (!result.ok) throw new Error(result.error || '恢复失败');
         closeBackupModal(); toast('备份已恢复，正在重新载入工作台');
         setTimeout(function () { window.location.reload(); }, 700);
-      }).catch(function (error) { toast(error.message || '恢复失败，请检查网络'); });
-    };
-    reader.readAsText(file);
+      }).catch(function (error) { toast(error.message || '恢复失败，请检查网络'); button.disabled = false; button.textContent = '确认覆盖并恢复'; });
   }
 
   function submitAuth(event) {
@@ -7157,6 +7229,8 @@
     $('#backupExport').addEventListener('click', exportWorkspaceBackup);
     $('#backupImport').addEventListener('click', function () { $('#backupFileInput').click(); });
     $('#backupFileInput').addEventListener('change', importWorkspaceBackup);
+    $('#backupRestoreCancel').addEventListener('click', cancelBackupRestorePreview);
+    $('#backupRestoreConfirm').addEventListener('click', restorePendingWorkspaceBackup);
     $('#syncConflictReload').addEventListener('click', useCloudWorkspace);
     $('#syncConflictKeepLocal').addEventListener('click', keepLocalWorkspace);
     window.addEventListener('academic-workspace-conflict', function (event) { showWorkspaceConflict(event.detail); });
