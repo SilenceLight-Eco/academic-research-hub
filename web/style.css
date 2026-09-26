@@ -6850,8 +6850,15 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .ref-folder-heading { display:flex; align-items:center; justify-content:space-between; margin:11px 2px 4px; color:var(--text-muted); font-size:10px; letter-spacing:.06em; }
 .ref-folder-heading button { width:22px; height:22px; border:1px solid var(--hairline); border-radius:5px; background:var(--glass-strong); color:var(--accent); cursor:pointer; font:16px/1 "Noto Sans SC",sans-serif; }
 .ref-folder-heading button:hover { border-color:var(--accent); background:var(--accent-dim); }
+.ref-folder-create { display:flex; flex-wrap:wrap; gap:5px; padding:3px 2px 7px; }
+.ref-folder-create[hidden] { display:none; }
+.ref-folder-create input { flex:1 1 100%; min-width:0; box-sizing:border-box; padding:7px 8px; border:1px solid var(--hairline); border-radius:6px; outline:0; background:var(--glass-strong); color:var(--text); font:11px "Noto Sans SC",sans-serif; }
+.ref-folder-create input:focus { border-color:var(--accent); }
+.ref-folder-create button { padding:4px 8px; border:1px solid var(--hairline); border-radius:5px; background:var(--glass-strong); color:var(--text-secondary); cursor:pointer; font:10px "Noto Sans SC",sans-serif; }
+.ref-folder-create button[type="submit"] { border-color:var(--accent); color:var(--accent); }
 .ref-folders { display:grid; gap:2px; padding-bottom:8px; border-bottom:1px solid var(--hairline-soft); }
 .ref-folder-row { display:flex; min-width:0; align-items:center; gap:2px; border-radius:6px; }
+.ref-folder-row.is-drop-target { outline:1px dashed var(--accent); background:var(--accent-dim); }
 .ref-folder-row.is-active { background:var(--accent-dim); }
 .ref-folder-select { display:flex; min-width:0; flex:1; align-items:center; gap:7px; padding:6px 6px; border:0; background:transparent; color:var(--text-secondary); cursor:pointer; font:11px "Noto Sans SC",sans-serif; text-align:left; }
 .ref-folder-row.is-active .ref-folder-select { color:var(--accent); }
@@ -6862,6 +6869,8 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .ref-folder-row:hover .ref-folder-tools,.ref-folder-row:focus-within .ref-folder-tools { opacity:1; }
 .ref-folder-tools button { width:20px; height:20px; padding:0; border:0; border-radius:4px; background:transparent; color:var(--text-muted); cursor:pointer; font:12px "Noto Sans SC",sans-serif; }
 .ref-folder-tools button:hover { background:var(--glass-strong); color:var(--accent); }
+.ref-list-item[draggable="true"] { cursor:grab; }
+.ref-list-item.is-dragging { opacity:.42; cursor:grabbing; }
 .ref-folder-assignment { padding:0 0 12px; }
 .ref-folder-assignment label { display:grid; gap:4px; color:var(--text-muted); font-size:10px; }
 .ref-folder-assignment select { width:100%; padding:6px 0; border:0; border-bottom:1px solid var(--hairline); background:transparent; color:var(--text); font:12px "Noto Sans SC",sans-serif; }
