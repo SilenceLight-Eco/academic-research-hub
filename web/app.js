@@ -7151,6 +7151,13 @@
     $('#variableImport').addEventListener('click', function () { if (state.variableTrashOpen) { toast('请先退出回收站再导入'); return; } $('#variableImportFile').click(); });
     $('#variableImportFile').addEventListener('change', importVariableCsvFile);
     $('#variableImportDuplicateToggle').addEventListener('change', renderVariableImportPreview);
+    $('#variableImportMapping').addEventListener('change', function (event) {
+      var select = event.target.closest('[data-variable-import-field]');
+      if (!select || !pendingVariableCsvImport) return;
+      pendingVariableCsvImport.mapping[select.dataset.variableImportField] = Number(select.value);
+      renderVariableImportPreview();
+    });
+    $('#variableImportIssuesDownload').addEventListener('click', downloadVariableImportIssues);
     $('#variableImportClose').addEventListener('click', closeVariableImportPreview);
     $('#variableImportCancel').addEventListener('click', closeVariableImportPreview);
     $('#variableImportConfirm').addEventListener('click', commitVariableCsvImport);
@@ -8487,7 +8494,7 @@
 
   // ===== 变量库：按实证研究角色记录变量定义与测量口径 =====
   var variableRoles = ['被解释变量', '核心解释变量', '控制变量', '机制变量', '调节变量', '经济后果变量', '异质性分析变量', '其他'];
-  var pendingVariableCsvGroups = null;
+  var pendingVariableCsvImport = null;
   var variableCollapsedStorageKey = 'academic-workbench-variable-collapsed-v1';
   var variableCollapsedRoles = (function () { try { return JSON.parse(localStorage.getItem(variableCollapsedStorageKey) || '{}') || {}; } catch (_) { return {}; } }());
   function normalizeVariableRoles(role) {
@@ -8580,62 +8587,96 @@
     file.text().then(function (text) {
       var rows = parseVariableCsv(text.replace(/^\uFEFF/, '')).filter(function (row) { return row.some(function (value) { return String(value || '').trim(); }); });
       if (rows.length < 2) throw new Error('CSV 中没有可导入的数据行');
-      var headers = rows.shift().map(function (value) { return String(value || '').trim().replace(/^\uFEFF/, '').toLowerCase(); });
+      if (rows.length - 1 > 3000) throw new Error('CSV 最多支持导入 3,000 行');
+      var headerLabels = rows.shift().map(function (value) { return String(value || '').trim().replace(/^\uFEFF/, ''); });
+      var headers = headerLabels.map(function (value) { return value.toLowerCase(); });
       function column(names) { return headers.findIndex(function (header) { return names.indexOf(header) >= 0; }); }
-      var columns = {
-        id: column(['变量id', '变量编号', 'id']), name: column(['变量名称', '变量名', 'name', 'variable name']), role: column(['研究角色', 'role']),
-        definition: column(['概念定义', '变量定义', 'definition']), measure: column(['衡量方式', '计量方式', 'measure']),
-        source: column(['数据来源', '数据来源与口径', 'source']), paper: column(['参考文献', '文献依据', 'paper', 'reference'])
+      var fields = {
+        id: { label: '变量 ID', aliases: ['变量id', '变量编号', 'id'], optional: true },
+        name: { label: '变量名称（必填）', aliases: ['变量名称', '变量名', 'name', 'variable name'] },
+        role: { label: '研究角色', aliases: ['研究角色', 'role'], optional: true },
+        definition: { label: '概念定义', aliases: ['概念定义', '变量定义', 'definition'], optional: true },
+        measure: { label: '衡量方式', aliases: ['衡量方式', '计量方式', 'measure'], optional: true },
+        source: { label: '数据来源', aliases: ['数据来源', '数据来源与口径', 'source'], optional: true },
+        paper: { label: '参考文献', aliases: ['参考文献', '文献依据', 'paper', 'reference'], optional: true }
       };
-      if (columns.name < 0) throw new Error('找不到“变量名称”列');
-      var groups = [], byKey = Object.create(null);
-      rows.slice(0, 3000).forEach(function (row) {
-        function value(key) { return columns[key] >= 0 ? String(row[columns[key]] || '').trim() : ''; }
-        var name = value('name');
-        if (!name) return;
-        var roleText = value('role').split(/[、;,，；]/)[0].trim();
-        var role = variableRoles.indexOf(roleText) >= 0 ? roleText : '其他';
-        var definition = value('definition');
-        var source = value('source');
-        var measure = value('measure');
-        var paper = value('paper');
-        var externalId = value('id');
-        var key = externalId ? 'id:' + externalId : 'fallback:' + [name, role, definition].join('\u001f');
-        var group = byKey[key];
-        if (!group) { group = byKey[key] = { name: name.slice(0, 200), role: role, definition: definition.slice(0, 20000), entries: [] }; groups.push(group); }
-        group.entries.push({ role: [group.role], source: source.slice(0, 20000), measure: measure.slice(0, 20000), paper: paper.slice(0, 500) });
-      });
-      if (rows.length > 3000) throw new Error('CSV 最多支持导入 3,000 行');
-      if (!groups.length) throw new Error('没有找到有效的变量名称');
-      if (groups.length > 500) throw new Error('一次最多导入 500 个变量');
-      if (groups.some(function (group) { return group.entries.length > 100; })) throw new Error('单个变量最多支持 100 条衡量记录');
-      var existingKeys = Object.create(null);
-      (state.variableLibrary.items || []).forEach(function (item) {
-        existingKeys[[String(item.name || '').trim().toLocaleLowerCase(), normalizeVariableRoles(item.role)[0]].join('\u001f')] = true;
-      });
-      var seenKeys = Object.create(null);
-      groups.forEach(function (group) {
-        var key = [group.name.trim().toLocaleLowerCase(), group.role].join('\u001f');
-        group.duplicate = !!existingKeys[key] || !!seenKeys[key];
-        seenKeys[key] = true;
-      });
-      pendingVariableCsvGroups = groups;
+      var mapping = {};
+      Object.keys(fields).forEach(function (key) { mapping[key] = column(fields[key].aliases); });
+      pendingVariableCsvImport = {
+        headers: headerLabels,
+        rows: rows.map(function (cells, index) { return { cells: cells, record: index + 2 }; }),
+        fields: fields,
+        mapping: mapping,
+        fileName: file.name || 'variable-import.csv',
+        groups: [],
+        issues: [],
+        fatal: []
+      };
+      renderVariableImportMapping();
       $('#variableImportDuplicateToggle').checked = false;
       $('#variableImportModal').hidden = false;
       renderVariableImportPreview();
     }).catch(function (error) { toast((error && error.message) || 'CSV 导入失败'); });
   }
+  function renderVariableImportMapping() {
+    if (!pendingVariableCsvImport) return;
+    var data = pendingVariableCsvImport;
+    data.mappingMarkup = Object.keys(data.fields).map(function (key) {
+      var field = data.fields[key];
+      var options = '<option value="-1">' + (field.optional ? '不导入' : '请选择列') + '</option>' + data.headers.map(function (header, index) { return '<option value="' + index + '">' + escapeHtml(header || ('第 ' + (index + 1) + ' 列')) + '</option>'; }).join('');
+      return '<label class="variable-import-map-field">' + escapeHtml(field.label) + '<select data-variable-import-field="' + key + '"' + (key === 'name' ? ' required' : '') + '>' + options + '</select></label>';
+    }).join('');
+    $('#variableImportMapping').innerHTML = data.mappingMarkup;
+    Object.keys(data.mapping).forEach(function (key) {
+      var select = $('#variableImportMapping').querySelector('[data-variable-import-field="' + key + '"]');
+      if (select) select.value = String(data.mapping[key]);
+    });
+  }
   function renderVariableImportPreview() {
-    if (!pendingVariableCsvGroups) return;
-    var groups = pendingVariableCsvGroups;
+    if (!pendingVariableCsvImport) return;
+    var data = pendingVariableCsvImport;
+    var groups = [], byKey = Object.create(null), issues = [], fatal = [];
+    data.rows.forEach(function (record) {
+      var row = record.cells;
+      if (row.length !== data.headers.length) issues.push({ record: record.record, message: row.length < data.headers.length ? '列数少于表头' : '列数多于表头', cells: row });
+      function value(key) { var index = data.mapping[key]; return index >= 0 ? String(row[index] || '').trim() : ''; }
+      var name = value('name');
+      if (!name) { issues.push({ record: record.record, message: '变量名称为空，已跳过该行', cells: row }); return; }
+      var roleText = value('role').split(/[、;,，；]/)[0].trim();
+      var role = variableRoles.indexOf(roleText) >= 0 ? roleText : '其他';
+      if (roleText && role === '其他' && roleText !== '其他') issues.push({ record: record.record, message: '无法识别研究角色“' + roleText + '”，将按“其他”导入', cells: row });
+      var definition = value('definition'), source = value('source'), measure = value('measure'), paper = value('paper'), externalId = value('id');
+      var key = externalId ? 'id:' + externalId : 'fallback:' + [name, role, definition].join('\u001f');
+      var group = byKey[key];
+      if (!group) { group = byKey[key] = { name: name.slice(0, 200), role: role, definition: definition.slice(0, 20000), entries: [], sourceRecords: [] }; groups.push(group); }
+      group.sourceRecords.push(record.record);
+      group.entries.push({ role: [group.role], source: source.slice(0, 20000), measure: measure.slice(0, 20000), paper: paper.slice(0, 500) });
+    });
+    if (groups.length > 500) fatal.push('变量数量超过 500 个，请拆分文件后再导入。');
+    if (groups.some(function (group) { return group.entries.length > 100; })) fatal.push('单个变量的衡量记录超过 100 条，请拆分文件后再导入。');
+    if (!groups.length) fatal.push('没有识别到有效变量；请检查或调整“变量名称”列映射。');
+    var existingKeys = Object.create(null);
+    (state.variableLibrary.items || []).forEach(function (item) { existingKeys[[String(item.name || '').trim().toLocaleLowerCase(), normalizeVariableRoles(item.role)[0]].join('\u001f')] = true; });
+    var seenKeys = Object.create(null);
+    groups.forEach(function (group) {
+      var key = [group.name.trim().toLocaleLowerCase(), group.role].join('\u001f');
+      group.duplicate = !!existingKeys[key] || !!seenKeys[key];
+      seenKeys[key] = true;
+    });
+    data.groups = groups;
+    data.issues = issues;
+    data.fatal = fatal;
     var duplicates = groups.filter(function (group) { return group.duplicate; });
     var includeDuplicates = $('#variableImportDuplicateToggle').checked;
     var importable = groups.filter(function (group) { return includeDuplicates || !group.duplicate; });
-    $('#variableImportSummary').textContent = '识别到 ' + groups.length + ' 个变量、' + groups.reduce(function (sum, group) { return sum + group.entries.length; }, 0) + ' 条衡量记录；其中 ' + duplicates.length + ' 个与变量库现有条目同名且研究角色相同。';
+    $('#variableImportSummary').textContent = '识别到 ' + groups.length + ' 个变量、' + groups.reduce(function (sum, group) { return sum + group.entries.length; }, 0) + ' 条衡量记录；重复 ' + duplicates.length + ' 个，需检查 ' + issues.length + ' 行。';
+    $('#variableImportIssuesSummary').textContent = fatal.concat(issues.slice(0, 5).map(function (issue) { return 'CSV 记录 ' + issue.record + '：' + issue.message; })).join('；') + (issues.length > 5 ? '；另有 ' + (issues.length - 5) + ' 行问题或警告' : '');
+    $('#variableImportIssuesSummary').hidden = !fatal.length && !issues.length;
+    $('#variableImportIssuesDownload').hidden = !issues.length;
     $('#variableImportDuplicateWarning').hidden = !duplicates.length;
     $('#variableImportDuplicateWarning').textContent = duplicates.length ? (includeDuplicates ? '已选择同时导入重复项；不会覆盖已有变量。' : '重复项默认跳过，不会覆盖已有变量。可勾选下方选项强制导入。') : '未发现与现有变量重名且角色相同的条目。';
-    $('#variableImportConfirm').textContent = importable.length ? '导入 ' + importable.length + ' 个变量' : '没有可导入项';
-    $('#variableImportConfirm').disabled = importable.length === 0;
+    $('#variableImportConfirm').textContent = fatal.length ? '暂不可导入' : (importable.length ? '导入 ' + importable.length + ' 个变量' : '没有可导入项');
+    $('#variableImportConfirm').disabled = fatal.length > 0 || importable.length === 0;
     var visible = groups.slice(0, 80);
     $('#variableImportRows').innerHTML = visible.map(function (group) {
       return '<tr><td>' + escapeHtml(group.name) + '</td><td>' + escapeHtml(group.role) + '</td><td>' + group.entries.length + '</td><td><span class="variable-import-status' + (group.duplicate ? ' is-duplicate' : '') + '">' + (group.duplicate ? '重复' : '新增') + '</span></td></tr>';
@@ -8643,13 +8684,25 @@
     $('#variableImportMore').hidden = groups.length <= visible.length;
     $('#variableImportMore').textContent = groups.length > visible.length ? '仅预览前 ' + visible.length + ' 项；其余 ' + (groups.length - visible.length) + ' 项也会按相同规则处理。' : '';
   }
+  function downloadVariableImportIssues() {
+    if (!pendingVariableCsvImport || !pendingVariableCsvImport.issues.length) return;
+    function csvCell(value) { return '"' + String(value == null ? '' : value).replace(/"/g, '""') + '"'; }
+    var data = pendingVariableCsvImport;
+    var output = [data.headers.concat(['导入问题/警告']).map(csvCell).join(',')];
+    data.issues.forEach(function (issue) { output.push(issue.cells.concat(['CSV 记录 ' + issue.record + '：' + issue.message]).map(csvCell).join(',')); });
+    var blob = new Blob(['\uFEFF' + output.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    var url = URL.createObjectURL(blob), link = document.createElement('a');
+    link.href = url;
+    link.download = '变量导入问题-' + new Date().toISOString().slice(0, 10) + '.csv';
+    document.body.appendChild(link); link.click(); link.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
   function closeVariableImportPreview() {
-    pendingVariableCsvGroups = null;
+    pendingVariableCsvImport = null;
     $('#variableImportModal').hidden = true;
   }
   function commitVariableCsvImport() {
-    if (!pendingVariableCsvGroups) return;
-    var allGroups = pendingVariableCsvGroups;
+    if (!pendingVariableCsvImport) return;
+    var allGroups = pendingVariableCsvImport.groups;
     var includeDuplicates = $('#variableImportDuplicateToggle').checked;
     var groups = allGroups.filter(function (group) { return includeDuplicates || !group.duplicate; });
     if (!groups.length) return;

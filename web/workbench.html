@@ -8,7 +8,7 @@
   <link rel="apple-touch-icon" href="icon-180.png">
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#174e4a">
-  <link rel="stylesheet" href="style.css?v=20260926-13">
+  <link rel="stylesheet" href="style.css?v=20260926-14">
   <style>.sidebar-nav .retired-content{display:none!important}</style>
 </head>
 <body>
@@ -1350,6 +1350,9 @@
     <button class="auth-close" id="variableImportClose" type="button" aria-label="关闭">×</button>
     <h2 id="variableImportTitle">导入变量预览</h2>
     <p class="auth-desc" id="variableImportSummary"></p>
+    <div class="variable-import-mapping" id="variableImportMapping" aria-label="CSV 字段映射"></div>
+    <p class="variable-import-issues" id="variableImportIssuesSummary" role="status" hidden></p>
+    <button class="variable-import-issues-download" id="variableImportIssuesDownload" type="button" hidden>下载问题行 CSV</button>
     <p class="variable-import-warning" id="variableImportDuplicateWarning" hidden></p>
     <div class="variable-import-table-wrap"><table class="variable-import-table"><thead><tr><th>变量名称</th><th>研究角色</th><th>衡量记录</th><th>状态</th></tr></thead><tbody id="variableImportRows"></tbody></table></div>
     <p class="variable-import-more" id="variableImportMore" hidden></p>
@@ -1455,7 +1458,7 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
   <script src="static-api.js?v=20260926-7"></script>
-  <script src="app.js?v=20260926-15"></script>
+  <script src="app.js?v=20260926-16"></script>
   <script src="attachments.js?v=20260925-1"></script>
 </body>
 </html>
