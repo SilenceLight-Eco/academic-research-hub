@@ -7162,6 +7162,7 @@
     $('#variableImportCancel').addEventListener('click', closeVariableImportPreview);
     $('#variableImportConfirm').addEventListener('click', commitVariableCsvImport);
     $('#variableImportModal').addEventListener('click', function (event) { if (event.target === $('#variableImportBackdrop')) closeVariableImportPreview(); });
+    $('#variableTemplate').addEventListener('click', downloadVariableCsvTemplate);
     $('#variableExport').addEventListener('click', exportVariableCsv);
     $('#variableSave').addEventListener('click', saveVariable);
     $('#variableDelete').addEventListener('click', trashVariable);
@@ -8559,6 +8560,22 @@
     link.remove();
     setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
     toast('变量库 CSV 已导出，可用 Excel 打开');
+  }
+  function downloadVariableCsvTemplate() {
+    var rows = [
+      ['变量ID', '变量名称', '研究角色', '概念定义', '衡量方式', '数据来源', '参考文献'],
+      ['示例行-导入前请删除', '示例变量（请修改或删除）', '被解释变量', '请替换为变量的理论含义与研究语境', '请填写指标构造、计算公式或赋值规则', '请填写数据集名称、样本范围与口径', '请填写作者、年份或 DOI']
+    ];
+    var csv = '\uFEFF' + rows.map(function (row) { return row.map(csvCell).join(','); }).join('\r\n');
+    var url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    var link = document.createElement('a');
+    link.href = url;
+    link.download = '变量库导入模板-' + new Date().toISOString().slice(0, 10) + '.csv';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    toast('模板已下载。请替换或删除示例行后再导入');
   }
   function parseVariableCsv(text) {
     var rows = [], row = [], cell = '', quoted = false;
