@@ -7719,8 +7719,7 @@
       if (!select) return;
       var folderId = select.dataset.refFolderSelect;
       if (String(folderId) === String(state.referenceFolderId)) {
-        state.referenceCollapsedFolders[folderId] = state.referenceCollapsedFolders[folderId] === false;
-        renderReferenceFolders();
+        toggleReferenceFolder(folderId);
         return;
       }
       afterCurrentEditorSaved('references', function () {
@@ -8829,7 +8828,19 @@
     $('#refFolderAll').classList.toggle('is-active', String(state.referenceFolderId) === 'all');
     root.innerHTML = folderRow('unfiled', '未分类', false) + folders.map(function (folder) { return folderRow(folder.id, folder.name || '未命名文件夹', true); }).join('');
   }
-  function toggleReferenceFolder(id) { state.referenceCollapsedFolders[id] = state.referenceCollapsedFolders[id] === false; renderReferenceFolders(); }
+  function toggleReferenceFolder(id) {
+    var section = $$('.ref-folder-section[data-ref-folder-section]', $('#refFolders')).find(function (entry) { return String(entry.dataset.refFolderSection) === String(id); });
+    if (!section) return;
+    var contents = $('.ref-folder-contents', section), toggle = $('[data-ref-folder-toggle]', section);
+    var expanded = !!(contents && contents.hidden);
+    state.referenceCollapsedFolders[id] = !expanded;
+    if (contents) contents.hidden = !expanded;
+    if (toggle) {
+      toggle.setAttribute('aria-expanded', String(expanded));
+      toggle.setAttribute('aria-label', (expanded ? '折叠' : '展开') + ($('.ref-folder-name', section) || {}).textContent);
+      var glyph = $('span', toggle); if (glyph) glyph.textContent = expanded ? '⌄' : '›';
+    }
+  }
   function createReferenceFolder(name) {
     name = String(name || '').trim();
     if (!name) { $('#refFolderNameInput').focus(); return; }
