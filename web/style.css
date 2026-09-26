@@ -6543,6 +6543,10 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .prompt-folder { min-width:0; }
 .prompt-folder-row { display:flex; align-items:center; gap:2px; }
 .prompt-folder-toggle { flex:1; }
+.prompt-folder-toggle,.prompt-folder-contents .prompt-list-item { cursor:grab; }
+.prompt-folder-toggle:active,.prompt-folder-contents .prompt-list-item:active { cursor:grabbing; }
+.prompt-folder-toggle.is-dragging,.prompt-list-item.is-dragging { opacity:.42; }
+.prompt-folder-toggle.is-drop-target,.prompt-list-item.is-drop-target,.prompt-folder-contents.is-drop-target { outline:1px dashed var(--accent); outline-offset:1px; background:var(--accent-dim); }
 .prompt-folder-management { display:flex; flex:none; gap:1px; opacity:0; transition:opacity .15s ease; }
 .prompt-folder:hover .prompt-folder-management,.prompt-folder:focus-within .prompt-folder-management { opacity:1; }
 .prompt-folder-management button { width:23px; height:23px; border:0; border-radius:5px; background:transparent; color:var(--text-muted); cursor:pointer; font:13px/1 sans-serif; }

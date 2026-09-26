@@ -462,6 +462,25 @@
       var dataRevision = workspaceRevision;
       activeWritePayload = data;
       activeWriteRevision = dataRevision;
+      if (path === '/api/prompt-library' && body.action === 'reorder') {
+        var orderedLibrary = data.promptLibrary || (data.promptLibrary = { prompts: [], trash: [], categories: ['通用'] });
+        orderedLibrary.prompts = Array.isArray(orderedLibrary.prompts) ? orderedLibrary.prompts : [];
+        orderedLibrary.trash = Array.isArray(orderedLibrary.trash) ? orderedLibrary.trash : [];
+        orderedLibrary.categories = Array.isArray(orderedLibrary.categories) ? orderedLibrary.categories : [];
+        var editedPrompt = body.currentPrompt;
+        if (editedPrompt && editedPrompt.id != null) orderedLibrary.prompts.forEach(function (prompt) { if (String(prompt.id) === String(editedPrompt.id)) { prompt.title = String(editedPrompt.title || '未命名提示词').trim(); prompt.category = String(editedPrompt.category || '通用').trim() || '通用'; prompt.tags = String(editedPrompt.tags || '').trim(); prompt.body = String(editedPrompt.body || ''); prompt.updated = nowText(); } });
+        if (body.movePromptId != null && String(body.movePromptCategory || '').trim()) orderedLibrary.prompts.forEach(function (prompt) { if (String(prompt.id) === String(body.movePromptId)) prompt.category = String(body.movePromptCategory).trim().slice(0, 40); });
+        var requestedCategories = Array.isArray(body.categories) ? body.categories.map(function (item) { return String(item || '').trim().slice(0, 40); }).filter(Boolean) : [];
+        var allPromptCategories = orderedLibrary.prompts.map(function (prompt) { return String(prompt.category || '通用').trim() || '通用'; });
+        orderedLibrary.categories = Array.from(new Set(requestedCategories.concat(orderedLibrary.categories, allPromptCategories)));
+        var promptById = new Map(orderedLibrary.prompts.map(function (prompt) { return [String(prompt.id), prompt]; }));
+        var nextPromptOrder = [];
+        (Array.isArray(body.promptIds) ? body.promptIds : []).forEach(function (id) { var prompt = promptById.get(String(id)); if (prompt && nextPromptOrder.indexOf(prompt) < 0) nextPromptOrder.push(prompt); });
+        orderedLibrary.prompts.forEach(function (prompt) { if (nextPromptOrder.indexOf(prompt) < 0) nextPromptOrder.push(prompt); });
+        orderedLibrary.prompts = nextPromptOrder;
+        await saveWorkspace(data, dataRevision);
+        return response({ ok: true, promptLibrary: orderedLibrary });
+      }
       if (path === '/api/prompt-library' && (body.action === 'rename-category' || body.action === 'delete-category')) {
         var promptLibrary = data.promptLibrary || (data.promptLibrary = { prompts: [], trash: [], categories: ['通用'] });
         promptLibrary.prompts = Array.isArray(promptLibrary.prompts) ? promptLibrary.prompts : [];

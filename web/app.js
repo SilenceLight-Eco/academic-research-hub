@@ -51,6 +51,8 @@
     promptCategoryFilter: 'all',
     promptCollapsedCategories: {},
     promptCategoryRenaming: null,
+    promptDrag: null,
+    promptSuppressClickUntil: 0,
     researchProjects: { projects: [], trash: [] },
     projectId: null,
     projectTrashOpen: false,
@@ -7054,8 +7056,13 @@
     ['promptTitle', 'promptTags', 'promptBody'].forEach(function (id) { $('#' + id).addEventListener('input', function () { renderPromptResult(); queuePromptAutoSave(); }); });
     $('#promptCategory').addEventListener('change', queuePromptAutoSave);
     $('#promptVariables').addEventListener('input', renderPromptResult);
-    $('#promptList').addEventListener('click', function (e) { var restore = e.target.closest('[data-prompt-restore]'); if (restore) { restorePrompt(restore.dataset.promptRestore); return; } var purge = e.target.closest('[data-prompt-purge]'); if (purge) { purgePrompt(purge.dataset.promptPurge); return; } if (e.target.closest('[data-prompt-category-create]')) { state.promptCategoryCreating = true; renderPromptLibrary(); $('#promptCategoryName').focus(); return; } if (e.target.closest('[data-prompt-category-cancel]')) { state.promptCategoryCreating = false; renderPromptLibrary(); return; } var renameCancel = e.target.closest('[data-prompt-folder-rename-cancel]'); if (renameCancel) { state.promptCategoryRenaming = null; renderPromptLibrary(); return; } var renameFolder = e.target.closest('[data-prompt-folder-rename]'); if (renameFolder) { state.promptCategoryRenaming = renameFolder.dataset.promptFolderRename; renderPromptLibrary(); $('#promptFolderRenameName').focus(); $('#promptFolderRenameName').select(); return; } var deleteFolder = e.target.closest('[data-prompt-folder-delete]'); if (deleteFolder) { deletePromptCategory(deleteFolder.dataset.promptFolderDelete); return; } var folderNew = e.target.closest('[data-prompt-folder-new]'); if (folderNew) { state.promptCategoryFilter = folderNew.dataset.promptFolderNew; newPrompt(state.promptCategoryFilter); return; } var folderToggle = e.target.closest('[data-prompt-folder-toggle]'); if (folderToggle) { var folderName = folderToggle.dataset.promptFolderToggle; state.promptCategoryFilter = folderName; state.promptCollapsedCategories[folderName] = folderToggle.getAttribute('aria-expanded') === 'true'; renderPromptLibrary(); return; } var allPrompts = e.target.closest('[data-prompt-category="all"]'); if (allPrompts) { state.promptCategoryFilter = 'all'; renderPromptLibrary(); return; } var prompt = e.target.closest('[data-prompt-id]'); if (!prompt) return; state.promptId = Number(prompt.dataset.promptId); renderPromptLibrary(); });
+    $('#promptList').addEventListener('click', function (e) { if (Date.now() < state.promptSuppressClickUntil) { e.preventDefault(); return; } var restore = e.target.closest('[data-prompt-restore]'); if (restore) { restorePrompt(restore.dataset.promptRestore); return; } var purge = e.target.closest('[data-prompt-purge]'); if (purge) { purgePrompt(purge.dataset.promptPurge); return; } if (e.target.closest('[data-prompt-category-create]')) { state.promptCategoryCreating = true; renderPromptLibrary(); $('#promptCategoryName').focus(); return; } if (e.target.closest('[data-prompt-category-cancel]')) { state.promptCategoryCreating = false; renderPromptLibrary(); return; } var renameCancel = e.target.closest('[data-prompt-folder-rename-cancel]'); if (renameCancel) { state.promptCategoryRenaming = null; renderPromptLibrary(); return; } var renameFolder = e.target.closest('[data-prompt-folder-rename]'); if (renameFolder) { state.promptCategoryRenaming = renameFolder.dataset.promptFolderRename; renderPromptLibrary(); $('#promptFolderRenameName').focus(); $('#promptFolderRenameName').select(); return; } var deleteFolder = e.target.closest('[data-prompt-folder-delete]'); if (deleteFolder) { deletePromptCategory(deleteFolder.dataset.promptFolderDelete); return; } var folderNew = e.target.closest('[data-prompt-folder-new]'); if (folderNew) { state.promptCategoryFilter = folderNew.dataset.promptFolderNew; newPrompt(state.promptCategoryFilter); return; } var folderToggle = e.target.closest('[data-prompt-folder-toggle]'); if (folderToggle) { var folderName = folderToggle.dataset.promptFolderToggle; state.promptCategoryFilter = folderName; state.promptCollapsedCategories[folderName] = folderToggle.getAttribute('aria-expanded') === 'true'; renderPromptLibrary(); return; } var allPrompts = e.target.closest('[data-prompt-category="all"]'); if (allPrompts) { state.promptCategoryFilter = 'all'; renderPromptLibrary(); return; } var prompt = e.target.closest('[data-prompt-id]'); if (!prompt) return; state.promptId = Number(prompt.dataset.promptId); renderPromptLibrary(); });
     $('#promptList').addEventListener('submit', function (e) { if (e.target.id === 'promptCategoryCreateForm') { e.preventDefault(); createPromptCategory($('#promptCategoryName').value); return; } if (e.target.id === 'promptCategoryRenameForm') { e.preventDefault(); renamePromptCategory(state.promptCategoryRenaming, $('#promptFolderRenameName').value); } });
+    $('#promptList').addEventListener('dragstart', function (e) { var folder = e.target.closest('[data-prompt-folder-toggle]'); var prompt = e.target.closest('[data-prompt-id]'); if (folder) state.promptDrag = { type: 'folder', category: folder.dataset.promptFolderToggle }; else if (prompt) state.promptDrag = { type: 'prompt', id: String(prompt.dataset.promptId) }; else { e.preventDefault(); return; } e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', 'prompt-library-item'); setTimeout(function () { var dragged = e.target.closest('.prompt-folder,.prompt-list-item'); if (dragged) dragged.classList.add('is-dragging'); }, 0); });
+    $('#promptList').addEventListener('dragover', function (e) { if (!state.promptDrag) return; var target = e.target.closest('[data-prompt-folder-toggle],[data-prompt-id],.prompt-folder-contents'); if (target) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; target.classList.add('is-drop-target'); } });
+    $('#promptList').addEventListener('dragleave', function (e) { var target = e.target.closest('.is-drop-target'); if (target && !target.contains(e.relatedTarget)) target.classList.remove('is-drop-target'); });
+    $('#promptList').addEventListener('drop', function (e) { if (!state.promptDrag) return; var folder = e.target.closest('[data-prompt-folder-toggle]') || (e.target.closest('.prompt-folder') && e.target.closest('.prompt-folder').querySelector('[data-prompt-folder-toggle]')); var prompt = e.target.closest('[data-prompt-id]'); var dragged = state.promptDrag; e.preventDefault(); $$('.is-drop-target', this).forEach(function (node) { node.classList.remove('is-drop-target'); }); if (dragged.type === 'folder') { var targetCategory = folder ? folder.dataset.promptFolderToggle : (prompt && ((state.promptLibrary.prompts || []).find(function (item) { return String(item.id) === String(prompt.dataset.promptId); }) || {}).category); if (targetCategory) reorderPromptFolder(dragged.category, targetCategory); } else if (prompt && String(prompt.dataset.promptId) !== dragged.id) reorderPromptItem(dragged.id, String(prompt.dataset.promptId)); else if (folder) movePromptToFolder(dragged.id, folder.dataset.promptFolderToggle); state.promptSuppressClickUntil = Date.now() + 350; state.promptDrag = null; });
+    $('#promptList').addEventListener('dragend', function () { state.promptDrag = null; $$('.is-dragging,.is-drop-target', this).forEach(function (node) { node.classList.remove('is-dragging', 'is-drop-target'); }); });
     $('#promptList').addEventListener('dblclick', function (event) { if (state.promptTrashOpen || event.target.closest('button, [data-prompt-id], [data-prompt-folder-toggle]')) return; if (event.target === this || event.target.closest('[data-prompt-create]')) newPrompt(); });
     $('#promptList').addEventListener('keydown', function (event) { if (!event.target.closest('[data-prompt-create]') || (event.key !== 'Enter' && event.key !== ' ')) return; event.preventDefault(); newPrompt(); });
     $('#projectNew').addEventListener('click', newResearchProject);
@@ -8617,7 +8624,7 @@
     var fields = ['promptTitle', 'promptCategory', 'promptTags', 'promptBody'];
     $('#promptTrash').textContent = state.promptTrashOpen ? '返回提示词库' : '回收站' + (trash.length ? ' (' + trash.length + ')' : '');
     if (state.promptTrashOpen) { list.innerHTML = recycleBinToolbar('prompt', '提示词', trash.length) + (trash.length ? trash.map(function (entry) { return '<div class="prompt-trash-row"><div><b>' + escapeHtml((entry.item || {}).title || '未命名提示词') + '</b><span>' + escapeHtml(entry.deletedAt || '') + '</span></div><div><button type="button" data-prompt-restore="' + entry.id + '">恢复</button><button type="button" data-prompt-purge="' + entry.id + '">彻底删除</button></div></div>'; }).join('') : '<div class="prompt-list-empty">回收站为空</div>'); fields.forEach(function (id) { $('#' + id).value = ''; $('#' + id).disabled = true; }); $('#promptDelete').hidden = true; $('#promptVariables').innerHTML = ''; $('#promptResult').textContent = '可在左侧恢复误删的提示词。'; return; }
-    var categories = Array.from(new Set((library.categories || []).concat(prompts.map(function (prompt) { return (prompt.category || '通用').trim() || '通用'; })))).sort(function (left, right) { if (left === '通用') return -1; if (right === '通用') return 1; return left.localeCompare(right, 'zh-CN'); });
+    var categories = Array.from(new Set((library.categories || []).concat(prompts.map(function (prompt) { return (prompt.category || '通用').trim() || '通用'; }))));
     var visible = prompts;
     if (!visible.some(function (prompt) { return Number(prompt.id) === Number(state.promptId); })) state.promptId = visible[0] ? visible[0].id : null;
     var active = activePrompt();
@@ -8625,8 +8632,8 @@
       var folderPrompts = prompts.filter(function (prompt) { return ((prompt.category || '通用').trim() || '通用') === category; });
       var collapsed = state.promptCollapsedCategories[category] === true;
       var management = '<span class="prompt-folder-management">' + (category === '通用' ? '' : '<button type="button" data-prompt-folder-rename="' + escapeAttribute(category) + '" title="重命名文件夹" aria-label="重命名文件夹 ' + escapeAttribute(category) + '">✎</button>') + '<button type="button" data-prompt-folder-delete="' + escapeAttribute(category) + '" title="删除文件夹" aria-label="删除文件夹 ' + escapeAttribute(category) + '">×</button></span>';
-      var folderHeader = state.promptCategoryRenaming === category ? '<form class="prompt-folder-rename-form" id="promptCategoryRenameForm"><input id="promptFolderRenameName" maxlength="40" value="' + escapeAttribute(category) + '" aria-label="文件夹新名称" required><button type="submit">保存</button><button type="button" data-prompt-folder-rename-cancel>取消</button></form>' : '<div class="prompt-folder-row"><button type="button" class="prompt-folder-toggle' + (state.promptCategoryFilter === category ? ' is-selected' : '') + '" data-prompt-folder-toggle="' + escapeAttribute(category) + '" aria-expanded="' + (!collapsed) + '"><span class="prompt-folder-chevron" aria-hidden="true">' + (collapsed ? '▸' : '▾') + '</span><span class="prompt-folder-icon" aria-hidden="true">' + (collapsed ? '📁' : '📂') + '</span><b>' + escapeHtml(category) + '</b><span class="prompt-folder-count">' + folderPrompts.length + '</span></button>' + management + '<button type="button" class="prompt-folder-add" data-prompt-folder-new="' + escapeAttribute(category) + '" title="在此文件夹中新建提示词" aria-label="在 ' + escapeAttribute(category) + ' 中新建提示词">＋</button></div>';
-      return '<section class="prompt-folder">' + folderHeader + '<div class="prompt-folder-contents"' + (collapsed ? ' hidden' : '') + '>' + (folderPrompts.length ? folderPrompts.map(function (prompt) { return '<button type="button" class="prompt-list-item' + (Number(prompt.id) === Number(state.promptId) ? ' is-active' : '') + '" data-prompt-id="' + prompt.id + '"><b>' + escapeHtml(prompt.title || '未命名提示词') + '</b><span>' + escapeHtml(prompt.updated || '') + '</span></button>'; }).join('') : '<button type="button" class="prompt-folder-empty" data-prompt-folder-new="' + escapeHtml(category) + '">此文件夹为空，点击 ＋ 新建</button>') + '</div></section>';
+      var folderHeader = state.promptCategoryRenaming === category ? '<form class="prompt-folder-rename-form" id="promptCategoryRenameForm"><input id="promptFolderRenameName" maxlength="40" value="' + escapeAttribute(category) + '" aria-label="文件夹新名称" required><button type="submit">保存</button><button type="button" data-prompt-folder-rename-cancel>取消</button></form>' : '<div class="prompt-folder-row"><button type="button" draggable="true" title="拖动以调整文件夹顺序；点击展开或折叠" class="prompt-folder-toggle' + (state.promptCategoryFilter === category ? ' is-selected' : '') + '" data-prompt-folder-toggle="' + escapeAttribute(category) + '" aria-expanded="' + (!collapsed) + '"><span class="prompt-folder-chevron" aria-hidden="true">' + (collapsed ? '▸' : '▾') + '</span><span class="prompt-folder-icon" aria-hidden="true">' + (collapsed ? '📁' : '📂') + '</span><b>' + escapeHtml(category) + '</b><span class="prompt-folder-count">' + folderPrompts.length + '</span></button>' + management + '<button type="button" class="prompt-folder-add" data-prompt-folder-new="' + escapeAttribute(category) + '" title="在此文件夹中新建提示词" aria-label="在 ' + escapeAttribute(category) + ' 中新建提示词">＋</button></div>';
+      return '<section class="prompt-folder">' + folderHeader + '<div class="prompt-folder-contents"' + (collapsed ? ' hidden' : '') + '>' + (folderPrompts.length ? folderPrompts.map(function (prompt) { return '<button type="button" draggable="true" title="拖动以调整顺序或移动到其他文件夹" class="prompt-list-item' + (Number(prompt.id) === Number(state.promptId) ? ' is-active' : '') + '" data-prompt-id="' + prompt.id + '"><b>' + escapeHtml(prompt.title || '未命名提示词') + '</b><span>' + escapeHtml(prompt.updated || '') + '</span></button>'; }).join('') : '<button type="button" class="prompt-folder-empty" data-prompt-folder-new="' + escapeHtml(category) + '">此文件夹为空，点击 ＋ 新建</button>') + '</div></section>';
     }).join('') + '</div>';
     list.innerHTML = categoryToolbar;
     $('#promptCategory').innerHTML = categories.map(function (category) { return '<option value="' + escapeAttribute(category) + '">' + escapeHtml(category) + '</option>'; }).join('');
@@ -8691,6 +8698,56 @@
       renderPromptLibrary();
       toast('文件夹已删除，提示词已移入“' + destination + '”');
     }).catch(function () { toast('删除文件夹失败，请检查网络'); });
+  }
+  function promptFolderOrder() {
+    var library = state.promptLibrary || {}, prompts = library.prompts || [];
+    return Array.from(new Set((library.categories || []).concat(prompts.map(function (prompt) { return (prompt.category || '通用').trim() || '通用'; }))));
+  }
+  function persistPromptLibraryOrder(categories, prompts, movePromptId, movePromptCategory) {
+    return api('/api/prompt-library', { method: 'POST', body: JSON.stringify({ action: 'reorder', categories: categories, promptIds: prompts.map(function (prompt) { return prompt.id; }), movePromptId: movePromptId || null, movePromptCategory: movePromptCategory || '', currentPrompt: state.promptId ? readPromptPayload() : null }) }).then(function (res) {
+      if (!res.ok) { toast(res.error || '排序保存失败'); return; }
+      state.promptLibrary = res.promptLibrary;
+      renderPromptLibrary();
+      toast('提示词顺序已保存');
+    }).catch(function () { toast('排序保存失败，请检查网络'); });
+  }
+  function reorderPromptFolder(sourceCategory, targetCategory) {
+    if (!sourceCategory || !targetCategory || sourceCategory === targetCategory) return;
+    var categories = promptFolderOrder();
+    var sourceIndex = categories.indexOf(sourceCategory), targetIndex = categories.indexOf(targetCategory);
+    if (sourceIndex < 0 || targetIndex < 0) return;
+    categories.splice(sourceIndex, 1);
+    categories.splice(categories.indexOf(targetCategory), 0, sourceCategory);
+    persistPromptLibraryOrder(categories, (state.promptLibrary.prompts || []).slice());
+  }
+  function reorderPromptItem(sourceId, targetId) {
+    var prompts = (state.promptLibrary.prompts || []).slice();
+    var sourceIndex = prompts.findIndex(function (item) { return String(item.id) === String(sourceId); });
+    var targetIndex = prompts.findIndex(function (item) { return String(item.id) === String(targetId); });
+    if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return;
+    var source = prompts[sourceIndex], target = prompts[targetIndex];
+    source.category = (target.category || '通用').trim() || '通用';
+    prompts.splice(sourceIndex, 1);
+    targetIndex = prompts.findIndex(function (item) { return String(item.id) === String(targetId); });
+    prompts.splice(targetIndex, 0, source);
+    state.promptCategoryFilter = source.category;
+    state.promptCollapsedCategories[source.category] = false;
+    persistPromptLibraryOrder(promptFolderOrder(), prompts, sourceId, source.category);
+  }
+  function movePromptToFolder(promptId, category) {
+    var prompts = (state.promptLibrary.prompts || []).slice();
+    var sourceIndex = prompts.findIndex(function (item) { return String(item.id) === String(promptId); });
+    if (sourceIndex < 0) return;
+    var source = prompts[sourceIndex];
+    if ((source.category || '通用').trim() === category) return;
+    source.category = category;
+    prompts.splice(sourceIndex, 1);
+    var targetIndexes = [];
+    prompts.forEach(function (item, index) { if ((item.category || '通用').trim() === category) targetIndexes.push(index); });
+    prompts.splice(targetIndexes.length ? targetIndexes[targetIndexes.length - 1] + 1 : prompts.length, 0, source);
+    state.promptCategoryFilter = category;
+    state.promptCollapsedCategories[category] = false;
+    persistPromptLibraryOrder(promptFolderOrder(), prompts, promptId, category);
   }
   function readPromptPayload() { return { action: 'save', id: state.promptId, title: $('#promptTitle').value, category: $('#promptCategory').value, tags: $('#promptTags').value, body: $('#promptBody').value }; }
   function persistPrompt(body, automatic) { return api('/api/prompt-library', { method: 'POST', body: JSON.stringify(body) }).then(function (res) { if (!res.ok) throw new Error(res.error || '保存失败'); state.promptLibrary = res.promptLibrary; if (!automatic) { renderPromptLibrary(); toast('提示词已同步保存'); } }); }
