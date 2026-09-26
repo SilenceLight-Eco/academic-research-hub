@@ -8756,7 +8756,7 @@
   // ===== 变量库：按实证研究角色记录变量定义与测量口径 =====
   var variableRoles = ['被解释变量', '核心解释变量', '控制变量', '机制变量', '调节变量', '经济后果变量', '异质性分析变量', '其他'];
   var pendingVariableCsvImport = null;
-  var variableCollapsedStorageKey = 'academic-workbench-variable-collapsed-v1';
+  var variableCollapsedStorageKey = 'academic-workbench-variable-collapsed-v2';
   var variableCollapsedRoles = (function () { try { return JSON.parse(localStorage.getItem(variableCollapsedStorageKey) || '{}') || {}; } catch (_) { return {}; } }());
   function normalizeVariableRoles(role) {
     var roles = Array.isArray(role) ? role : [role];
@@ -9197,10 +9197,10 @@
     list.innerHTML = visible.length || !query ? '<div class="variable-list-label">研究角色</div>' + variableRoles.map(function (role) {
       var group = visible.filter(function (item) { return normalizedVariableMeasureReferences(item).some(function (entry) { return normalizeVariableRoles(entry.role).indexOf(role) >= 0; }); });
       if (!group.length && query) return '';
-      var collapsed = !!variableCollapsedRoles[role];
-      return '<section class="variable-role-group"><div class="variable-role-heading-row"><button type="button" class="variable-role-title' + (collapsed ? ' is-collapsed' : '') + '" data-variable-collapse="' + escapeHtml(role) + '" title="单击折叠或展开" aria-expanded="' + (!collapsed) + '"><span>' + escapeHtml(role) + '</span><span class="variable-role-count">' + group.length + '</span><span class="variable-role-chevron" aria-hidden="true">⌄</span></button></div><div class="variable-role-items"' + (collapsed ? ' hidden' : '') + '>' + (group.length ? group.map(function (item) {
+      var collapsed = Object.prototype.hasOwnProperty.call(variableCollapsedRoles, role) ? !!variableCollapsedRoles[role] : true;
+      return '<section class="variable-role-group"><div class="variable-role-heading-row"><button type="button" class="variable-role-title' + (collapsed ? ' is-collapsed' : '') + '" data-variable-collapse="' + escapeHtml(role) + '" title="单击折叠或展开" aria-expanded="' + (!collapsed) + '"><span>' + escapeHtml(role) + '</span><span class="variable-role-count">' + group.length + '</span><span class="variable-role-chevron" aria-hidden="true">⌄</span></button><button type="button" class="variable-role-add" data-variable-role-add="' + escapeHtml(role) + '" aria-label="在' + escapeHtml(role) + '下新建变量" title="新建此研究角色的变量">＋</button></div><div class="variable-role-items"' + (collapsed ? ' hidden' : '') + '>' + (group.length ? group.map(function (item) {
         return '<button type="button" class="variable-list-item' + (String(item.id) === String(state.variableId) ? ' is-active' : '') + '" draggable="true" data-variable-id="' + escapeHtml(item.id) + '" title="拖动调整顺序"><b>' + escapeHtml(item.name || '未命名变量') + '</b><span class="variable-sort-handle" aria-hidden="true">⠿</span></button>';
-      }).join('') : '<div class="variable-role-empty">暂无变量</div>') + '<button type="button" class="variable-role-add" data-variable-role-add="' + escapeHtml(role) + '" aria-label="在' + escapeHtml(role) + '下新建变量" title="新建此研究角色的变量">＋</button></div></section>';
+      }).join('') : '<div class="variable-role-empty">暂无变量</div>') + '</div></section>';
     }).join('') : '<div class="variable-empty">' + (items.length ? '没有匹配的变量' : '还没有变量记录<br>点击“新建变量”开始整理') + '</div>';
     var active = activeVariable();
     variableFields().forEach(function (id) { $('#' + id).disabled = false; $('#' + id).readOnly = !active; });
