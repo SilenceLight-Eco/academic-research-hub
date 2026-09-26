@@ -7672,6 +7672,8 @@
     $('#refCopyCitation').addEventListener('click', function () { copyReference(referenceCitation(activeReference()), '引用'); });
     $('#refCopyInTextCitation').addEventListener('click', function () { copyReference(referenceInTextCitation(activeReference()), '文内引用'); });
     $('#refCopyBibtex').addEventListener('click', function () { copyReference(referenceBibtex(activeReference()), 'BibTeX'); });
+    $('#refCopyBibliography').addEventListener('click', copyFilteredReferenceBibliography);
+    $('#refDownloadBibliography').addEventListener('click', downloadFilteredReferenceBibliography);
     $('#refCitationStyle').addEventListener('change', function () {
       state.referenceCitationStyle = this.value;
       try { localStorage.setItem('academic-workbench-reference-citation-style-v1', this.value); } catch (_) {}
@@ -8694,12 +8696,13 @@
   function renderReferenceLibrary() {
     var library = state.referenceLibrary || { items: [], trash: [] }, items = library.items || [], trash = library.trash || [], list = $('#refList');
     $('#refTrash').textContent = state.referenceTrashOpen ? '返回文献库' : '回收站' + (trash.length ? ' (' + trash.length + ')' : '');
+    if (state.referenceTrashOpen) $('#refBibliographyCount').textContent = '回收站内容不参与导出';
     if (state.referenceTrashOpen) {
       list.innerHTML = recycleBinToolbar('reference', '文献与引用', trash.length) + (trash.length ? trash.map(function (entry) { return '<div class="ref-trash-row"><div><b>' + escapeHtml((entry.item || {}).title || '未命名文献') + '</b><span>' + escapeHtml(entry.deletedAt || '') + '</span></div><div><button type="button" data-ref-restore="' + entry.id + '">恢复</button><button type="button" data-ref-purge="' + entry.id + '">彻底删除</button></div></div>'; }).join('') : '<div class="ref-empty">回收站为空</div>');
       referenceFields().forEach(function (id) { $('#' + id).value = ''; $('#' + id).disabled = true; }); $('#refDelete').hidden = true; renderReferencePreview(); renderProjectBacklinks('reference', null, $('.ref-editor')); return;
     }
-    var needle = (state.referenceQuery || '').trim().toLowerCase();
-    var visible = items.filter(function (item) { var content = [item.title, item.authors, item.tags, item.source, item.doi].join(' ').toLowerCase(); return (!needle || content.indexOf(needle) >= 0) && (state.referenceTypeFilter === 'all' || item.type === state.referenceTypeFilter); });
+    var visible = filteredReferenceItems();
+    $('#refBibliographyCount').textContent = '当前筛选：' + visible.length + ' 篇';
     if (!visible.some(function (item) { return String(item.id) === String(state.referenceId); })) state.referenceId = visible[0] ? visible[0].id : null;
     var active = activeReference();
     list.innerHTML = '<div class="ref-list-label">我的文献 <span>' + visible.length + '/' + items.length + '</span></div>' + (visible.length ? visible.map(function (item) { return '<button type="button" class="ref-list-item' + (String(item.id) === String(state.referenceId) ? ' is-active' : '') + '" data-ref-id="' + item.id + '"><b>' + escapeHtml(item.title || '未命名文献') + '</b><span>' + escapeHtml(item.authors || '作者待补充') + ' · ' + escapeHtml(item.year || '年份待补充') + '</span><i>' + escapeHtml(item.type || '期刊论文') + '</i></button>'; }).join('') : '<div class="ref-empty">还没有匹配的文献<br>点击右上角新建或导入 BibTeX</div>');
@@ -8709,6 +8712,39 @@
     $('#refTitle').value = active ? active.title || '' : ''; $('#refAuthors').value = active ? active.authors || '' : ''; $('#refYear').value = active ? active.year || '' : ''; $('#refType').value = active ? active.type || '期刊论文' : '期刊论文'; $('#refSource').value = active ? active.source || '' : ''; $('#refLocator').value = active ? active.locator || '' : ''; $('#refTags').value = active ? active.tags || '' : ''; $('#refDoi').value = active ? active.doi || '' : ''; $('#refUrl').value = active ? active.url || '' : ''; $('#refProject').value = active ? String(active.projectId || '') : ''; $('#refKnowledge').value = active ? String(active.knowledgeDocId || '') : ''; $('#refNotes').value = active ? active.notes || '' : '';
     renderReferencePreview();
     renderProjectBacklinks('reference', active && active.id, $('.ref-editor'));
+  }
+  function filteredReferenceItems() {
+    var items = (state.referenceLibrary && state.referenceLibrary.items) || [], needle = (state.referenceQuery || '').trim().toLowerCase();
+    return items.filter(function (item) {
+      var content = [item.title, item.authors, item.tags, item.source, item.doi].join(' ').toLowerCase();
+      return (!needle || content.indexOf(needle) >= 0) && (state.referenceTypeFilter === 'all' || item.type === state.referenceTypeFilter);
+    });
+  }
+  function referenceBibliographyItems() {
+    var items = filteredReferenceItems().slice();
+    if (state.referenceCitationStyle !== 'gb7714-numeric') {
+      items.sort(function (left, right) {
+        var a = String(left.authors || '作者未知').split(/[；;]+/)[0].trim();
+        var b = String(right.authors || '作者未知').split(/[；;]+/)[0].trim();
+        return a.localeCompare(b, 'zh-CN', { sensitivity: 'base' }) || String(left.year || '').localeCompare(String(right.year || '')) || String(left.title || '').localeCompare(String(right.title || ''), 'zh-CN');
+      });
+    }
+    return items;
+  }
+  function copyFilteredReferenceBibliography() {
+    var items = referenceBibliographyItems();
+    if (!items.length) { toast('当前筛选下没有可导出的文献'); return; }
+    copyReference(items.map(referenceCitation).join('\n\n'), '参考文献表（' + items.length + ' 篇）');
+  }
+  function downloadFilteredReferenceBibliography() {
+    var items = referenceBibliographyItems();
+    if (!items.length) { toast('当前筛选下没有可导出的文献'); return; }
+    var blob = new Blob([items.map(referenceCitation).join('\n\n') + '\n'], { type: 'text/plain;charset=utf-8' });
+    var url = URL.createObjectURL(blob), anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = '参考文献表-' + new Date().toISOString().slice(0, 10) + '.txt';
+    document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url);
+    toast('已下载参考文献表（' + items.length + ' 篇）');
   }
   function readReferencePayload() { return { action: 'save', id: state.referenceId, title: $('#refTitle').value, authors: $('#refAuthors').value, year: $('#refYear').value, type: $('#refType').value, source: $('#refSource').value, locator: $('#refLocator').value, tags: $('#refTags').value, doi: $('#refDoi').value, url: $('#refUrl').value, projectId: $('#refProject').value, knowledgeDocId: $('#refKnowledge').value, notes: $('#refNotes').value }; }
   function persistReference(body, automatic) { return api('/api/references', { method: 'POST', body: JSON.stringify(body) }).then(function (res) { if (!res.ok) throw new Error(res.error || '保存失败'); state.referenceLibrary = res.referenceLibrary; if (!automatic) { renderReferenceLibrary(); toast('文献已同步保存'); } }); }
