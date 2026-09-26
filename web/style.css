@@ -6848,20 +6848,29 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .ref-literature-details textarea { width:100%; min-width:0; min-height:96px; box-sizing:border-box; padding:9px 10px; resize:vertical; border:1px solid var(--hairline); border-radius:7px; background:var(--glass); color:var(--text-secondary); font:11px/1.65 "Noto Sans SC",sans-serif; }
 .ref-literature-details textarea:focus { border-color:var(--accent); outline:2px solid var(--accent-dim); }
 .ref-folder-heading { display:flex; align-items:center; justify-content:space-between; margin:11px 2px 4px; color:var(--text-muted); font-size:10px; letter-spacing:.06em; }
+.ref-folder-heading > div { display:flex; align-items:center; gap:5px; }
 .ref-folder-heading button { width:22px; height:22px; border:1px solid var(--hairline); border-radius:5px; background:var(--glass-strong); color:var(--accent); cursor:pointer; font:16px/1 "Noto Sans SC",sans-serif; }
 .ref-folder-heading button:hover { border-color:var(--accent); background:var(--accent-dim); }
+.ref-folder-heading #refFolderAll { width:auto; height:22px; padding:0 7px; color:var(--text-muted); font:10px "Noto Sans SC",sans-serif; letter-spacing:0; }
+.ref-folder-heading #refFolderAll.is-active { border-color:var(--accent); background:var(--accent-dim); color:var(--accent); }
 .ref-folder-create { display:flex; flex-wrap:wrap; gap:5px; padding:3px 2px 7px; }
 .ref-folder-create[hidden] { display:none; }
 .ref-folder-create input { flex:1 1 100%; min-width:0; box-sizing:border-box; padding:7px 8px; border:1px solid var(--hairline); border-radius:6px; outline:0; background:var(--glass-strong); color:var(--text); font:11px "Noto Sans SC",sans-serif; }
 .ref-folder-create input:focus { border-color:var(--accent); }
 .ref-folder-create button { padding:4px 8px; border:1px solid var(--hairline); border-radius:5px; background:var(--glass-strong); color:var(--text-secondary); cursor:pointer; font:10px "Noto Sans SC",sans-serif; }
 .ref-folder-create button[type="submit"] { border-color:var(--accent); color:var(--accent); }
-.ref-folders { display:grid; gap:2px; padding-bottom:8px; border-bottom:1px solid var(--hairline-soft); }
+.ref-folders { display:grid; gap:2px; max-height:560px; min-height:0; overflow:auto; padding-bottom:8px; border-bottom:1px solid var(--hairline-soft); }
+.ref-folder-section { min-width:0; border-radius:6px; }
+.ref-folder-section.is-active > .ref-folder-row { background:var(--accent-dim); }
 .ref-folder-row { display:flex; min-width:0; align-items:center; gap:2px; border-radius:6px; }
-.ref-folder-row.is-drop-target { outline:1px dashed var(--accent); background:var(--accent-dim); }
-.ref-folder-row.is-active { background:var(--accent-dim); }
+.ref-folder-section.is-drop-target > .ref-folder-row { outline:1px dashed var(--accent); background:var(--accent-dim); }
+.ref-folder-toggle { display:grid; flex:none; width:21px; height:25px; place-items:center; padding:0; border:0; background:transparent; color:var(--text-muted); cursor:pointer; font:16px/1 "Noto Sans SC",sans-serif; }
+.ref-folder-toggle:hover { color:var(--accent); }
 .ref-folder-select { display:flex; min-width:0; flex:1; align-items:center; gap:7px; padding:6px 6px; border:0; background:transparent; color:var(--text-secondary); cursor:pointer; font:11px "Noto Sans SC",sans-serif; text-align:left; }
-.ref-folder-row.is-active .ref-folder-select { color:var(--accent); }
+.ref-folder-section.is-active .ref-folder-select { color:var(--accent); }
+.ref-folder-contents { margin:1px 0 5px 10px; padding-left:9px; border-left:1px solid var(--hairline-soft); }
+.ref-folder-contents[hidden] { display:none; }
+.ref-folder-empty { padding:7px 8px; color:var(--text-muted); font-size:10px; }
 .ref-folder-glyph { color:var(--accent); font-size:12px; }
 .ref-folder-name { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .ref-folder-count { color:var(--text-muted); font-size:9px; }

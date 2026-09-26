@@ -70,6 +70,7 @@
     referenceLibrary: { items: [], trash: [], folders: [] },
     referenceId: null,
     referenceFolderId: 'all',
+    referenceCollapsedFolders: { all: true, unfiled: true },
     referenceDraggingId: null,
     referenceTrashOpen: false,
     referenceQuery: '',
@@ -7689,6 +7690,7 @@
     $('#refDownloadBibliography').addEventListener('click', downloadFilteredReferenceBibliography);
     $('#refQualityCheck').addEventListener('click', function () { state.referenceAuditEnabled = true; renderReferenceQualityAudit(); });
     $('#refShowMerged').addEventListener('click', function () { state.referenceShowMerged = !state.referenceShowMerged; renderReferenceLibrary(); });
+    $('#refFolderAll').addEventListener('click', function () { afterCurrentEditorSaved('references', function () { state.referenceFolderId = 'all'; state.referenceId = null; renderReferenceLibrary(); }); });
     $('#refFolderNew').addEventListener('click', function () {
       var form = $('#refFolderCreateForm');
       form.hidden = !form.hidden;
@@ -7702,26 +7704,46 @@
       if (rename) { renameReferenceFolder(rename.dataset.refFolderRename); return; }
       var remove = event.target.closest('[data-ref-folder-delete]');
       if (remove) { deleteReferenceFolder(remove.dataset.refFolderDelete); return; }
+      var toggle = event.target.closest('[data-ref-folder-toggle]');
+      if (toggle) { toggleReferenceFolder(toggle.dataset.refFolderToggle); return; }
+      var reference = event.target.closest('[data-ref-id]');
+      if (reference) {
+        var selectedId = reference.dataset.refId;
+        var section = reference.closest('[data-ref-folder-section]');
+        var folderId = section ? section.dataset.refFolderSection : 'all';
+        if (String(selectedId) === String(state.referenceId) && String(folderId) === String(state.referenceFolderId)) return;
+        afterCurrentEditorSaved('references', function () { state.referenceFolderId = folderId; state.referenceId = selectedId; renderReferenceLibrary(); });
+        return;
+      }
       var select = event.target.closest('[data-ref-folder-select]');
       if (!select) return;
       var folderId = select.dataset.refFolderSelect;
-      if (folderId === state.referenceFolderId) return;
-      afterCurrentEditorSaved('references', function () { state.referenceFolderId = folderId; state.referenceId = null; renderReferenceLibrary(); });
+      if (String(folderId) === String(state.referenceFolderId) && state.referenceCollapsedFolders[folderId] === false) return;
+      afterCurrentEditorSaved('references', function () {
+        state.referenceFolderId = folderId;
+        state.referenceCollapsedFolders[folderId] = false;
+        state.referenceId = null;
+        renderReferenceLibrary();
+      });
+    });
+    $('#refFolders').addEventListener('change', function (event) {
+      var move = event.target.closest('[data-ref-move-id]');
+      if (move) moveReferenceToFolder(move.dataset.refMoveId, move.value);
     });
     $('#refFolders').addEventListener('dragover', function (event) {
       var target = event.target.closest('[data-ref-folder-select]');
       if (!target || !state.referenceDraggingId || ['all'].indexOf(target.dataset.refFolderSelect) >= 0) return;
       event.preventDefault();
-      $$('.ref-folder-row.is-drop-target', $('#refFolders')).forEach(function (row) { if (row !== target.closest('.ref-folder-row')) row.classList.remove('is-drop-target'); });
-      target.closest('.ref-folder-row').classList.add('is-drop-target');
+      $$('.ref-folder-section.is-drop-target', $('#refFolders')).forEach(function (row) { if (row !== target.closest('.ref-folder-section')) row.classList.remove('is-drop-target'); });
+      target.closest('.ref-folder-section').classList.add('is-drop-target');
     });
     $('#refFolders').addEventListener('dragleave', function (event) {
-      var row = event.target.closest('.ref-folder-row');
-      if (row && !row.contains(event.relatedTarget)) row.classList.remove('is-drop-target');
+      var section = event.target.closest('.ref-folder-section');
+      if (section && !section.contains(event.relatedTarget)) section.classList.remove('is-drop-target');
     });
     $('#refFolders').addEventListener('drop', function (event) {
       var target = event.target.closest('[data-ref-folder-select]');
-      $$('.ref-folder-row.is-drop-target', $('#refFolders')).forEach(function (row) { row.classList.remove('is-drop-target'); });
+      $$('.ref-folder-section.is-drop-target', $('#refFolders')).forEach(function (row) { row.classList.remove('is-drop-target'); });
       if (!target || !state.referenceDraggingId || target.dataset.refFolderSelect === 'all') return;
       event.preventDefault();
       moveReferenceToFolder(state.referenceDraggingId, target.dataset.refFolderSelect === 'unfiled' ? '' : target.dataset.refFolderSelect);
@@ -7744,24 +7766,25 @@
     $('#refSearch').addEventListener('input', function () { state.referenceQuery = this.value; renderReferenceLibrary(); });
     $('#refTypeFilter').addEventListener('change', function () { state.referenceTypeFilter = this.value; renderReferenceLibrary(); });
     $('#refList').addEventListener('click', function (e) { var restore = e.target.closest('[data-ref-restore]'); if (restore) { restoreReference(restore.dataset.refRestore); return; } var purge = e.target.closest('[data-ref-purge]'); if (purge) { purgeReference(purge.dataset.refPurge); return; } var item = e.target.closest('[data-ref-id]'); if (!item) return; var selectedId = item.dataset.refId; if (String(selectedId) === String(state.referenceId)) return; afterCurrentEditorSaved('references', function () { state.referenceId = selectedId; renderReferenceLibrary(); }); });
-    $('#refList').addEventListener('change', function (event) {
-      var move = event.target.closest('[data-ref-move-id]');
-      if (move) moveReferenceToFolder(move.dataset.refMoveId, move.value);
-    });
-    $('#refList').addEventListener('dragstart', function (event) {
+    $('#refFolders').addEventListener('dragstart', function (event) {
       var item = event.target.closest('[data-ref-id]');
       if (!item || state.referenceTrashOpen) { event.preventDefault(); return; }
       state.referenceDraggingId = item.dataset.refId;
       item.classList.add('is-dragging');
       if (event.dataTransfer) { event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', state.referenceDraggingId); }
     });
-    $('#refList').addEventListener('dragend', function () {
+    $('#refFolders').addEventListener('dragend', function () {
       state.referenceDraggingId = null;
       $$('.ref-list-item.is-dragging').forEach(function (item) { item.classList.remove('is-dragging'); });
-      $$('.ref-folder-row.is-drop-target').forEach(function (row) { row.classList.remove('is-drop-target'); });
+      $$('.ref-folder-section.is-drop-target').forEach(function (row) { row.classList.remove('is-drop-target'); });
     });
     referenceFields().filter(function (id) { return id !== 'refFolder'; }).forEach(function (id) { $('#' + id).addEventListener('input', queueReferenceAutoSave); $('#' + id).addEventListener('change', queueReferenceAutoSave); });
-    $('#refFolder').addEventListener('change', function () { saveImmediately('reference:' + state.referenceId, readReferencePayload(), persistReference).then(renderReferenceLibrary).catch(function (error) { toast(error.message || '移动文献失败'); }); });
+    $('#refFolder').addEventListener('change', function () {
+      var folderId = this.value;
+      state.referenceFolderId = folderId ? String(folderId) : 'unfiled';
+      state.referenceCollapsedFolders[state.referenceFolderId] = false;
+      saveImmediately('reference:' + state.referenceId, readReferencePayload(), persistReference).then(renderReferenceLibrary).catch(function (error) { toast(error.message || '移动文献失败'); });
+    });
     ['refAbstract', 'refKeywords'].forEach(function (id) { $('#' + id).addEventListener('input', function () { var source = $('#' + id + 'Source'); if (source) source.textContent = '来源：手动编辑'; queueReferenceAutoSave(); }); });
     $('#kbTrashToggle').addEventListener('click', function () { afterCurrentEditorSaved('knowledge-base', function () { state.kbTrashOpen = !state.kbTrashOpen; state.kbDraft = null; renderKnowledgeBase(); }); });
     $('#kbFolders').addEventListener('click', function (e) { var remove = e.target.closest('[data-kb-delete-folder]'); if (remove) { deleteKnowledgeFolder(remove.dataset.kbDeleteFolder); return; } var item = e.target.closest('[data-kb-folder]'); if (!item) return; var folderId = item.dataset.kbFolder; afterCurrentEditorSaved('knowledge-base', function () { state.kbFolderId = folderId; renderKnowledgeBase(); }); });
@@ -8779,22 +8802,37 @@
   function renderReferenceFolders() {
     var library = state.referenceLibrary || {}, folders = Array.isArray(library.folders) ? library.folders : [], items = library.items || [], root = $('#refFolders');
     if (!folders.some(function (folder) { return String(folder.id) === String(state.referenceFolderId); }) && ['all', 'unfiled'].indexOf(state.referenceFolderId) < 0) state.referenceFolderId = 'all';
-    function folderRow(id, label, count, canManage) {
-      var selected = String(state.referenceFolderId) === String(id);
-      return '<div class="ref-folder-row' + (selected ? ' is-active' : '') + '"><button type="button" class="ref-folder-select" data-ref-folder-select="' + escapeHtml(String(id)) + '" title="' + escapeHtml(label) + '"><span class="ref-folder-glyph" aria-hidden="true">▰</span><span class="ref-folder-name">' + escapeHtml(label) + '</span><span class="ref-folder-count">' + count + '</span></button>' + (canManage ? '<div class="ref-folder-tools"><button type="button" data-ref-folder-rename="' + escapeHtml(String(id)) + '" title="重命名文件夹" aria-label="重命名' + escapeHtml(label) + '">✎</button><button type="button" data-ref-folder-delete="' + escapeHtml(String(id)) + '" title="删除文件夹" aria-label="删除' + escapeHtml(label) + '">×</button></div>' : '') + '</div>';
+    function folderItems(id) {
+      var needle = (state.referenceQuery || '').trim().toLowerCase();
+      return items.filter(function (item) {
+        var inFolder = id === 'all' || (id === 'unfiled' ? !String(item.folderId || '') : String(item.folderId || '') === String(id));
+        var content = [item.title, item.authors, item.tags, item.source, item.doi].join(' ').toLowerCase();
+        return inFolder && (state.referenceShowMerged || !item.mergedInto) && (!needle || content.indexOf(needle) >= 0) && (state.referenceTypeFilter === 'all' || item.type === state.referenceTypeFilter);
+      });
     }
-    var unfiledCount = items.filter(function (item) { return !item.mergedInto && !String(item.folderId || ''); }).length;
-    root.innerHTML = folderRow('all', '全部文献', items.filter(function (item) { return !item.mergedInto; }).length, false) + folderRow('unfiled', '未分类', unfiledCount, false) + folders.map(function (folder) {
-      var count = items.filter(function (item) { return !item.mergedInto && String(item.folderId || '') === String(folder.id); }).length;
-      return folderRow(folder.id, folder.name || '未命名文件夹', count, true);
-    }).join('');
+    function referenceRow(item) {
+      var mergedTarget = item.mergedInto ? (items.filter(function (entry) { return String(entry.id) === String(item.mergedInto); })[0] || {}).title : '';
+      var folderOptions = '<option value=""' + (!String(item.folderId || '') ? ' selected' : '') + '>未分类</option>' + folders.map(function (folder) { return '<option value="' + escapeHtml(String(folder.id)) + '"' + (String(folder.id) === String(item.folderId || '') ? ' selected' : '') + '>' + escapeHtml(folder.name || '未命名文件夹') + '</option>'; }).join('');
+      return '<div class="ref-list-entry"><button type="button" draggable="true" class="ref-list-item' + (String(item.id) === String(state.referenceId) ? ' is-active' : '') + (item.mergedInto ? ' is-merged-alias' : '') + '" data-ref-id="' + escapeHtml(String(item.id)) + '" title="可拖到文件夹，或使用下方菜单移动"><b>' + escapeHtml(item.title || '未命名文献') + '</b><span>' + escapeHtml(item.authors || '作者待补充') + ' · ' + escapeHtml(item.year || '年份待补充') + '</span><i>' + escapeHtml(item.mergedInto ? '已并入：' + (mergedTarget || '主条目') : (item.type || '期刊论文')) + '</i></button><label class="ref-list-move"><span>移动到</span><select data-ref-move-id="' + escapeHtml(String(item.id)) + '" aria-label="移动《' + escapeHtml(item.title || '未命名文献') + '》到文件夹">' + folderOptions + '</select></label></div>';
+    }
+    function folderRow(id, label, canManage) {
+      var selected = String(state.referenceFolderId) === String(id);
+      var collapsed = state.referenceCollapsedFolders[id] !== false;
+      var entries = folderItems(id);
+      var tools = canManage ? '<div class="ref-folder-tools"><button type="button" data-ref-folder-rename="' + escapeHtml(String(id)) + '" title="重命名文件夹" aria-label="重命名' + escapeHtml(label) + '">✎</button><button type="button" data-ref-folder-delete="' + escapeHtml(String(id)) + '" title="删除文件夹" aria-label="删除' + escapeHtml(label) + '">×</button></div>' : '';
+      return '<section class="ref-folder-section' + (selected ? ' is-active' : '') + '" data-ref-folder-section="' + escapeHtml(String(id)) + '"><div class="ref-folder-row"><button type="button" class="ref-folder-toggle" data-ref-folder-toggle="' + escapeHtml(String(id)) + '" aria-expanded="' + (!collapsed) + '" aria-label="' + (collapsed ? '展开' : '折叠') + label + '"><span aria-hidden="true">' + (collapsed ? '›' : '⌄') + '</span></button><button type="button" class="ref-folder-select" data-ref-folder-select="' + escapeHtml(String(id)) + '" title="' + escapeHtml(label) + '"><span class="ref-folder-glyph" aria-hidden="true">▰</span><span class="ref-folder-name">' + escapeHtml(label) + '</span><span class="ref-folder-count">' + entries.length + '</span></button>' + tools + '</div><div class="ref-folder-contents"' + (collapsed ? ' hidden' : '') + '>' + (entries.length ? entries.map(referenceRow).join('') : '<div class="ref-folder-empty">此文件夹暂无文献</div>') + '</div></section>';
+    }
+    $('#refFolderAll').classList.toggle('is-active', String(state.referenceFolderId) === 'all');
+    root.innerHTML = folderRow('unfiled', '未分类', false) + folders.map(function (folder) { return folderRow(folder.id, folder.name || '未命名文件夹', true); }).join('');
   }
+  function toggleReferenceFolder(id) { state.referenceCollapsedFolders[id] = state.referenceCollapsedFolders[id] === false; renderReferenceFolders(); }
   function createReferenceFolder(name) {
     name = String(name || '').trim();
     if (!name) { $('#refFolderNameInput').focus(); return; }
     afterCurrentEditorSaved('references', function () { return api('/api/references', { method: 'POST', body: JSON.stringify({ action: 'folder-create', name: name.trim() }) }).then(function (res) {
       if (!res.ok) { toast(res.error || '新建文件夹失败'); $('#refFolderNameInput').focus(); return; }
       state.referenceLibrary = res.referenceLibrary; state.referenceFolderId = String(res.folderId || 'all'); state.referenceId = null;
+      state.referenceCollapsedFolders[state.referenceFolderId] = false;
       $('#refFolderCreateForm').hidden = true; $('#refFolderNameInput').value = '';
       renderReferenceLibrary(); toast('文件夹已创建');
     }).catch(function (error) { toast(error.message || '新建文件夹失败'); }); });
@@ -8809,6 +8847,9 @@
       return api('/api/references', { method: 'POST', body: JSON.stringify(payload) }).then(function (res) {
         if (!res.ok) { toast(res.error || '移动文献失败'); return; }
         state.referenceLibrary = res.referenceLibrary;
+        state.referenceFolderId = folderId ? String(folderId) : 'unfiled';
+        state.referenceCollapsedFolders[state.referenceFolderId] = false;
+        state.referenceId = String(referenceId);
         renderReferenceLibrary();
         var destination = folderId ? ((state.referenceLibrary.folders || []).find(function (folder) { return String(folder.id) === String(folderId); }) || {}).name : '未分类';
         toast('已移动到“' + (destination || '文件夹') + '”');
@@ -8831,7 +8872,7 @@
     afterCurrentEditorSaved('references', function () { return api('/api/references', { method: 'POST', body: JSON.stringify({ action: 'folder-delete', id: id }) }).then(function (res) {
       if (!res.ok) { toast(res.error || '删除文件夹失败'); return; }
       state.referenceLibrary = res.referenceLibrary;
-      if (String(state.referenceFolderId) === String(id)) { state.referenceFolderId = 'unfiled'; state.referenceId = null; }
+      if (String(state.referenceFolderId) === String(id)) { state.referenceFolderId = 'unfiled'; state.referenceCollapsedFolders.unfiled = false; state.referenceId = null; }
       renderReferenceLibrary(); toast('文件夹已删除，文献已保留在未分类');
     }).catch(function (error) { toast(error.message || '删除文件夹失败'); }); });
   }
@@ -8841,7 +8882,9 @@
     $('#refTrash').textContent = state.referenceTrashOpen ? '返回文献库' : '回收站' + (trash.length ? ' (' + trash.length + ')' : '');
     if (state.referenceTrashOpen) {
       $('#refFolderNew').disabled = true; $('#refFolderNew').hidden = true;
+      $('#refFolderAll').hidden = true;
       $('#refFolderCreateForm').hidden = true;
+      $('#refFolders').hidden = true; list.hidden = false;
       $('#refBibliographyCount').textContent = '回收站内容不参与导出';
       $('#refQualityAudit').hidden = true;
       $('#refUnmerge').hidden = true;
@@ -8851,6 +8894,8 @@
       referenceFields().forEach(function (id) { $('#' + id).value = ''; $('#' + id).disabled = true; }); $('#refDelete').hidden = true; renderReferencePreview(); renderProjectBacklinks('reference', null, $('.ref-editor')); return;
     }
     $('#refFolderNew').disabled = false; $('#refFolderNew').hidden = false;
+    $('#refFolderAll').hidden = false;
+    $('#refFolders').hidden = false; list.hidden = true; list.innerHTML = '';
     renderReferenceFolders();
     var visible = filteredReferenceItems();
     var exportableCount = visible.filter(function (item) { return !item.mergedInto; }).length;
@@ -8859,11 +8904,6 @@
     $('#refShowMerged').textContent = state.referenceShowMerged ? '隐藏已合并项' : '显示已合并项';
     if (!visible.some(function (item) { return String(item.id) === String(state.referenceId); })) state.referenceId = visible[0] ? visible[0].id : null;
     var active = activeReference();
-    list.innerHTML = '<div class="ref-list-label">我的文献 <span>' + visible.length + '/' + items.length + '</span></div>' + (visible.length ? visible.map(function (item) {
-      var mergedTarget = item.mergedInto ? (items.filter(function (entry) { return String(entry.id) === String(item.mergedInto); })[0] || {}).title : '';
-      var folderOptions = '<option value=""' + (!String(item.folderId || '') ? ' selected' : '') + '>未分类</option>' + (library.folders || []).map(function (folder) { return '<option value="' + escapeHtml(String(folder.id)) + '"' + (String(folder.id) === String(item.folderId || '') ? ' selected' : '') + '>' + escapeHtml(folder.name || '未命名文件夹') + '</option>'; }).join('');
-      return '<div class="ref-list-entry"><button type="button" draggable="true" class="ref-list-item' + (String(item.id) === String(state.referenceId) ? ' is-active' : '') + (item.mergedInto ? ' is-merged-alias' : '') + '" data-ref-id="' + escapeHtml(String(item.id)) + '" title="可拖到左侧文件夹，或使用下方菜单移动"><b>' + escapeHtml(item.title || '未命名文献') + '</b><span>' + escapeHtml(item.authors || '作者待补充') + ' · ' + escapeHtml(item.year || '年份待补充') + '</span><i>' + escapeHtml(item.mergedInto ? '已并入：' + (mergedTarget || '主条目') : (item.type || '期刊论文')) + '</i></button><label class="ref-list-move"><span>移动到</span><select data-ref-move-id="' + escapeHtml(String(item.id)) + '" aria-label="移动《' + escapeHtml(item.title || '未命名文献') + '》到文件夹">' + folderOptions + '</select></label></div>';
-    }).join('') : '<div class="ref-empty">还没有匹配的文献<br>点击右上角新建或导入 BibTeX</div>');
     $('#refProject').innerHTML = '<option value="">未关联</option>' + ((state.researchProjects && state.researchProjects.projects) || []).map(function (project) { return '<option value="' + project.id + '">' + escapeHtml(project.title || '未命名项目') + '</option>'; }).join('');
     $('#refKnowledge').innerHTML = '<option value="">未关联</option>' + ((state.knowledgeBase && state.knowledgeBase.docs) || []).map(function (doc) { return '<option value="' + doc.id + '">' + escapeHtml(doc.title || '未命名文档') + '</option>'; }).join('');
     $('#refFolder').innerHTML = '<option value="">未分类</option>' + (library.folders || []).map(function (folder) { return '<option value="' + escapeHtml(String(folder.id)) + '">' + escapeHtml(folder.name || '未命名文件夹') + '</option>'; }).join('');
@@ -8996,7 +9036,7 @@
   function persistReference(body, automatic) { return api('/api/references', { method: 'POST', body: JSON.stringify(body) }).then(function (res) { if (!res.ok) throw new Error(res.error || '保存失败'); state.referenceLibrary = res.referenceLibrary; if (!automatic) { renderReferenceLibrary(); toast('文献已同步保存'); } }); }
   function queueReferenceAutoSave() { if (!state.referenceId || state.referenceTrashOpen) return; var body = readReferencePayload(); renderReferencePreview(); if (state.referenceAuditEnabled) renderReferenceQualityAudit(); queueAutoSave('reference:' + body.id, body, persistReference); }
   function saveReference() { if (!state.referenceId) return; return saveImmediately('reference:' + state.referenceId, readReferencePayload(), persistReference); }
-  function newReference() { return afterCurrentEditorSaved('references', function () { var folderId = ['all', 'unfiled'].indexOf(state.referenceFolderId) >= 0 ? '' : state.referenceFolderId; return api('/api/references', { method: 'POST', body: JSON.stringify({ action: 'create', folderId: folderId }) }).then(function (res) { if (!res.ok) { toast(res.error || '新建失败'); return false; } state.referenceLibrary = res.referenceLibrary; state.referenceTrashOpen = false; state.referenceId = res.referenceLibrary.items[0].id; renderReferenceLibrary(); $('#refTitle').focus(); return true; }); }); }
+  function newReference() { return afterCurrentEditorSaved('references', function () { var folderId = ['all', 'unfiled'].indexOf(state.referenceFolderId) >= 0 ? '' : state.referenceFolderId; return api('/api/references', { method: 'POST', body: JSON.stringify({ action: 'create', folderId: folderId }) }).then(function (res) { if (!res.ok) { toast(res.error || '新建失败'); return false; } state.referenceLibrary = res.referenceLibrary; state.referenceTrashOpen = false; if (state.referenceFolderId === 'all') state.referenceFolderId = 'unfiled'; state.referenceCollapsedFolders[state.referenceFolderId] = false; state.referenceId = res.referenceLibrary.items[0].id; renderReferenceLibrary(); $('#refTitle').focus(); return true; }); }); }
   function trashReference() { if (!state.referenceId || !confirm('确定将此文献移入回收站吗？')) return; api('/api/references', { method: 'POST', body: JSON.stringify({ action: 'trash', id: state.referenceId }) }).then(function (res) { if (!res.ok) { toast(res.error || '移入回收站失败'); return; } state.referenceLibrary = res.referenceLibrary; state.referenceId = null; renderReferenceLibrary(); toast('文献已移入回收站'); }); }
   function restoreReference(id) { api('/api/references', { method: 'POST', body: JSON.stringify({ action: 'restore', id: id }) }).then(function (res) { if (res.ok) { state.referenceLibrary = res.referenceLibrary; renderReferenceLibrary(); } }); }
   function purgeReference(id) { if (!confirm('确定彻底删除这篇文献吗？此操作无法恢复。')) return; api('/api/references', { method: 'POST', body: JSON.stringify({ action: 'purge', id: id }) }).then(function (res) { if (res.ok) { state.referenceLibrary = res.referenceLibrary; renderReferenceLibrary(); } }); }
