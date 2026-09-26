@@ -158,7 +158,11 @@ test('batch DOI enrichment only fills approved blank fields and skips aliases', 
   const response = await harness.request({
     action: 'batch-enrich',
     entries: [
-      { id: 'active', fields: { authors: 'New author', year: '2022', source: 'Overwritten journal', locator: '10–20' } },
+      { id: 'active', fields: {
+        authors: 'New author', year: '2022', source: 'Overwritten journal', locator: '10–20',
+        abstract: 'An abstract from Semantic Scholar.', abstractSource: 'Semantic Scholar',
+        keywords: 'climate policy；innovation', keywordsSource: 'OpenAlex (algorithmic topics)'
+      } },
       { id: 'alias', fields: { authors: 'Must not overwrite alias' } }
     ]
   });
@@ -167,11 +171,15 @@ test('batch DOI enrichment only fills approved blank fields and skips aliases', 
   const alias = result.referenceLibrary.items.find(item => item.id === 'alias');
   assert.equal(response.status, 200);
   assert.equal(result.updatedCount, 1);
-  assert.equal(result.filledFieldCount, 2);
+  assert.equal(result.filledFieldCount, 6);
   assert.equal(active.authors, 'New author');
   assert.equal(active.year, '2021');
   assert.equal(active.source, 'Existing journal');
   assert.equal(active.locator, '10–20');
+  assert.equal(active.abstract, 'An abstract from Semantic Scholar.');
+  assert.equal(active.abstractSource, 'Semantic Scholar');
+  assert.equal(active.keywords, 'climate policy；innovation');
+  assert.equal(active.keywordsSource, 'OpenAlex (algorithmic topics)');
   assert.equal(alias.authors, 'Keep this author');
 
   const noOpResponse = await harness.request({ action: 'batch-enrich', entries: [{ id: 'active', fields: { authors: 'Overwrite attempt' } }] });
