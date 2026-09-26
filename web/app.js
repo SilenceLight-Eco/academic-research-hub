@@ -856,12 +856,53 @@
     return 'academic-research-hub-' + (suffix || 'backup') + '-' + date + '.json';
   }
 
+  var backupZipPromise = null;
+  function loadBackupZip() {
+    if (window.JSZip) return Promise.resolve(window.JSZip);
+    if (!backupZipPromise) backupZipPromise = new Promise(function (resolve, reject) {
+      var script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js';
+      script.onload = function () { window.JSZip ? resolve(window.JSZip) : reject(new Error('备份组件未能加载')); };
+      script.onerror = function () { reject(new Error('完整备份组件加载失败，请检查网络后重试')); };
+      document.head.appendChild(script);
+    }).catch(function (error) { backupZipPromise = null; throw error; });
+    return backupZipPromise;
+  }
+
+  function downloadBlob(blob, filename) {
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement('a'); link.href = url; link.download = filename; document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+
   function downloadBackup(data, suffix) {
     var backup = { format: 'academic-research-hub-backup', version: 1, exportedAt: new Date().toISOString(), data: data };
     var blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json;charset=utf-8' });
-    var url = URL.createObjectURL(blob);
-    var link = document.createElement('a'); link.href = url; link.download = backupFileName(suffix); document.body.appendChild(link); link.click(); link.remove();
-    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    downloadBlob(blob, backupFileName(suffix));
+  }
+
+  async function createCompleteBackup(data, suffix) {
+    var Zip = await loadBackupZip();
+    if (!window.__academicBackup) throw new Error('云端备份接口尚未就绪，请刷新页面后重试');
+    var external = await Promise.all([window.__academicBackup.exportJournal(), window.__academicBackup.exportAttachments()]);
+    var journal = external[0], attachmentItems = external[1], zip = new Zip();
+    var manifest = {
+      format: 'academic-research-hub-complete-backup', version: 1, exportedAt: new Date().toISOString(),
+      workspace: { format: 'academic-research-hub-backup', version: 1, exportedAt: new Date().toISOString(), data: data },
+      journal: journal, attachments: []
+    };
+    attachmentItems.forEach(function (item, index) {
+      var metadata = Object.assign({}, item.metadata);
+      delete metadata.user_id; delete metadata.object_path;
+      var archivePath = 'attachments/' + String(index).padStart(6, '0') + '.bin';
+      zip.file(archivePath, item.blob, { binary: true });
+      manifest.attachments.push({ metadata: metadata, archivePath: archivePath });
+    });
+    zip.file('manifest.json', JSON.stringify(manifest, null, 2));
+    var blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
+    var date = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+    downloadBlob(blob, 'academic-research-hub-' + (suffix || 'complete-backup') + '-' + date + '.zip');
+    return { subscriptions: journal.subscriptions.length, articles: journal.articles.length, attachments: attachmentItems.length, size: blob.size };
   }
 
   function exportWorkspaceBackup() {
@@ -869,8 +910,10 @@
     flushAllAutoSaves();
     return autoSaveChain.then(function () { return api('/api/backup'); }).then(function (result) {
       if (!result.ok || !result.data) throw new Error(result.error || '无法读取账号数据');
-      downloadBackup(result.data, 'backup');
-      toast('全部工作台数据已导出');
+      toast('正在打包工作台、文献追踪和附件…');
+      return createCompleteBackup(result.data, 'complete-backup');
+    }).then(function (counts) {
+      toast('完整备份已导出：期刊 ' + counts.subscriptions + ' 本、文章 ' + counts.articles + ' 篇、附件 ' + counts.attachments + ' 个');
     }).catch(function (error) { toast(error.message || '导出失败，请检查网络'); });
   }
 
@@ -889,7 +932,9 @@
   }
 
   function renderBackupPreview(backup, file) {
-    var data = backup.data || {}, lines = [], knownKeys = [];
+    var complete = backup && backup.format === 'academic-research-hub-complete-backup';
+    var workspaceBackup = complete ? backup.workspace : backup;
+    var data = workspaceBackup && workspaceBackup.data || {}, lines = [], knownKeys = [];
     function addLine(label, keys, value, count) {
       if (!keys.some(function (key) { return Object.prototype.hasOwnProperty.call(data, key); })) return;
       keys.forEach(function (key) { if (knownKeys.indexOf(key) < 0) knownKeys.push(key); });
@@ -911,10 +956,19 @@
     addLine('数据与代码', ['dataCodeLibrary'], data.dataCodeLibrary, countBackupItems(data.dataCodeLibrary, ['items', 'trash']));
     addLine('文献与引用', ['referenceLibrary'], data.referenceLibrary, countBackupItems(data.referenceLibrary, ['items', 'trash']));
     addLine('学业进度与其他设置', ['studyProgress', 'graduationConfig', 'browser'], { studyProgress: data.studyProgress, graduationConfig: data.graduationConfig, browser: data.browser }, null);
+    if (complete) {
+      var journal = backup.journal || {}, attachmentRows = Array.isArray(backup.attachments) ? backup.attachments : [];
+      lines.push('<li><b>文献追踪</b><span>' + escapeHtml((journal.subscriptions || []).length + ' 本期刊 · ' + (journal.articles || []).length + ' 篇文章 · ' + (journal.refreshLogs || []).length + ' 条更新记录') + '</span></li>');
+      var attachmentBytes = attachmentRows.reduce(function (total, item) { return total + (Number(item.metadata && item.metadata.file_size) || 0); }, 0);
+      lines.push('<li><b>云端附件</b><span>' + escapeHtml(attachmentRows.length + ' 个文件 · ' + (attachmentBytes / 1024 / 1024).toFixed(1) + ' MB') + '</span></li>');
+    }
     var unknownKeys = Object.keys(data).filter(function (key) { return knownKeys.indexOf(key) < 0; });
     if (unknownKeys.length) addLine('其他数据：' + unknownKeys.join('、'), unknownKeys, unknownKeys.reduce(function (other, key) { other[key] = data[key]; return other; }, {}), null);
     $('#backupPreviewMeta').textContent = (file ? file.name + ' · ' + (file.size / 1024).toFixed(1) + ' KB' : '备份文件') + (backup.exportedAt ? ' · 导出于 ' + new Date(backup.exportedAt).toLocaleString('zh-CN') : ' · 未记录导出时间');
     $('#backupPreviewList').innerHTML = lines.length ? lines.join('') : '<li><b>未识别到工作台模块</b><span>请确认备份来源</span></li>';
+    $('#backupPreviewWarning').textContent = complete
+      ? '恢复会覆盖工作台数据，并合并文献追踪记录与云端附件；不会删除账号中现有的附件或追踪文章。若同一分类下存在同名同大小附件，将跳过以避免重复。恢复前会自动下载当前完整备份。'
+      : '这是旧版 JSON 备份，只包含工作台数据；文献追踪和云端附件不在其中。恢复前会自动下载当前完整备份。';
     $('#backupPreview').hidden = false;
     $('#backupDefaultWarning').hidden = true;
   }
@@ -932,30 +986,65 @@
     pendingBackupRestore = null;
     $('#backupPreview').hidden = true;
     $('#backupDefaultWarning').hidden = false;
-    if (file.size > 20000000) { toast('备份文件不能超过 20 MB'); return; }
-    var reader = new FileReader();
-    reader.onerror = function () { toast('无法读取所选备份文件'); };
-    reader.onload = function () {
-      var backup;
-      try { backup = JSON.parse(String(reader.result || '')); } catch (error) { toast('文件不是有效的 JSON 备份'); return; }
-      if (!backup || backup.format !== 'academic-research-hub-backup' || backup.version !== 1 || !backup.data || typeof backup.data !== 'object' || Array.isArray(backup.data)) { toast('备份文件格式无效或版本不受支持'); return; }
-      pendingBackupRestore = backup;
-      renderBackupPreview(backup, file);
-    };
-    reader.readAsText(file);
+    if (file.size > 500 * 1024 * 1024) { toast('备份文件不能超过 500 MB'); return; }
+    var isZip = /\.zip$/i.test(file.name) || file.type === 'application/zip';
+    var parsed = isZip
+      ? loadBackupZip().then(function (Zip) { return Zip.loadAsync(file); }).then(function (zip) {
+          var manifestFile = zip.file('manifest.json');
+          if (!manifestFile) throw new Error('压缩包中缺少备份清单');
+          return manifestFile.async('string').then(function (text) { return { zip: zip, manifest: JSON.parse(text) }; });
+        })
+      : file.text().then(function (text) { return { manifest: JSON.parse(text) }; });
+    parsed.then(function (loaded) {
+      var backup = loaded.manifest;
+      if (backup && backup.format === 'academic-research-hub-complete-backup' && backup.version === 1) {
+        if (!backup.workspace || backup.workspace.format !== 'academic-research-hub-backup' || !backup.workspace.data || typeof backup.workspace.data !== 'object' || Array.isArray(backup.workspace.data)) throw new Error('完整备份中的工作台数据无效');
+        if (!backup.journal || !Array.isArray(backup.journal.subscriptions) || !Array.isArray(backup.journal.articles) || !Array.isArray(backup.attachments)) throw new Error('完整备份中的文献追踪或附件清单无效');
+        var declaredAttachmentBytes = backup.attachments.reduce(function (total, item) {
+          var size = Number(item && item.metadata && item.metadata.file_size);
+          if (!Number.isFinite(size) || size < 0 || size > 50 * 1024 * 1024) throw new Error('附件大小超出允许范围');
+          return total + size;
+        }, 0);
+        if (declaredAttachmentBytes > 500 * 1024 * 1024) throw new Error('备份内附件总量超过 500 MB');
+        var attachmentPromises = backup.attachments.map(function (item) {
+          if (!item || !item.archivePath || !/^attachments\/[0-9]{6}\.bin$/.test(item.archivePath)) throw new Error('附件路径无效');
+          var entry = loaded.zip.file(item.archivePath);
+          if (!entry) throw new Error('备份中缺少附件文件：' + item.archivePath);
+          return entry.async('blob').then(function (blob) {
+            if (blob.size !== Number(item.metadata.file_size)) throw new Error('附件大小与备份清单不一致：' + item.metadata.file_name);
+            return { metadata: item.metadata, blob: blob };
+          });
+        });
+        return Promise.all(attachmentPromises).then(function (attachments) {
+          pendingBackupRestore = { kind: 'complete', manifest: backup, attachments: attachments };
+          renderBackupPreview(backup, file);
+        });
+      }
+      if (backup && backup.format === 'academic-research-hub-backup' && backup.version === 1 && backup.data && typeof backup.data === 'object' && !Array.isArray(backup.data)) {
+        pendingBackupRestore = { kind: 'legacy', manifest: backup };
+        renderBackupPreview(backup, file);
+        return;
+      }
+      throw new Error('备份文件格式无效或版本不受支持');
+    }).catch(function (error) { toast(error.message || (isZip ? '无法读取完整备份 ZIP' : '无法读取 JSON 备份')); });
   }
 
   function restorePendingWorkspaceBackup() {
     if (!pendingBackupRestore || !account) return;
-    var button = $('#backupRestoreConfirm'), backup = pendingBackupRestore;
+    var button = $('#backupRestoreConfirm'), restore = pendingBackupRestore;
     button.disabled = true;
     button.textContent = '正在创建恢复点…';
     flushAllAutoSaves();
     Promise.all([apiWriteChain.catch(function () {}), autoSaveChain.catch(function () {})]).then(function () { return api('/api/backup'); }).then(function (current) {
         if (!current.ok || !current.data) throw new Error(current.error || '无法创建恢复前备份');
-        downloadBackup(current.data, 'before-restore');
+        button.textContent = '正在下载恢复点…';
+        return createCompleteBackup(current.data, 'before-restore');
+      }).then(function () {
         button.textContent = '正在恢复…';
-        return api('/api/backup', { method: 'POST', body: JSON.stringify({ backup: backup }) });
+        if (restore.kind === 'legacy') return api('/api/backup', { method: 'POST', body: JSON.stringify({ backup: restore.manifest }) });
+        return window.__academicBackup.restoreJournal(restore.manifest.journal)
+          .then(function () { return window.__academicBackup.restoreAttachments(restore.attachments); })
+          .then(function () { return api('/api/backup', { method: 'POST', body: JSON.stringify({ backup: restore.manifest.workspace }) }); });
       }).then(function (result) {
         if (!result.ok) throw new Error(result.error || '恢复失败');
         closeBackupModal(); toast('备份已恢复，正在重新载入工作台');
