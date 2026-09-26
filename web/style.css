@@ -6528,6 +6528,13 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .prompt-category-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:0 0 8px; color:var(--text-muted); font-size:10px; font-weight:650; letter-spacing:.06em; }
 .prompt-category-heading button { padding:4px 7px; border:1px solid var(--hairline-soft); border-radius:6px; background:var(--glass-strong); color:var(--accent); cursor:pointer; font:10px "Noto Sans SC",sans-serif; letter-spacing:0; }
 .prompt-category-heading button:hover { border-color:var(--accent); background:var(--accent-dim); }
+.prompt-library-search { display:flex; align-items:center; gap:7px; margin:0 0 9px; padding:0 9px; border:1px solid var(--hairline-soft); border-radius:7px; background:var(--glass-strong); color:var(--text-muted); }
+.prompt-library-search:focus-within { border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-dim); }
+.prompt-library-search > span { flex:none; font:18px/1 sans-serif; }
+.prompt-library-search input { flex:1; min-width:0; height:32px; padding:0; border:0; outline:0; background:transparent; color:var(--text); font:11px "Noto Sans SC",sans-serif; }
+.prompt-library-search input::placeholder { color:var(--text-muted); }
+.prompt-library-search kbd { flex:none; padding:2px 4px; border:1px solid var(--hairline-soft); border-radius:4px; color:var(--text-muted); font:9px sans-serif; }
+.prompt-search-empty { padding:16px 8px; color:var(--text-muted); font:11px "Noto Sans SC",sans-serif; text-align:center; }
 .prompt-category-form { display:grid; grid-template-columns:minmax(0,1fr) auto auto; gap:5px; margin:0 0 9px; }
 .prompt-category-form input { min-width:0; width:100%; box-sizing:border-box; padding:6px 7px; border:1px solid var(--hairline); border-radius:5px; outline:0; background:var(--glass-strong); color:var(--text); font:11px "Noto Sans SC",sans-serif; }
 .prompt-category-form button { padding:5px 6px; border:1px solid var(--hairline-soft); border-radius:5px; background:var(--glass-strong); color:var(--text-secondary); cursor:pointer; font:10px "Noto Sans SC",sans-serif; }

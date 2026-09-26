@@ -49,6 +49,7 @@
     promptId: null,
     promptTrashOpen: false,
     promptCategoryFilter: 'all',
+    promptQuery: '',
     promptCollapsedCategories: {},
     promptCategoryRenaming: null,
     promptDrag: null,
@@ -7056,6 +7057,22 @@
     ['promptTitle', 'promptTags', 'promptBody'].forEach(function (id) { $('#' + id).addEventListener('input', function () { renderPromptResult(); queuePromptAutoSave(); }); });
     $('#promptCategory').addEventListener('change', queuePromptAutoSave);
     $('#promptVariables').addEventListener('input', renderPromptResult);
+    $('#promptList').addEventListener('input', function (e) {
+      if (e.target.id !== 'promptSearch') return;
+      var start = e.target.selectionStart, end = e.target.selectionEnd;
+      state.promptQuery = e.target.value;
+      renderPromptFolderTree();
+      var search = $('#promptSearch');
+      if (search) { search.focus(); search.setSelectionRange(start, end); }
+    });
+    $('#promptList').addEventListener('keydown', function (event) {
+      if (event.target.id !== 'promptSearch' || event.key !== 'Escape' || !state.promptQuery) return;
+      event.preventDefault();
+      state.promptQuery = '';
+      renderPromptFolderTree();
+      var search = $('#promptSearch');
+      if (search) { search.focus(); search.setSelectionRange(0, 0); }
+    });
     $('#promptList').addEventListener('click', function (e) { if (Date.now() < state.promptSuppressClickUntil) { e.preventDefault(); return; } var restore = e.target.closest('[data-prompt-restore]'); if (restore) { restorePrompt(restore.dataset.promptRestore); return; } var purge = e.target.closest('[data-prompt-purge]'); if (purge) { purgePrompt(purge.dataset.promptPurge); return; } if (e.target.closest('[data-prompt-category-create]')) { state.promptCategoryCreating = true; renderPromptLibrary(); $('#promptCategoryName').focus(); return; } if (e.target.closest('[data-prompt-category-cancel]')) { state.promptCategoryCreating = false; renderPromptLibrary(); return; } var renameCancel = e.target.closest('[data-prompt-folder-rename-cancel]'); if (renameCancel) { state.promptCategoryRenaming = null; renderPromptLibrary(); return; } var renameFolder = e.target.closest('[data-prompt-folder-rename]'); if (renameFolder) { state.promptCategoryRenaming = renameFolder.dataset.promptFolderRename; renderPromptLibrary(); $('#promptFolderRenameName').focus(); $('#promptFolderRenameName').select(); return; } var deleteFolder = e.target.closest('[data-prompt-folder-delete]'); if (deleteFolder) { deletePromptCategory(deleteFolder.dataset.promptFolderDelete); return; } var folderNew = e.target.closest('[data-prompt-folder-new]'); if (folderNew) { state.promptCategoryFilter = folderNew.dataset.promptFolderNew; newPrompt(state.promptCategoryFilter); return; } var folderToggle = e.target.closest('[data-prompt-folder-toggle]'); if (folderToggle) { var folderName = folderToggle.dataset.promptFolderToggle; state.promptCategoryFilter = folderName; state.promptCollapsedCategories[folderName] = folderToggle.getAttribute('aria-expanded') === 'true'; renderPromptLibrary(); return; } var allPrompts = e.target.closest('[data-prompt-category="all"]'); if (allPrompts) { state.promptCategoryFilter = 'all'; renderPromptLibrary(); return; } var prompt = e.target.closest('[data-prompt-id]'); if (!prompt) return; state.promptId = Number(prompt.dataset.promptId); renderPromptLibrary(); });
     $('#promptList').addEventListener('submit', function (e) { if (e.target.id === 'promptCategoryCreateForm') { e.preventDefault(); createPromptCategory($('#promptCategoryName').value); return; } if (e.target.id === 'promptCategoryRenameForm') { e.preventDefault(); renamePromptCategory(state.promptCategoryRenaming, $('#promptFolderRenameName').value); } });
     $('#promptList').addEventListener('click', function (e) { var folderMove = e.target.closest('[data-prompt-folder-move]'); if (folderMove) { shiftPromptFolder(folderMove.dataset.promptFolderMove, Number(folderMove.dataset.direction)); return; } var itemMove = e.target.closest('[data-prompt-item-move]'); if (itemMove) shiftPromptItem(itemMove.dataset.promptItemMove, Number(itemMove.dataset.direction)); });
@@ -8620,6 +8637,39 @@
   // ===== 提示词库：模板变量、复制与回收站 =====
   function loadPromptLibrary() { return api('/api/prompt-library').then(function (res) { if (!res.ok) { toast(res.error || '请先登录后使用提示词库'); return; } state.promptLibrary = Object.assign({ prompts: [], trash: [], categories: ['通用'] }, res.promptLibrary || {}); if (!state.promptId && state.promptLibrary.prompts[0]) state.promptId = state.promptLibrary.prompts[0].id; renderPromptLibrary(); }); }
   function activePrompt() { return (state.promptLibrary.prompts || []).filter(function (prompt) { return Number(prompt.id) === Number(state.promptId); })[0] || null; }
+  function renderPromptFolderTree(categories, prompts) {
+    var library = state.promptLibrary || { prompts: [], categories: ['通用'] };
+    prompts = prompts || library.prompts || [];
+    categories = categories || Array.from(new Set((library.categories || []).concat(prompts.map(function (prompt) { return (prompt.category || '通用').trim() || '通用'; }))));
+    var list = $('#promptList'), query = String(state.promptQuery || '').trim().toLocaleLowerCase();
+    var matches = function (prompt) {
+      return [prompt.title, prompt.body, prompt.tags, prompt.category || '通用'].some(function (value) { return String(value || '').toLocaleLowerCase().indexOf(query) >= 0; });
+    };
+    var matchingPrompts = query ? prompts.filter(matches) : prompts;
+    var visiblePrompts = matchingPrompts.length;
+    var html = '<div class="prompt-category-heading"><span>文件夹</span><button type="button" data-prompt-category-create>＋ 新建分类</button></div>' +
+      '<label class="prompt-library-search"><span aria-hidden="true">⌕</span><input id="promptSearch" type="search" placeholder="搜索标题、正文、标签或文件夹" aria-label="搜索提示词" value="' + escapeAttribute(state.promptQuery || '') + '"><kbd>Esc</kbd></label>' +
+      (state.promptCategoryCreating ? '<form class="prompt-category-form" id="promptCategoryCreateForm"><input id="promptCategoryName" maxlength="40" placeholder="输入文件夹名称" aria-label="新分类名称" required><button type="submit">添加</button><button type="button" data-prompt-category-cancel>取消</button></form>' : '') +
+      '<button type="button" class="prompt-folder-all' + (state.promptCategoryFilter === 'all' ? ' is-active' : '') + '" data-prompt-category="all"><span aria-hidden="true">▦</span><b>全部提示词</b><span class="prompt-folder-count">' + visiblePrompts + '</span></button>';
+    var folderMarkup = categories.map(function (category, categoryIndex) {
+      var categoryPrompts = prompts.filter(function (prompt) { return ((prompt.category || '通用').trim() || '通用') === category; });
+      var categoryMatches = query && category.toLocaleLowerCase().indexOf(query) >= 0;
+      var folderPrompts = query ? (categoryMatches ? categoryPrompts : categoryPrompts.filter(matches)) : categoryPrompts;
+      if (query && !folderPrompts.length) return '';
+      var collapsed = !query && state.promptCollapsedCategories[category] === true;
+      var sortActions = query ? '' : '<span class="prompt-sort-actions"><button type="button" data-prompt-folder-move="' + escapeAttribute(category) + '" data-direction="-1" title="文件夹上移" aria-label="文件夹上移 ' + escapeAttribute(category) + '"' + (categoryIndex === 0 ? ' disabled' : '') + '>↑</button><button type="button" data-prompt-folder-move="' + escapeAttribute(category) + '" data-direction="1" title="文件夹下移" aria-label="文件夹下移 ' + escapeAttribute(category) + '"' + (categoryIndex === categories.length - 1 ? ' disabled' : '') + '>↓</button></span>';
+      var management = '<span class="prompt-folder-management">' + (category === '通用' ? '' : '<button type="button" data-prompt-folder-rename="' + escapeAttribute(category) + '" title="重命名文件夹" aria-label="重命名文件夹 ' + escapeAttribute(category) + '">✎</button>') + '<button type="button" data-prompt-folder-delete="' + escapeAttribute(category) + '" title="删除文件夹" aria-label="删除文件夹 ' + escapeAttribute(category) + '">×</button></span>';
+      var folderActions = '<span class="prompt-folder-actions">' + sortActions + management + '</span>';
+      var folderHeader = state.promptCategoryRenaming === category ? '<form class="prompt-folder-rename-form" id="promptCategoryRenameForm"><input id="promptFolderRenameName" maxlength="40" value="' + escapeAttribute(category) + '" aria-label="文件夹新名称" required><button type="submit">保存</button><button type="button" data-prompt-folder-rename-cancel>取消</button></form>' : '<div class="prompt-folder-row"><button type="button"' + (query ? '' : ' draggable="true"') + ' title="' + (query ? '点击选择文件夹' : '拖动以调整文件夹顺序；点击展开或折叠') + '" class="prompt-folder-toggle' + (state.promptCategoryFilter === category ? ' is-selected' : '') + '" data-prompt-folder-toggle="' + escapeAttribute(category) + '" aria-expanded="' + (!collapsed) + '"><span class="prompt-folder-chevron" aria-hidden="true">' + (collapsed ? '▸' : '▾') + '</span><span class="prompt-folder-icon" aria-hidden="true">' + (collapsed ? '📁' : '📂') + '</span><b>' + escapeHtml(category) + '</b><span class="prompt-folder-count">' + (query ? folderPrompts.length : categoryPrompts.length) + '</span></button>' + folderActions + (query ? '' : '<button type="button" class="prompt-folder-add" data-prompt-folder-new="' + escapeAttribute(category) + '" title="在此文件夹中新建提示词" aria-label="在 ' + escapeAttribute(category) + ' 中新建提示词">＋</button>') + '</div>';
+      var promptRows = folderPrompts.length ? folderPrompts.map(function (prompt, promptIndex) {
+        var itemActions = query ? '' : '<span class="prompt-sort-actions"><button type="button" data-prompt-item-move="' + prompt.id + '" data-direction="-1" title="提示词上移" aria-label="提示词上移：' + escapeAttribute(prompt.title || '未命名提示词') + '"' + (promptIndex === 0 ? ' disabled' : '') + '>↑</button><button type="button" data-prompt-item-move="' + prompt.id + '" data-direction="1" title="提示词下移" aria-label="提示词下移：' + escapeAttribute(prompt.title || '未命名提示词') + '"' + (promptIndex === folderPrompts.length - 1 ? ' disabled' : '') + '>↓</button></span>';
+        return '<div class="prompt-file-row"><button type="button"' + (query ? '' : ' draggable="true"') + ' title="' + escapeAttribute(prompt.title || '未命名提示词') + '" class="prompt-list-item' + (Number(prompt.id) === Number(state.promptId) ? ' is-active' : '') + '" data-prompt-id="' + prompt.id + '"><b>' + escapeHtml(prompt.title || '未命名提示词') + '</b><span>' + escapeHtml(prompt.updated || '') + '</span></button>' + itemActions + '</div>';
+      }).join('') : '<button type="button" class="prompt-folder-empty" data-prompt-folder-new="' + escapeAttribute(category) + '">此文件夹为空，点击 ＋ 新建</button>';
+      return '<section class="prompt-folder">' + folderHeader + '<div class="prompt-folder-contents"' + (collapsed ? ' hidden' : '') + '>' + promptRows + '</div></section>';
+    }).join('');
+    html += '<div class="prompt-folder-tree">' + (folderMarkup || (query ? '<div class="prompt-search-empty">没有找到匹配的提示词</div>' : '')) + '</div>';
+    list.innerHTML = html;
+  }
   function renderPromptLibrary() {
     var library = state.promptLibrary || { prompts: [], trash: [], categories: ['通用'] }, prompts = library.prompts || [], trash = library.trash || [], list = $('#promptList');
     var fields = ['promptTitle', 'promptCategory', 'promptTags', 'promptBody'];
@@ -8629,17 +8679,7 @@
     var visible = prompts;
     if (!visible.some(function (prompt) { return Number(prompt.id) === Number(state.promptId); })) state.promptId = visible[0] ? visible[0].id : null;
     var active = activePrompt();
-    var categoryToolbar = '<div class="prompt-category-heading"><span>文件夹</span><button type="button" data-prompt-category-create>＋ 新建分类</button></div>' + (state.promptCategoryCreating ? '<form class="prompt-category-form" id="promptCategoryCreateForm"><input id="promptCategoryName" maxlength="40" placeholder="输入文件夹名称" aria-label="新分类名称" required><button type="submit">添加</button><button type="button" data-prompt-category-cancel>取消</button></form>' : '') + '<button type="button" class="prompt-folder-all' + (state.promptCategoryFilter === 'all' ? ' is-active' : '') + '" data-prompt-category="all"><span aria-hidden="true">▦</span><b>全部提示词</b><span class="prompt-folder-count">' + prompts.length + '</span></button><div class="prompt-folder-tree">' + categories.map(function (category, categoryIndex) {
-      var folderPrompts = prompts.filter(function (prompt) { return ((prompt.category || '通用').trim() || '通用') === category; });
-      var collapsed = state.promptCollapsedCategories[category] === true;
-      var sortActions = '<span class="prompt-sort-actions"><button type="button" data-prompt-folder-move="' + escapeAttribute(category) + '" data-direction="-1" title="文件夹上移" aria-label="文件夹上移 ' + escapeAttribute(category) + '"' + (categoryIndex === 0 ? ' disabled' : '') + '>↑</button><button type="button" data-prompt-folder-move="' + escapeAttribute(category) + '" data-direction="1" title="文件夹下移" aria-label="文件夹下移 ' + escapeAttribute(category) + '"' + (categoryIndex === categories.length - 1 ? ' disabled' : '') + '>↓</button></span>';
-      var management = '<span class="prompt-folder-management">' + (category === '通用' ? '' : '<button type="button" data-prompt-folder-rename="' + escapeAttribute(category) + '" title="重命名文件夹" aria-label="重命名文件夹 ' + escapeAttribute(category) + '">✎</button>') + '<button type="button" data-prompt-folder-delete="' + escapeAttribute(category) + '" title="删除文件夹" aria-label="删除文件夹 ' + escapeAttribute(category) + '">×</button></span>';
-      var folderActions = '<span class="prompt-folder-actions">' + sortActions + management + '</span>';
-      var folderHeader = state.promptCategoryRenaming === category ? '<form class="prompt-folder-rename-form" id="promptCategoryRenameForm"><input id="promptFolderRenameName" maxlength="40" value="' + escapeAttribute(category) + '" aria-label="文件夹新名称" required><button type="submit">保存</button><button type="button" data-prompt-folder-rename-cancel>取消</button></form>' : '<div class="prompt-folder-row"><button type="button" draggable="true" title="拖动以调整文件夹顺序；点击展开或折叠" class="prompt-folder-toggle' + (state.promptCategoryFilter === category ? ' is-selected' : '') + '" data-prompt-folder-toggle="' + escapeAttribute(category) + '" aria-expanded="' + (!collapsed) + '"><span class="prompt-folder-chevron" aria-hidden="true">' + (collapsed ? '▸' : '▾') + '</span><span class="prompt-folder-icon" aria-hidden="true">' + (collapsed ? '📁' : '📂') + '</span><b>' + escapeHtml(category) + '</b><span class="prompt-folder-count">' + folderPrompts.length + '</span></button>' + folderActions + '<button type="button" class="prompt-folder-add" data-prompt-folder-new="' + escapeAttribute(category) + '" title="在此文件夹中新建提示词" aria-label="在 ' + escapeAttribute(category) + ' 中新建提示词">＋</button></div>';
-      var promptRows = folderPrompts.length ? folderPrompts.map(function (prompt, promptIndex) { var itemActions = '<span class="prompt-sort-actions"><button type="button" data-prompt-item-move="' + prompt.id + '" data-direction="-1" title="提示词上移" aria-label="提示词上移：' + escapeAttribute(prompt.title || '未命名提示词') + '"' + (promptIndex === 0 ? ' disabled' : '') + '>↑</button><button type="button" data-prompt-item-move="' + prompt.id + '" data-direction="1" title="提示词下移" aria-label="提示词下移：' + escapeAttribute(prompt.title || '未命名提示词') + '"' + (promptIndex === folderPrompts.length - 1 ? ' disabled' : '') + '>↓</button></span>'; return '<div class="prompt-file-row"><button type="button" draggable="true" title="拖动以调整顺序或移动到其他文件夹" class="prompt-list-item' + (Number(prompt.id) === Number(state.promptId) ? ' is-active' : '') + '" data-prompt-id="' + prompt.id + '"><b>' + escapeHtml(prompt.title || '未命名提示词') + '</b><span>' + escapeHtml(prompt.updated || '') + '</span></button>' + itemActions + '</div>'; }).join('') : '<button type="button" class="prompt-folder-empty" data-prompt-folder-new="' + escapeAttribute(category) + '">此文件夹为空，点击 ＋ 新建</button>';
-      return '<section class="prompt-folder">' + folderHeader + '<div class="prompt-folder-contents"' + (collapsed ? ' hidden' : '') + '>' + promptRows + '</div></section>';
-    }).join('') + '</div>';
-    list.innerHTML = categoryToolbar;
+    renderPromptFolderTree(categories, prompts);
     $('#promptCategory').innerHTML = categories.map(function (category) { return '<option value="' + escapeAttribute(category) + '">' + escapeHtml(category) + '</option>'; }).join('');
     fields.forEach(function (id) { $('#' + id).disabled = !active; }); $('#promptDelete').hidden = !active;
     $('#promptTitle').value = active ? active.title || '' : ''; $('#promptCategory').value = active ? active.category || '' : ''; $('#promptTags').value = active ? active.tags || '' : ''; $('#promptBody').value = active ? active.body || '' : '';
@@ -8647,7 +8687,7 @@
   }
   function promptVariables(text) { var seen = {}; return (String(text || '').match(/{{\s*([\w\u4e00-\u9fa5-]+)\s*}}/g) || []).map(function (item) { return item.replace(/{{\s*|\s*}}/g, ''); }).filter(function (name) { if (seen[name]) return false; seen[name] = true; return true; }); }
   function renderPromptResult() { var body = $('#promptBody').value || '', variables = promptVariables(body), container = $('#promptVariables'); var existing = {}; $$('[data-prompt-var]', container).forEach(function (input) { existing[input.dataset.promptVar] = input.value; }); container.innerHTML = variables.length ? variables.map(function (name) { return '<label>' + escapeHtml(name) + '<input data-prompt-var="' + escapeHtml(name) + '" placeholder="填写 ' + escapeHtml(name) + '" value="' + escapeHtml(existing[name] || '') + '"></label>'; }).join('') : '<div class="prompt-variable-empty">此提示词没有变量，可直接复制。</div>'; var values = {}; $$('[data-prompt-var]', container).forEach(function (input) { values[input.dataset.promptVar] = input.value; }); $('#promptResult').textContent = body.replace(/{{\s*([\w\u4e00-\u9fa5-]+)\s*}}/g, function (_, name) { return values[name] || '{{ ' + name + ' }}'; }); }
-  function newPrompt(targetCategory) { var categories = state.promptLibrary.categories || []; var fallbackCategory = categories.indexOf('通用') >= 0 || !categories.length ? '通用' : categories[0]; var category = targetCategory || (state.promptCategoryFilter === 'all' ? fallbackCategory : state.promptCategoryFilter); state.promptCategoryFilter = category; state.promptCollapsedCategories[category] = false; api('/api/prompt-library', { method: 'POST', body: JSON.stringify({ action: 'create', category: category }) }).then(function (res) { if (!res.ok) { toast(res.error || '新建失败'); return; } state.promptLibrary = res.promptLibrary; state.promptTrashOpen = false; state.promptId = res.promptLibrary.prompts[0].id; renderPromptLibrary(); $('#promptTitle').focus(); }); }
+  function newPrompt(targetCategory) { var categories = state.promptLibrary.categories || []; var fallbackCategory = categories.indexOf('通用') >= 0 || !categories.length ? '通用' : categories[0]; var category = targetCategory || (state.promptCategoryFilter === 'all' ? fallbackCategory : state.promptCategoryFilter); state.promptCategoryFilter = category; state.promptQuery = ''; state.promptCollapsedCategories[category] = false; api('/api/prompt-library', { method: 'POST', body: JSON.stringify({ action: 'create', category: category }) }).then(function (res) { if (!res.ok) { toast(res.error || '新建失败'); return; } state.promptLibrary = res.promptLibrary; state.promptTrashOpen = false; state.promptId = res.promptLibrary.prompts[0].id; renderPromptLibrary(); $('#promptTitle').focus(); }); }
   function createPromptCategory(value) {
     var name = String(value || '').trim().slice(0, 40);
     if (!name) { toast('请输入分类名称'); return; }
@@ -8662,6 +8702,7 @@
       state.promptLibrary = res.promptLibrary;
       state.promptLibrary.categories = Array.from(new Set((state.promptLibrary.categories || []).concat(category)));
       state.promptCategoryFilter = category;
+      state.promptQuery = '';
       state.promptCollapsedCategories[category] = false;
       state.promptCategoryCreating = false;
       state.promptId = selectedPromptId;
@@ -8680,6 +8721,7 @@
       if (!res.ok) { toast(res.error || '重命名文件夹失败'); return; }
       state.promptLibrary = res.promptLibrary;
       if (state.promptCategoryFilter === oldName) state.promptCategoryFilter = name;
+      state.promptQuery = '';
       if (state.promptCollapsedCategories[oldName] !== undefined) state.promptCollapsedCategories[name] = state.promptCollapsedCategories[oldName];
       delete state.promptCollapsedCategories[oldName];
       state.promptCategoryRenaming = null;
