@@ -825,7 +825,7 @@
         await saveWorkspace(data, dataRevision);
         return response({ ok: true, variableLibrary: variableLibrary, duplicateId: duplicateId, importedIds: importedIds, undone: undoneCounts || null });
       }
-      if (path === '/api/references' && method === 'POST' && (body.action === 'merge-duplicates' || body.action === 'unmerge')) {
+      if (path === '/api/references' && method === 'POST' && (body.action === 'merge-duplicates' || body.action === 'unmerge' || body.action === 'batch-enrich')) {
         var mergeLibrary = data.referenceLibrary || (data.referenceLibrary = { items: [], trash: [] });
         mergeLibrary.items = Array.isArray(mergeLibrary.items) ? mergeLibrary.items : [];
         mergeLibrary.trash = Array.isArray(mergeLibrary.trash) ? mergeLibrary.trash : [];
@@ -835,6 +835,32 @@
           delete unmergeItem.mergedInto; delete unmergeItem.mergedAt; unmergeItem.updated = nowText();
           await saveWorkspace(data, dataRevision);
           return response({ ok: true, referenceLibrary: mergeLibrary });
+        }
+        if (body.action === 'batch-enrich') {
+          var enrichmentEntries = Array.isArray(body.entries) ? body.entries.slice(0, 20) : [];
+          var enrichmentFields = ['title', 'authors', 'year', 'source', 'locator', 'url'];
+          var enrichmentUpdated = 0, enrichmentFilled = 0;
+          enrichmentEntries.forEach(function (entry) {
+            if (!entry || entry.id == null || !entry.fields || typeof entry.fields !== 'object' || Array.isArray(entry.fields)) return;
+            var reference = mergeLibrary.items.find(function (item) { return String(item.id) === String(entry.id); });
+            if (!reference || reference.mergedInto) return;
+            var itemUpdated = false;
+            enrichmentFields.forEach(function (field) {
+              if (!Object.prototype.hasOwnProperty.call(entry.fields, field)) return;
+              var currentValue = String(reference[field] || '').trim();
+              if (currentValue && !(field === 'title' && currentValue === '未命名文献')) return;
+              var suggestedValue = String(entry.fields[field] || '').trim();
+              if (!suggestedValue) return;
+              if (field === 'year') suggestedValue = suggestedValue.replace(/[^0-9]/g, '').slice(0, 4);
+              else suggestedValue = suggestedValue.slice(0, field === 'title' || field === 'authors' ? 2000 : field === 'url' ? 2048 : 1000);
+              if (!suggestedValue) return;
+              reference[field] = suggestedValue; itemUpdated = true; enrichmentFilled += 1;
+            });
+            if (itemUpdated) { reference.updated = nowText(); enrichmentUpdated += 1; }
+          });
+          if (!enrichmentUpdated) return response({ ok: false, error: '没有可安全补全的空白字段；已有信息未被覆盖' }, 409);
+          await saveWorkspace(data, dataRevision);
+          return response({ ok: true, referenceLibrary: mergeLibrary, updatedCount: enrichmentUpdated, filledFieldCount: enrichmentFilled });
         }
         var primaryRef = mergeLibrary.items.find(function (item) { return String(item.id) === String(body.primaryId); });
         var mergeIds = Array.isArray(body.duplicateIds) ? Array.from(new Set(body.duplicateIds.map(String))).filter(function (id) { return id && id !== String(body.primaryId); }).slice(0, 50) : [];

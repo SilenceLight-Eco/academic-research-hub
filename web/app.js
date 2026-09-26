@@ -76,6 +76,7 @@
     referenceAuditEnabled: false,
     referenceShowMerged: false,
     referenceAuditGroups: [],
+    referenceDoiBatchEntries: [],
     journalTracker: { subscriptions: [], articles: [], articleCount: 0, refreshLogs: [] },
     journalTrackerLoaded: false,
     journalTrackerLoading: false,
@@ -7672,6 +7673,11 @@
     $('#refTrash').addEventListener('click', function () { afterCurrentEditorSaved('references', function () { state.referenceTrashOpen = !state.referenceTrashOpen; renderReferenceLibrary(); }); });
     $('#refImport').addEventListener('click', importReferenceBibtex);
     $('#refFetchDoi').addEventListener('click', fetchReferenceDoi);
+    $('#refBatchDoi').addEventListener('click', fetchReferenceDoiBatch);
+    $('#refDoiBatchPreview').addEventListener('click', function (event) {
+      if (event.target.closest('[data-ref-doi-batch-cancel]')) { $('#refDoiBatchPreview').hidden = true; state.referenceDoiBatchEntries = []; return; }
+      if (event.target.closest('[data-ref-doi-batch-apply]')) applyReferenceDoiBatch();
+    });
     $('#refCopyCitation').addEventListener('click', function () { copyReference(referenceCitation(activeReference()), '引用'); });
     $('#refCopyInTextCitation').addEventListener('click', function () { copyReference(referenceInTextCitation(activeReference()), '文内引用'); });
     $('#refCopyBibtex').addEventListener('click', function () { copyReference(referenceBibtex(activeReference()), 'BibTeX'); });
@@ -8866,6 +8872,65 @@
   function purgeReference(id) { if (!confirm('确定彻底删除这篇文献吗？此操作无法恢复。')) return; api('/api/references', { method: 'POST', body: JSON.stringify({ action: 'purge', id: id }) }).then(function (res) { if (res.ok) { state.referenceLibrary = res.referenceLibrary; renderReferenceLibrary(); } }); }
   function copyReference(value, label) { if (!value) { toast('暂无可复制内容'); return; } if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(value).then(function () { toast(label + '已复制'); }); else { var area = document.createElement('textarea'); area.value = value; document.body.appendChild(area); area.select(); document.execCommand('copy'); area.remove(); toast(label + '已复制'); } }
   function importReferenceBibtex() { var raw = prompt('粘贴一条 BibTeX 文献：'); if (!raw || !raw.trim()) return; var fields = {}; raw.replace(/(\w+)\s*=\s*[{"]([^}"]+)[}"]/g, function (_, key, value) { fields[key.toLowerCase()] = value.trim(); return _; }); if (!fields.title) { toast('未识别到 BibTeX 标题'); return; } newReference().then(function (created) { if (!created) return; $('#refTitle').value = fields.title || ''; $('#refAuthors').value = fields.author || ''; $('#refYear').value = fields.year || ''; $('#refSource').value = fields.journal || fields.booktitle || fields.publisher || fields.institution || ''; $('#refLocator').value = [fields.volume, fields.number ? '(' + fields.number + ')' : '', fields.pages].filter(Boolean).join(', '); $('#refDoi').value = fields.doi || ''; $('#refUrl').value = fields.url || ''; queueReferenceAutoSave(); }); }
+  function referenceDoiProposals(reference, metadata) {
+    var proposed = {}, title = (metadata.title || [])[0] || '', authors = (metadata.author || []).map(function (author) { return [author.family, author.given].filter(Boolean).join(', '); }).filter(Boolean).join('; ');
+    var dates = [metadata.published, metadata.issued, metadata.created], dateParts = [];
+    for (var dateIndex = 0; dateIndex < dates.length && !dateParts.length; dateIndex += 1) dateParts = ((dates[dateIndex] || {})['date-parts'] || [[]])[0] || [];
+    var year = dateParts[0] ? String(dateParts[0]) : '';
+    var source = (metadata['container-title'] || [])[0] || metadata.publisher || '', locator = [metadata.volume, metadata.issue ? '(' + metadata.issue + ')' : '', metadata.page].filter(Boolean).join(', '), url = metadata.URL || '';
+    if ((!String(reference.title || '').trim() || reference.title === '未命名文献') && title) proposed.title = title;
+    if (!String(reference.authors || '').trim() && authors) proposed.authors = authors;
+    if (!String(reference.year || '').trim() && year) proposed.year = year;
+    if (!String(reference.source || '').trim() && source) proposed.source = source;
+    if (!String(reference.locator || '').trim() && locator) proposed.locator = locator;
+    if (!String(reference.url || '').trim() && url) proposed.url = url;
+    return proposed;
+  }
+  function renderReferenceDoiBatchPreview(failures) {
+    var panel = $('#refDoiBatchPreview'), fieldLabels = { title: '标题', authors: '作者', year: '年份', source: '期刊/出版社', locator: '卷期/页码', url: '原文链接' };
+    var entries = state.referenceDoiBatchEntries;
+    var rows = entries.map(function (entry) {
+      var changes = Object.keys(entry.fields).map(function (key) { return '<li><b>' + escapeHtml(fieldLabels[key] || key) + '：</b>' + escapeHtml(entry.fields[key]) + '</li>'; }).join('');
+      return '<label class="ref-doi-batch-item"><input type="checkbox" data-ref-doi-batch-id="' + escapeHtml(String(entry.id)) + '" checked><span><strong>' + escapeHtml(entry.title || '未命名文献') + '</strong><small>DOI：' + escapeHtml(entry.doi) + '</small><ul>' + changes + '</ul></span></label>';
+    }).join('');
+    var failureHtml = failures && failures.length ? '<p class="ref-doi-batch-errors">' + failures.length + ' 篇未能查询：' + escapeHtml(failures.slice(0, 5).join('、')) + (failures.length > 5 ? '等' : '') + '</p>' : '';
+    panel.innerHTML = '<div class="ref-doi-batch-head"><strong>DOI 补全预览</strong><span>仅补空白字段，不覆盖已有内容；共找到 ' + entries.length + ' 篇可补全</span></div>' + failureHtml + (rows ? '<div class="ref-doi-batch-list">' + rows + '</div><div class="ref-doi-batch-actions"><button type="button" data-ref-doi-batch-cancel>取消</button><button type="button" data-ref-doi-batch-apply>应用勾选项</button></div>' : '<p class="ref-doi-batch-empty">没有查到可补充的字段。</p><div class="ref-doi-batch-actions"><button type="button" data-ref-doi-batch-cancel>关闭</button></div>');
+    panel.hidden = false;
+  }
+  async function fetchReferenceDoiBatch() {
+    if (state.referenceTrashOpen) { toast('请先返回文献库'); return; }
+    var candidates = filteredReferenceItems().filter(function (item) { return !item.mergedInto && normalizeReferenceDoi(item.doi) && (!String(item.title || '').trim() || item.title === '未命名文献' || !String(item.authors || '').trim() || !String(item.year || '').trim() || !String(item.source || '').trim() || !String(item.locator || '').trim() || !String(item.url || '').trim()); });
+    if (!candidates.length) { toast('当前筛选中没有带 DOI 且缺少信息的文献'); return; }
+    if (candidates.length > 20) toast('本次先查询前 20 篇；可缩小筛选范围后继续');
+    candidates = candidates.slice(0, 20);
+    var button = $('#refBatchDoi'), requester = window.__nativeFetch || window.fetch.bind(window), failures = [];
+    button.disabled = true; state.referenceDoiBatchEntries = []; $('#refDoiBatchPreview').hidden = true;
+    try {
+      for (var index = 0; index < candidates.length; index += 1) {
+        var reference = candidates[index]; button.textContent = '查询中 ' + (index + 1) + '/' + candidates.length;
+        try {
+          var response = await requester('https://api.crossref.org/works/' + encodeURIComponent(normalizeReferenceDoi(reference.doi)));
+          if (!response.ok) throw new Error('not found');
+          var result = await response.json(), fields = referenceDoiProposals(reference, result.message || {});
+          if (Object.keys(fields).length) state.referenceDoiBatchEntries.push({ id: reference.id, title: reference.title, doi: reference.doi, fields: fields });
+        } catch (_) { failures.push(reference.title || reference.doi); }
+        if (index < candidates.length - 1) await new Promise(function (resolve) { setTimeout(resolve, 300); });
+      }
+      renderReferenceDoiBatchPreview(failures);
+    } finally { button.disabled = false; button.textContent = '批量补全 DOI'; }
+  }
+  function applyReferenceDoiBatch() {
+    var panel = $('#refDoiBatchPreview'), selectedIds = Array.from(panel.querySelectorAll('[data-ref-doi-batch-id]:checked')).map(function (input) { return input.dataset.refDoiBatchId; });
+    var entries = state.referenceDoiBatchEntries.filter(function (entry) { return selectedIds.indexOf(String(entry.id)) >= 0; }).map(function (entry) { return { id: entry.id, fields: entry.fields }; });
+    if (!entries.length) { toast('请至少勾选一篇文献'); return; }
+    afterCurrentEditorSaved('references', function () {
+      return api('/api/references', { method: 'POST', body: JSON.stringify({ action: 'batch-enrich', entries: entries }) }).then(function (result) {
+        if (!result.ok) throw new Error(result.error || '批量补全保存失败');
+        state.referenceLibrary = result.referenceLibrary; state.referenceDoiBatchEntries = []; panel.hidden = true;
+        renderReferenceLibrary(); toast('已为 ' + Number(result.updatedCount || 0) + ' 篇文献补全 ' + Number(result.filledFieldCount || 0) + ' 个空白字段');
+      }).catch(function (error) { toast(error.message || '批量补全失败，请重试'); });
+    });
+  }
   function fetchReferenceDoi() { var doi = ($('#refDoi').value || '').trim().replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, ''); if (!doi) { toast('请先输入 DOI'); return; } var button = $('#refFetchDoi'); button.disabled = true; button.textContent = '获取中…'; var requester = window.__nativeFetch || window.fetch.bind(window); requester('https://api.crossref.org/works/' + encodeURIComponent(doi)).then(function (res) { if (!res.ok) throw new Error('未找到该 DOI'); return res.json(); }).then(function (data) { var item = data.message || {}; $('#refTitle').value = (item.title || [])[0] || $('#refTitle').value; $('#refAuthors').value = (item.author || []).map(function (author) { return [author.family, author.given].filter(Boolean).join(', '); }).join('; ') || $('#refAuthors').value; $('#refYear').value = String((((item.published || item.issued || {})['date-parts'] || [[]])[0][0]) || $('#refYear').value || ''); $('#refSource').value = (item['container-title'] || [])[0] || item.publisher || $('#refSource').value; $('#refLocator').value = [item.volume, item.issue ? '(' + item.issue + ')' : '', item.page].filter(Boolean).join(', '); $('#refUrl').value = item.URL || $('#refUrl').value; queueReferenceAutoSave(); toast('已根据 DOI 补全可用信息'); }).catch(function (error) { toast(error.message || 'DOI 自动补全失败，请手动填写'); }).finally(function () { button.disabled = false; button.textContent = 'DOI 自动补全'; }); }
 
   // ===== 研究项目：以稳定记录 ID 关联现有内容，不复制正文 =====

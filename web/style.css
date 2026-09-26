@@ -6816,7 +6816,27 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .ref-list-item.is-merged-alias { opacity:.72; }
 .ref-list-item.is-merged-alias b { text-decoration:line-through; text-decoration-color:var(--text-muted); }
 .ref-preview>button:disabled { opacity:.48; cursor:not-allowed; }
+.ref-doi-batch { margin:0 0 14px; padding:13px 15px; border:1px solid var(--hairline-soft); border-radius:9px; background:var(--glass); color:var(--text-secondary); }
+.ref-doi-batch[hidden] { display:none; }
+.ref-doi-batch-head { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:6px 14px; margin-bottom:9px; }
+.ref-doi-batch-head strong { color:var(--text); font:600 13px "Noto Sans SC",sans-serif; }
+.ref-doi-batch-head span,.ref-doi-batch-errors,.ref-doi-batch-empty { color:var(--text-muted); font-size:11px; }
+.ref-doi-batch-errors { margin:0 0 8px; }
+.ref-doi-batch-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; max-height:340px; overflow:auto; }
+.ref-doi-batch-item { display:grid; grid-template-columns:16px minmax(0,1fr); gap:8px; min-width:0; padding:9px 10px; border:1px solid var(--hairline-soft); border-radius:7px; background:var(--glass-strong); cursor:pointer; }
+.ref-doi-batch-item>input { margin:3px 0 0; accent-color:var(--accent); }
+.ref-doi-batch-item>span { min-width:0; }
+.ref-doi-batch-item strong,.ref-doi-batch-item small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ref-doi-batch-item strong { color:var(--text); font-size:11px; font-weight:600; }
+.ref-doi-batch-item small { margin-top:3px; color:var(--text-muted); font-size:10px; }
+.ref-doi-batch-item ul { display:grid; gap:2px; margin:6px 0 0; padding:0; list-style:none; color:var(--text-secondary); font-size:10px; }
+.ref-doi-batch-item li { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ref-doi-batch-item li b { color:var(--accent); font-weight:500; }
+.ref-doi-batch-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:10px; }
+.ref-doi-batch-actions button { padding:6px 10px; border:1px solid var(--hairline); border-radius:6px; background:var(--glass-strong); color:var(--text-secondary); cursor:pointer; font:11px "Noto Sans SC",sans-serif; }
+.ref-doi-batch-actions button[data-ref-doi-batch-apply] { border-color:var(--accent); background:var(--accent-dim); color:var(--accent); }
 @media (max-width:760px) { .ref-audit-columns { grid-template-columns:1fr; } }
+@media (max-width:760px) { .ref-doi-batch-list { grid-template-columns:1fr; } }
 .ref-style-picker { display:grid; gap:6px; margin:0 0 16px; color:var(--text-muted); font-size:11px; }
 .ref-style-picker select { width:100%; min-width:0; box-sizing:border-box; padding:8px 9px; border:1px solid var(--hairline); border-radius:7px; background:var(--glass-strong); color:var(--text); font:12px "Noto Sans SC",sans-serif; }
 .ref-inline-citation { min-height:0; padding:9px 12px; font:12px/1.6 var(--font-mono); }
