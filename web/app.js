@@ -823,8 +823,9 @@
 
   function createAutomaticBackupNow() {
     var button = $('#autoBackupRun');
-    button.disabled = true; button.textContent = '正在生成…';
-    window.__academicBackup.createAutomaticBackupNow().then(function (result) {
+    button.disabled = true; button.textContent = '正在保存并生成…';
+    flushAllAutoSaves();
+    Promise.all([autoSaveChain.catch(function () {}), apiWriteChain.catch(function () {})]).then(function () { return window.__academicBackup.createAutomaticBackupNow(); }).then(function (result) {
       toast('快照已生成：期刊 ' + Number(result.subscriptions || 0) + ' 本、文章 ' + Number(result.articles || 0) + ' 篇');
       button.textContent = '立即生成快照'; refreshAutomaticBackupPanel();
     }).catch(function (error) {
