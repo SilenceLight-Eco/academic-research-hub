@@ -1427,15 +1427,15 @@
   <section class="auth-card backup-card" role="dialog" aria-modal="true" aria-labelledby="backupTitle">
     <button class="auth-close" id="backupModalClose" type="button" aria-label="关闭">×</button>
     <h2 id="backupTitle">工作台数据备份与恢复</h2>
-    <p class="auth-desc">导出此账号工作台 JSON 数据。文献追踪记录与云端附件文件本体尚未包含在此备份中；导入时可先预览覆盖范围。</p>
-    <button class="btn-primary" id="backupExport" type="button">导出工作台数据</button>
+    <p class="auth-desc">完整备份包含工作台、文献追踪文章与期刊，以及云端附件文件；导出为 ZIP，旧版 JSON 仍可恢复。</p>
+    <button class="btn-primary" id="backupExport" type="button">导出完整备份</button>
     <button class="backup-restore-button" id="backupImport" type="button">从备份文件恢复</button>
-    <input id="backupFileInput" type="file" accept=".json,application/json" hidden>
+    <input id="backupFileInput" type="file" accept=".zip,.json,application/zip,application/json" hidden>
     <div class="backup-preview" id="backupPreview" hidden aria-live="polite">
       <h3>备份内容预览</h3>
       <p id="backupPreviewMeta"></p>
       <ul id="backupPreviewList"></ul>
-      <p class="backup-warning">恢复将覆盖预览中列出的账号工作台数据。文献追踪文章与订阅、云端附件文件本体保存在独立服务中，不包含在此 JSON 备份内。</p>
+      <p class="backup-warning" id="backupPreviewWarning"></p>
       <div class="backup-preview-actions">
         <button class="backup-restore-button" id="backupRestoreCancel" type="button">取消</button>
         <button class="backup-confirm-button" id="backupRestoreConfirm" type="button">确认覆盖并恢复</button>
@@ -1486,8 +1486,8 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-  <script src="static-api.js?v=20260926-14"></script>
-  <script src="app.js?v=20260926-30"></script>
+<script src="static-api.js?v=20260926-15"></script>
+  <script src="app.js?v=20260926-31"></script>
   <script src="attachments.js?v=20260925-1"></script>
 </body>
 </html>

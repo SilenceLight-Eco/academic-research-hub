@@ -270,6 +270,95 @@
       if (deleted.error) throw deleted.error;
     }
   };
+  async function readAllOwnRows(table, columns, orderColumn) {
+    var rows = [], pageSize = 500;
+    for (var offset = 0; ; offset += pageSize) {
+      var query = client.from(table).select(columns || '*');
+      if (orderColumn) query = query.order(orderColumn, { ascending: true });
+      query = query.range(offset, offset + pageSize - 1);
+      var result = await query;
+      if (result.error) throw result.error;
+      rows = rows.concat(result.data || []);
+      if (!result.data || result.data.length < pageSize) return rows;
+      if (rows.length > 100000) throw new Error('备份数据过多，请联系管理员');
+    }
+  }
+  window.__academicBackup = {
+    exportJournal: async function () {
+      await attachmentSession();
+      var results = await Promise.all([
+        readAllOwnRows('journal_subscriptions'),
+        readAllOwnRows('journal_articles', '*', 'discovered_at'),
+        readAllOwnRows('journal_tracker_refresh_logs', 'id,user_id,subscription_id,checked_at,source,ok,article_count,error', 'checked_at')
+      ]);
+      function withoutUserId(rows) { return rows.map(function (row) { var safe = Object.assign({}, row); delete safe.user_id; return safe; }); }
+      return { subscriptions: withoutUserId(results[0]), articles: withoutUserId(results[1]), refreshLogs: withoutUserId(results[2]) };
+    },
+    restoreJournal: async function (snapshot) {
+      var session = await attachmentSession(), userId = session.user.id;
+      var subscriptions = Array.isArray(snapshot && snapshot.subscriptions) ? snapshot.subscriptions : [];
+      var articles = Array.isArray(snapshot && snapshot.articles) ? snapshot.articles : [];
+      var idByIssn = {};
+      for (var offset = 0; offset < subscriptions.length; offset += 100) {
+        var batch = subscriptions.slice(offset, offset + 100).map(function (row) {
+          var safe = Object.assign({}, row, { user_id: userId });
+          delete safe.id;
+          return safe;
+        });
+        var saved = await client.from('journal_subscriptions').upsert(batch, { onConflict: 'user_id,issn' }).select('id,issn');
+        if (saved.error) throw saved.error;
+        (saved.data || []).forEach(function (row) { idByIssn[row.issn] = row.id; });
+      }
+      // Resolve archived subscription IDs against the current account's rows too,
+      // so restoring into another account maps articles to that account's IDs.
+      var current = await readAllOwnRows('journal_subscriptions', 'id,issn', 'created_at');
+      current.forEach(function (row) { idByIssn[row.issn] = row.id; });
+      var archivedIssnById = {};
+      subscriptions.forEach(function (row) { archivedIssnById[row.id] = row.issn; });
+      for (var articleOffset = 0; articleOffset < articles.length; articleOffset += 100) {
+        var articleBatch = articles.slice(articleOffset, articleOffset + 100).map(function (row) {
+          var safe = Object.assign({}, row, { user_id: userId });
+          var issn = archivedIssnById[row.subscription_id];
+          if (issn && idByIssn[issn]) safe.subscription_id = idByIssn[issn];
+          delete safe.id;
+          return safe;
+        }).filter(function (row) { return Boolean(row.subscription_id); });
+        if (!articleBatch.length) continue;
+        var savedArticles = await client.from('journal_articles').upsert(articleBatch, { onConflict: 'subscription_id,article_key' });
+        if (savedArticles.error) throw savedArticles.error;
+      }
+      return { subscriptions: subscriptions.length, articles: articles.length };
+    },
+    exportAttachments: async function () {
+      await attachmentSession();
+      var records = await readAllOwnRows('research_attachments', '*', 'created_at');
+      var result = [];
+      for (var i = 0; i < records.length; i += 1) {
+        var item = records[i];
+        var downloaded = await client.storage.from(attachmentBucket).download(item.object_path);
+        if (downloaded.error) throw downloaded.error;
+        result.push({ metadata: item, blob: downloaded.data });
+      }
+      return result;
+    },
+    restoreAttachments: async function (items) {
+      await attachmentSession();
+      var restored = 0;
+      for (var i = 0; i < (items || []).length; i += 1) {
+        var item = items[i], metadata = item && item.metadata, blob = item && item.blob;
+        if (!metadata || !blob || !metadata.file_name || !metadata.context_kind || !metadata.context_id) continue;
+        var exists = await client.from('research_attachments').select('id')
+          .eq('context_kind', metadata.context_kind).eq('context_id', metadata.context_id)
+          .eq('file_name', metadata.file_name).eq('file_size', metadata.file_size).limit(1);
+        if (exists.error) throw exists.error;
+        if ((exists.data || []).length) continue;
+        var file = new File([blob], metadata.file_name, { type: metadata.content_type || 'application/octet-stream' });
+        await window.__academicAttachments.upload(metadata.context_kind, metadata.context_id, file);
+        restored += 1;
+      }
+      return restored;
+    }
+  };
   async function loadWorkspace() {
     if (pendingWorkspaceConflict) { workspace = pendingWorkspaceConflict.localData; return workspace; }
     if (workspaceLoadPromise) return workspaceLoadPromise;
