@@ -7718,7 +7718,11 @@
       var select = event.target.closest('[data-ref-folder-select]');
       if (!select) return;
       var folderId = select.dataset.refFolderSelect;
-      if (String(folderId) === String(state.referenceFolderId) && state.referenceCollapsedFolders[folderId] === false) return;
+      if (String(folderId) === String(state.referenceFolderId)) {
+        state.referenceCollapsedFolders[folderId] = state.referenceCollapsedFolders[folderId] === false;
+        renderReferenceFolders();
+        return;
+      }
       afterCurrentEditorSaved('references', function () {
         state.referenceFolderId = folderId;
         state.referenceCollapsedFolders[folderId] = false;
