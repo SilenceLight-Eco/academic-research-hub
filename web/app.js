@@ -1652,7 +1652,7 @@
         '<span>' + escapeHtml(t.created || '') + '</span>' +
         '</div></div>' +
         '<div class="todo-card-actions">' +
-        (!t.done ? '<button class="todo-card-pomo" data-action="pomo" data-id="' + t.id + '" title="开始 25 分钟专注"><svg class="ico-inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="9" y1="2" x2="15" y2="2"/></svg>' + ((pomoCounts[t.id] || 0) > 0 ? ' ×' + pomoCounts[t.id] : '') + '</button>' : '') +
+        (!t.done ? '<button class="todo-card-pomo" data-action="pomo" data-id="' + t.id + '" title="开始 ' + focusPreset + ' 分钟专注"><svg class="ico-inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="9" y1="2" x2="15" y2="2"/></svg>' + ((pomoCounts[t.id] || 0) > 0 ? ' ×' + pomoCounts[t.id] : '') + '</button>' : '') +
         '<button class="todo-card-delete" data-action="delete" data-id="' + t.id + '" aria-label="删除">×</button>' +
         '</div></div></div>';
     }
@@ -4575,6 +4575,8 @@
   // 降频甚至暂停，减 1 的算法会让计时越来越慢（用户会以为 25 分钟到了、其实还早）。
   // 进行中的一轮同时写进 localStorage，刷新/关标签都能接着跑（此前刷新即丢）。
   var FOCUS_PRESETS = [15, 25, 45, 60];
+  var FOCUS_MIN_MINUTES = 1;
+  var FOCUS_MAX_MINUTES = 180;
   var FOCUS_BREAK_SEC = 5 * 60;
   var FOCUS_LOG_KEY = 'wb_focus_log';
   var FOCUS_STATE_KEY = 'wb_focus_state';
@@ -4588,7 +4590,7 @@
   var focusPreset = 25;
   try {
     var savedPreset = parseInt(localStorage.getItem(FOCUS_PRESET_KEY) || '', 10);
-    if (FOCUS_PRESETS.indexOf(savedPreset) >= 0) focusPreset = savedPreset;
+    if (Number.isInteger(savedPreset) && savedPreset >= FOCUS_MIN_MINUTES && savedPreset <= FOCUS_MAX_MINUTES) focusPreset = savedPreset;
   } catch (e) {}
 
   var focusState = {
@@ -4690,6 +4692,28 @@
     focusStartTicker();
     focusRenderAll();
     return totalSec;
+  }
+
+  function focusApplyPreset(minutes) {
+    if (focusIsActive()) { toast('这一轮进行中，结束后再改时长'); return false; }
+    minutes = Number(minutes);
+    if (!Number.isInteger(minutes) || minutes < FOCUS_MIN_MINUTES || minutes > FOCUS_MAX_MINUTES) {
+      toast('请输入 1–180 之间的整数分钟');
+      return false;
+    }
+    focusPreset = minutes;
+    try { localStorage.setItem(FOCUS_PRESET_KEY, String(focusPreset)); } catch (e) {}
+    if (!focusState.done) { focusState.totalSec = focusPreset * 60; focusState.leftMs = focusPreset * 60000; }
+    focusRenderAll();
+    return true;
+  }
+
+  function focusApplyCustomTime() {
+    var input = $('#focusCustomMinutes');
+    if (!input) return;
+    var minutes = Number(input.value);
+    if (focusApplyPreset(minutes)) toast('本轮专注时长已设为 ' + focusPreset + ' 分钟');
+    else input.focus();
   }
 
   function focusStart() {
@@ -4963,10 +4987,19 @@
     var box = $('#focusPresets');
     if (box) {
       // 按钮里只放数字（四个一行排得下），单位在标签里说明
-      box.innerHTML = FOCUS_PRESETS.map(function (m) {
+      var presets = FOCUS_PRESETS.slice();
+      if (presets.indexOf(focusPreset) < 0) presets.push(focusPreset);
+      box.innerHTML = presets.map(function (m) {
         return '<button class="focus-preset' + (m === focusPreset ? ' active' : '') + '" data-preset="' + m + '">' + m + '</button>';
       }).join('');
     }
+    var customMinutes = $('#focusCustomMinutes');
+    if (customMinutes) {
+      customMinutes.value = String(focusPreset);
+      customMinutes.disabled = focusIsActive();
+    }
+    var applyCustom = $('#focusApplyCustom');
+    if (applyCustom) applyCustom.disabled = focusIsActive();
     var sel = $('#focusTaskSelect');
     if (sel) {
       var cur = sel.value;
@@ -7411,13 +7444,15 @@
       focusPresets.addEventListener('click', function (e) {
         var btn = e.target.closest('[data-preset]');
         if (!btn) return;
-        if (focusIsActive()) { toast('这一轮进行中，结束后再改时长'); return; }
-        focusPreset = parseInt(btn.dataset.preset, 10) || 25;
-        try { localStorage.setItem(FOCUS_PRESET_KEY, String(focusPreset)); } catch (err) {}
-        if (!focusState.done) { focusState.totalSec = focusPreset * 60; focusState.leftMs = focusPreset * 60000; }
-        focusRenderAll();
+        focusApplyPreset(btn.dataset.preset);
       });
     }
+    var focusApplyCustom = $('#focusApplyCustom');
+    if (focusApplyCustom) focusApplyCustom.addEventListener('click', focusApplyCustomTime);
+    var focusCustomMinutes = $('#focusCustomMinutes');
+    if (focusCustomMinutes) focusCustomMinutes.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); focusApplyCustomTime(); }
+    });
 
     var focusNext = $('#focusNext');
     if (focusNext) {
