@@ -6871,6 +6871,10 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .ref-folder-tools button:hover { background:var(--glass-strong); color:var(--accent); }
 .ref-list-item[draggable="true"] { cursor:grab; }
 .ref-list-item.is-dragging { opacity:.42; cursor:grabbing; }
+.ref-list-entry { min-width:0; margin:2px 0 7px; padding-bottom:5px; border-bottom:1px solid var(--hairline-soft); }
+.ref-list-entry .ref-list-item { margin:0; }
+.ref-list-move { display:flex; min-width:0; align-items:center; gap:5px; padding:0 8px 3px; color:var(--text-muted); font-size:9px; }
+.ref-list-move select { min-width:0; flex:1; padding:3px 5px; border:1px solid var(--hairline-soft); border-radius:5px; background:var(--glass-strong); color:var(--text-secondary); font:10px "Noto Sans SC",sans-serif; }
 .ref-folder-assignment { padding:0 0 12px; }
 .ref-folder-assignment label { display:grid; gap:4px; color:var(--text-muted); font-size:10px; }
 .ref-folder-assignment select { width:100%; padding:6px 0; border:0; border-bottom:1px solid var(--hairline); background:transparent; color:var(--text); font:12px "Noto Sans SC",sans-serif; }
