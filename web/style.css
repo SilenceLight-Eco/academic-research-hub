@@ -7088,6 +7088,10 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .variable-entry-role .variable-role-options { display:flex; flex-wrap:wrap; gap:6px 12px; }
 .variable-measure-reference-entry .variable-field { min-width:0; margin:0 0 9px; }
 .variable-measure-reference-entry .variable-field textarea { min-height:68px; }
+.variable-measure-field-head { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.variable-measure-field-head button { padding:4px 8px; border:1px solid var(--hairline); border-radius:5px; background:transparent; color:var(--accent); cursor:pointer; font:10px "Noto Sans SC",sans-serif; }
+.variable-measure-field-head button:hover { border-color:var(--accent); background:var(--accent-dim); }
+.variable-measure-field-head button:disabled { opacity:.5; cursor:default; }
 .variable-measure-reference-add { padding:6px 9px; border:1px dashed var(--hairline); border-radius:6px; background:transparent; color:var(--accent); cursor:pointer; font:10px "Noto Sans SC",sans-serif; }
 .variable-measure-reference-add:hover { border-color:var(--accent); background:var(--accent-dim); }
 .variable-measure-reference-add:disabled,.variable-measure-reference-entry button:disabled { opacity:.5; cursor:default; }

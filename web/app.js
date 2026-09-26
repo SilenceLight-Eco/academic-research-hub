@@ -7174,6 +7174,8 @@
     });
     $('#variableMeasureReferenceAdd').addEventListener('click', addVariableMeasureReference);
     $('#variableMeasureReferences').addEventListener('click', function (event) {
+      var createMeasure = event.target.closest('[data-variable-measure-new]');
+      if (createMeasure) { addVariableMeasureOnly(Number(createMeasure.dataset.variableMeasureNew)); return; }
       var createReference = event.target.closest('[data-variable-reference-new]');
       if (createReference) { createVariableReference(Number(createReference.dataset.variableReferenceNew)); return; }
       var removeReference = event.target.closest('[data-variable-reference-remove]');
@@ -8513,7 +8515,7 @@
     container.innerHTML = entries.map(function (entry, index) {
       var selectedRoles = normalizeVariableRoles(entry.role);
       var roles = '<div class="variable-entry-role"><span>研究角色（可多选）</span><div class="variable-role-options">' + variableRoles.map(function (role) { return '<label class="variable-role-option"><input type="checkbox" data-variable-role="' + index + '" value="' + escapeHtml(role) + '"' + (selectedRoles.indexOf(role) >= 0 ? ' checked' : '') + (disabled ? ' disabled' : '') + '><span>' + escapeHtml(role) + '</span></label>'; }).join('') + '</div></div>';
-      var measure = '<label class="variable-field">衡量方式<textarea data-variable-measure="' + index + '" placeholder="指标构造、计算公式、赋值规则或处理方式" title="双击新建同研究角色变量"' + (disabled ? ' disabled' : '') + '>' + escapeHtml(entry.measure) + '</textarea></label>';
+      var measure = '<div class="variable-field variable-measure-field"><div class="variable-measure-field-head"><span>衡量方式</span><button type="button" data-variable-measure-new="' + index + '" title="单独新增一条衡量方式"' + (disabled ? ' disabled' : '') + '>＋新建</button></div><textarea data-variable-measure="' + index + '" placeholder="指标构造、计算公式、赋值规则或处理方式" title="双击新建同研究角色变量"' + (disabled ? ' disabled' : '') + '>' + escapeHtml(entry.measure) + '</textarea></div>';
       var source = '<label class="variable-field">数据来源<textarea data-variable-source="' + index + '" placeholder="数据来源、样本范围、频率及口径说明" title="双击新建同研究角色变量"' + (disabled ? ' disabled' : '') + '>' + escapeHtml(entry.source) + '</textarea></label>';
       return '<section class="variable-measure-reference-entry">' + (entries.length > 1 ? '<div class="variable-measure-reference-entry-head"><button type="button" data-variable-reference-remove="' + index + '" aria-label="删除此记录组" title="删除此组"' + (disabled ? ' disabled' : '') + '>×</button></div>' : '') + roles + measure + source + '<div class="variable-reference-field"><label for="variablePaper' + index + '">参考文献</label><div class="variable-reference-row"><input id="variablePaper' + index + '" data-variable-paper="' + index + '" list="variableReferenceOptions" placeholder="选择或填写作者、年份、DOI、文献标题"' + (disabled ? ' disabled' : '') + '><button type="button" data-variable-reference-new="' + index + '" title="新建参考文献并关联到这一记录"' + (disabled ? ' disabled' : '') + '>＋新建</button></div></div></section>';
     }).join('');
@@ -8589,6 +8591,16 @@
     if (!state.variableId || state.variableTrashOpen) return;
     var entries = readVariableMeasureReferences();
     entries.push({ role: entries.length ? entries[entries.length - 1].role : ['被解释变量'], source: '', measure: '', paper: '' });
+    renderVariableMeasureReferences(entries, false);
+    var next = $('[data-variable-measure="' + (entries.length - 1) + '"]', $('#variableMeasureReferences'));
+    if (next) next.focus();
+    queueVariableAutoSave();
+  }
+  function addVariableMeasureOnly(index) {
+    if (!state.variableId || state.variableTrashOpen) return;
+    var entries = readVariableMeasureReferences();
+    var current = entries[index] || entries[0] || { role: ['被解释变量'], source: '' };
+    entries.push({ role: current.role.slice(), source: current.source, measure: '', paper: '' });
     renderVariableMeasureReferences(entries, false);
     var next = $('[data-variable-measure="' + (entries.length - 1) + '"]', $('#variableMeasureReferences'));
     if (next) next.focus();
