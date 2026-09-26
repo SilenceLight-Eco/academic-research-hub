@@ -8478,12 +8478,12 @@
   function purgeResearchProject(id) { if (!confirm('确定彻底删除项目吗？此操作无法恢复。')) return; api('/api/research-projects', { method: 'POST', body: JSON.stringify({ action: 'purge', id: id }) }).then(function (res) { if (!res.ok) { toast(res.error || '彻底删除失败'); return; } state.researchProjects = res.researchProjects; renderResearchProjects(); publishPaperProjectLinks(); toast('已彻底删除'); }); }
 
   // ===== 变量库：按实证研究角色记录变量定义与测量口径 =====
-  var variableRoles = ['被解释变量', '核心解释变量', '机制变量', '调节变量', '经济后果变量', '异质性分析变量', '其他'];
+  var variableRoles = ['被解释变量', '核心解释变量', '控制变量', '机制变量', '调节变量', '经济后果变量', '异质性分析变量', '其他'];
   var variableCollapsedStorageKey = 'academic-workbench-variable-collapsed-v1';
   var variableCollapsedRoles = (function () { try { return JSON.parse(localStorage.getItem(variableCollapsedStorageKey) || '{}') || {}; } catch (_) { return {}; } }());
   function normalizeVariableRoles(role) {
     var roles = Array.isArray(role) ? role : [role];
-    roles = roles.map(function (value) { return value === '控制变量' ? '异质性分析变量' : value; }).filter(function (value, index, all) { return variableRoles.indexOf(value) >= 0 && all.indexOf(value) === index; });
+    roles = roles.filter(function (value, index, all) { return variableRoles.indexOf(value) >= 0 && all.indexOf(value) === index; });
     return roles.length ? [roles[0]] : ['其他'];
   }
   function displayVariableRoleText(role) { return normalizeVariableRoles(role).join('、'); }

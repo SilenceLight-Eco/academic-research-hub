@@ -522,7 +522,7 @@
         variableLibrary.items = Array.isArray(variableLibrary.items) ? variableLibrary.items : [];
         variableLibrary.trash = Array.isArray(variableLibrary.trash) ? variableLibrary.trash : [];
         if (method === 'GET') return response({ ok: true, variableLibrary: variableLibrary });
-        var variableRoles = ['被解释变量', '核心解释变量', '机制变量', '调节变量', '经济后果变量', '异质性分析变量', '其他'];
+        var variableRoles = ['被解释变量', '核心解释变量', '控制变量', '机制变量', '调节变量', '经济后果变量', '异质性分析变量', '其他'];
         var duplicateId = null;
         if (body.action === 'reorder' && Array.isArray(body.ids)) {
           var variableOrderIds = body.ids.slice(0, 5000).map(String);
