@@ -7175,6 +7175,10 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .variable-entry-role .variable-role-options { display:flex; flex-wrap:wrap; gap:6px 12px; }
 .variable-measure-reference-entry .variable-field { min-width:0; margin:0 0 9px; }
 .variable-measure-reference-entry .variable-field textarea { min-height:68px; }
+.variable-measure-inputs { display:grid; gap:8px; }
+.variable-measure-inputs > button { justify-self:start; padding:4px 10px; border:1px dashed var(--hairline); border-radius:5px; background:transparent; color:var(--accent); cursor:pointer; font:10px "Noto Sans SC",sans-serif; }
+.variable-measure-inputs > button:hover { border-color:var(--accent); background:var(--accent-dim); }
+.variable-measure-inputs > button:disabled { opacity:.5; cursor:default; }
 .variable-measure-field-head { display:flex; align-items:center; justify-content:space-between; gap:8px; }
 .variable-measure-field-head button { padding:4px 8px; border:1px solid var(--hairline); border-radius:5px; background:transparent; color:var(--accent); cursor:pointer; font:10px "Noto Sans SC",sans-serif; }
 .variable-measure-field-head button:hover { border-color:var(--accent); background:var(--accent-dim); }

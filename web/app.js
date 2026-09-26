@@ -506,11 +506,46 @@
   }
 
   function flushAllAutoSaves(forceInFlight) {
+    var started = false;
     Object.keys(autoSaveSlots).forEach(function (key) {
       var slot = autoSaveSlots[key];
       if (!slot.dirty || !slot.persist || (slot.inFlight && !forceInFlight)) return;
       if (slot.timer) { clearTimeout(slot.timer); slot.timer = null; slot.retryScheduled = false; }
       runAutoSave(key, slot.revision, slot.payload, slot.persist, true);
+      started = true;
+    });
+    return started || autoSaveRunning ? autoSaveChain : Promise.resolve();
+  }
+
+  function flushAutoSaveKey(key) {
+    var slot = autoSaveSlots[key];
+    if (!slot || !slot.dirty) return autoSaveChain.then(function () { return true; });
+    var requestedRevision = slot.revision;
+    if (slot.timer) { clearTimeout(slot.timer); slot.timer = null; slot.retryScheduled = false; }
+    var pending = slot.inFlight ? autoSaveChain : runAutoSave(key, slot.revision, slot.payload, slot.persist, true);
+    return pending.then(function () {
+      if (!slot.dirty) return true;
+      if (slot.revision !== requestedRevision && !slot.inFlight) return flushAutoSaveKey(key);
+      if (slot.inFlight) return flushAutoSaveKey(key);
+      throw new Error('当前内容暂未同步成功');
+    });
+  }
+
+  function editorAutoSaveKey(panel) {
+    if (panel === 'knowledge-base' && state.kbDocId && !state.kbTrashOpen) return 'knowledge:' + state.kbDocId;
+    if (panel === 'note-studio' && state.noteId && !state.noteTrashOpen) return 'note:' + state.noteId;
+    if (panel === 'prompt-library' && state.promptId && !state.promptTrashOpen) return 'prompt:' + state.promptId;
+    if (panel === 'research-projects' && state.projectId && !state.projectTrashOpen) return 'project:' + state.projectId;
+    if (panel === 'variable-library' && state.variableId && !state.variableTrashOpen) return 'variable:' + state.variableId;
+    if (panel === 'references' && state.referenceId && !state.referenceTrashOpen) return 'reference:' + state.referenceId;
+    if (panel === 'data-code' && state.dataCodeId && !state.dataCodeTrashOpen) return 'data-code:' + state.dataCodeId;
+    return '';
+  }
+
+  function afterCurrentEditorSaved(panel, callback) {
+    var key = editorAutoSaveKey(panel);
+    return (key ? flushAutoSaveKey(key) : Promise.resolve(true)).then(callback).catch(function (error) {
+      toast((error && error.message) || '当前内容尚未保存，请检查网络后重试');
     });
   }
 
@@ -1129,6 +1164,19 @@
 
   // ===== 导航切换 =====
   function switchPanel(panel) {
+    if (RETIRED_PANELS.indexOf(panel) >= 0) panel = 'dashboard';
+    if (state.panel === panel || !hasUnsavedChanges()) return showPanel(panel);
+    var requestedPanel = panel;
+    return flushAllAutoSaves(true).then(function () {
+      if (hasUnsavedChanges()) {
+        toast('当前模块仍有内容未同步，已保留编辑状态；请检查网络后再切换。');
+        return false;
+      }
+      return showPanel(requestedPanel);
+    });
+  }
+
+  function showPanel(panel) {
     if (RETIRED_PANELS.indexOf(panel) >= 0) panel = 'dashboard';
     var prev = state.panel;
     if (prev === 'journal-tracker' && panel !== prev && trackerArticleDetailId) closeTrackerArticleDetail();
@@ -7217,16 +7265,16 @@
     $('#noteHistory').addEventListener('click', function () { openVersionHistory('note'); });
     $('#noteCopy').addEventListener('click', copyNoteForWechat);
     $('#noteNew').addEventListener('click', newNoteStudio);
-    $('#noteTrash').addEventListener('click', function () { state.noteTrashOpen = !state.noteTrashOpen; renderNoteStudio(); });
+    $('#noteTrash').addEventListener('click', function () { afterCurrentEditorSaved('note-studio', function () { state.noteTrashOpen = !state.noteTrashOpen; renderNoteStudio(); }); });
     document.addEventListener('click', function (e) { var clearTrash = e.target.closest('[data-empty-trash]'); if (clearTrash) emptyRecycleBin(clearTrash.dataset.emptyTrash); });
     $('#noteDelete').addEventListener('click', trashNoteStudio);
-    $('#noteList').addEventListener('click', function (e) { var restore = e.target.closest('[data-note-restore]'); if (restore) { restoreNoteStudio(restore.dataset.noteRestore); return; } var purge = e.target.closest('[data-note-purge]'); if (purge) { purgeNoteStudio(purge.dataset.notePurge); return; } var note = e.target.closest('[data-note-id]'); if (!note) return; state.noteId = Number(note.dataset.noteId); renderNoteStudio(); });
+    $('#noteList').addEventListener('click', function (e) { var restore = e.target.closest('[data-note-restore]'); if (restore) { restoreNoteStudio(restore.dataset.noteRestore); return; } var purge = e.target.closest('[data-note-purge]'); if (purge) { purgeNoteStudio(purge.dataset.notePurge); return; } var note = e.target.closest('[data-note-id]'); if (!note) return; var selectedId = Number(note.dataset.noteId); if (selectedId === Number(state.noteId)) return; afterCurrentEditorSaved('note-studio', function () { state.noteId = selectedId; renderNoteStudio(); }); });
     $('#promptNew').addEventListener('click', newPrompt);
     $('#promptSave').addEventListener('click', savePrompt);
     $('#promptHistory').addEventListener('click', function () { openVersionHistory('prompt'); });
     $('#promptCopy').addEventListener('click', copyPromptResult);
     $('#promptDelete').addEventListener('click', trashPrompt);
-    $('#promptTrash').addEventListener('click', function () { state.promptTrashOpen = !state.promptTrashOpen; renderPromptLibrary(); });
+    $('#promptTrash').addEventListener('click', function () { afterCurrentEditorSaved('prompt-library', function () { state.promptTrashOpen = !state.promptTrashOpen; renderPromptLibrary(); }); });
     ['promptTitle', 'promptTags', 'promptBody'].forEach(function (id) { $('#' + id).addEventListener('input', function () { renderPromptResult(); queuePromptAutoSave(); }); });
     $('#promptCategory').addEventListener('change', queuePromptAutoSave);
     $('#promptVariables').addEventListener('input', renderPromptResult);
@@ -7246,7 +7294,7 @@
       var search = $('#promptSearch');
       if (search) { search.focus(); search.setSelectionRange(0, 0); }
     });
-    $('#promptList').addEventListener('click', function (e) { if (Date.now() < state.promptSuppressClickUntil) { e.preventDefault(); return; } var restore = e.target.closest('[data-prompt-restore]'); if (restore) { restorePrompt(restore.dataset.promptRestore); return; } var purge = e.target.closest('[data-prompt-purge]'); if (purge) { purgePrompt(purge.dataset.promptPurge); return; } if (e.target.closest('[data-prompt-category-create]')) { state.promptCategoryCreating = true; renderPromptLibrary(); $('#promptCategoryName').focus(); return; } if (e.target.closest('[data-prompt-category-cancel]')) { state.promptCategoryCreating = false; renderPromptLibrary(); return; } var renameCancel = e.target.closest('[data-prompt-folder-rename-cancel]'); if (renameCancel) { state.promptCategoryRenaming = null; renderPromptLibrary(); return; } var renameFolder = e.target.closest('[data-prompt-folder-rename]'); if (renameFolder) { state.promptCategoryRenaming = renameFolder.dataset.promptFolderRename; renderPromptLibrary(); $('#promptFolderRenameName').focus(); $('#promptFolderRenameName').select(); return; } var deleteFolder = e.target.closest('[data-prompt-folder-delete]'); if (deleteFolder) { deletePromptCategory(deleteFolder.dataset.promptFolderDelete); return; } var folderNew = e.target.closest('[data-prompt-folder-new]'); if (folderNew) { state.promptCategoryFilter = folderNew.dataset.promptFolderNew; newPrompt(state.promptCategoryFilter); return; } var folderToggle = e.target.closest('[data-prompt-folder-toggle]'); if (folderToggle) { var folderName = folderToggle.dataset.promptFolderToggle; state.promptCategoryFilter = folderName; state.promptCollapsedCategories[folderName] = folderToggle.getAttribute('aria-expanded') === 'true'; renderPromptLibrary(); return; } var allPrompts = e.target.closest('[data-prompt-category="all"]'); if (allPrompts) { state.promptCategoryFilter = 'all'; renderPromptLibrary(); return; } var prompt = e.target.closest('[data-prompt-id]'); if (!prompt) return; state.promptId = Number(prompt.dataset.promptId); renderPromptLibrary(); });
+    $('#promptList').addEventListener('click', function (e) { if (Date.now() < state.promptSuppressClickUntil) { e.preventDefault(); return; } var restore = e.target.closest('[data-prompt-restore]'); if (restore) { restorePrompt(restore.dataset.promptRestore); return; } var purge = e.target.closest('[data-prompt-purge]'); if (purge) { purgePrompt(purge.dataset.promptPurge); return; } if (e.target.closest('[data-prompt-category-create]')) { state.promptCategoryCreating = true; renderPromptLibrary(); $('#promptCategoryName').focus(); return; } if (e.target.closest('[data-prompt-category-cancel]')) { state.promptCategoryCreating = false; renderPromptLibrary(); return; } var renameCancel = e.target.closest('[data-prompt-folder-rename-cancel]'); if (renameCancel) { state.promptCategoryRenaming = null; renderPromptLibrary(); return; } var renameFolder = e.target.closest('[data-prompt-folder-rename]'); if (renameFolder) { state.promptCategoryRenaming = renameFolder.dataset.promptFolderRename; renderPromptLibrary(); $('#promptFolderRenameName').focus(); $('#promptFolderRenameName').select(); return; } if (e.target.closest('[data-prompt-folder-delete]')) { deletePromptCategory(e.target.closest('[data-prompt-folder-delete]').dataset.promptFolderDelete); return; } var folderNew = e.target.closest('[data-prompt-folder-new]'); if (folderNew) { newPrompt(folderNew.dataset.promptFolderNew); return; } var folderToggle = e.target.closest('[data-prompt-folder-toggle]'); if (folderToggle) { var folderName = folderToggle.dataset.promptFolderToggle; var expanded = folderToggle.getAttribute('aria-expanded') === 'true'; afterCurrentEditorSaved('prompt-library', function () { state.promptCategoryFilter = folderName; state.promptCollapsedCategories[folderName] = expanded; renderPromptLibrary(); }); return; } var allPrompts = e.target.closest('[data-prompt-category="all"]'); if (allPrompts) { afterCurrentEditorSaved('prompt-library', function () { state.promptCategoryFilter = 'all'; renderPromptLibrary(); }); return; } var prompt = e.target.closest('[data-prompt-id]'); if (!prompt) return; var selectedId = Number(prompt.dataset.promptId); if (selectedId === Number(state.promptId)) return; afterCurrentEditorSaved('prompt-library', function () { state.promptId = selectedId; renderPromptLibrary(); }); });
     $('#promptList').addEventListener('submit', function (e) { if (e.target.id === 'promptCategoryCreateForm') { e.preventDefault(); createPromptCategory($('#promptCategoryName').value); return; } if (e.target.id === 'promptCategoryRenameForm') { e.preventDefault(); renamePromptCategory(state.promptCategoryRenaming, $('#promptFolderRenameName').value); } });
     $('#promptList').addEventListener('click', function (e) { var folderMove = e.target.closest('[data-prompt-folder-move]'); if (folderMove) { shiftPromptFolder(folderMove.dataset.promptFolderMove, Number(folderMove.dataset.direction)); return; } var itemMove = e.target.closest('[data-prompt-item-move]'); if (itemMove) shiftPromptItem(itemMove.dataset.promptItemMove, Number(itemMove.dataset.direction)); });
     $('#promptList').addEventListener('dragstart', function (e) { var folder = e.target.closest('[data-prompt-folder-toggle]'); var prompt = e.target.closest('[data-prompt-id]'); if (folder) state.promptDrag = { type: 'folder', category: folder.dataset.promptFolderToggle }; else if (prompt) state.promptDrag = { type: 'prompt', id: String(prompt.dataset.promptId) }; else { e.preventDefault(); return; } e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', 'prompt-library-item'); setTimeout(function () { var dragged = e.target.closest('.prompt-folder,.prompt-list-item'); if (dragged) dragged.classList.add('is-dragging'); }, 0); });
@@ -7261,8 +7309,8 @@
     $('#projectExport').addEventListener('click', exportResearchProject);
     $('#projectYearExport').addEventListener('click', exportAnnualResearchReport);
     $('#projectDelete').addEventListener('click', trashResearchProject);
-    $('#projectTrash').addEventListener('click', function () { state.projectTrashOpen = !state.projectTrashOpen; renderResearchProjects(); });
-    $('#projectList').addEventListener('click', function (e) { var restore = e.target.closest('[data-project-restore]'); if (restore) { restoreResearchProject(restore.dataset.projectRestore); return; } var purge = e.target.closest('[data-project-purge]'); if (purge) { purgeResearchProject(purge.dataset.projectPurge); return; } var category = e.target.closest('[data-project-category]'); if (category) { state.projectCategoryFilter = category.dataset.projectCategory; var first = (state.researchProjects.projects || []).filter(function (item) { return state.projectCategoryFilter === 'all' || ((item.category || '通用').trim() || '通用') === state.projectCategoryFilter; })[0]; state.projectId = first ? first.id : null; renderResearchProjects(); return; } var project = e.target.closest('[data-project-id]'); if (!project) return; state.projectId = Number(project.dataset.projectId); renderResearchProjects(); });
+    $('#projectTrash').addEventListener('click', function () { afterCurrentEditorSaved('research-projects', function () { state.projectTrashOpen = !state.projectTrashOpen; renderResearchProjects(); }); });
+    $('#projectList').addEventListener('click', function (e) { var restore = e.target.closest('[data-project-restore]'); if (restore) { restoreResearchProject(restore.dataset.projectRestore); return; } var purge = e.target.closest('[data-project-purge]'); if (purge) { purgeResearchProject(purge.dataset.projectPurge); return; } var category = e.target.closest('[data-project-category]'); if (category) { var nextCategory = category.dataset.projectCategory; var first = (state.researchProjects.projects || []).filter(function (item) { return nextCategory === 'all' || ((item.category || '通用').trim() || '通用') === nextCategory; })[0]; afterCurrentEditorSaved('research-projects', function () { state.projectCategoryFilter = nextCategory; state.projectId = first ? first.id : null; renderResearchProjects(); }); return; } var project = e.target.closest('[data-project-id]'); if (!project) return; var selectedId = Number(project.dataset.projectId); if (selectedId === Number(state.projectId)) return; afterCurrentEditorSaved('research-projects', function () { state.projectId = selectedId; renderResearchProjects(); }); });
     $('#projectLinkType').addEventListener('change', function () { state.projectLinkType = this.value; renderProjectLinkControls(activeResearchProject()); });
     $('#projectLinkAdd').addEventListener('click', addProjectLink);
     document.addEventListener('click', function (event) {
@@ -7311,10 +7359,10 @@
     });
     $('#variableSave').addEventListener('click', saveVariable);
     $('#variableDelete').addEventListener('click', trashVariable);
-    $('#variableTrash').addEventListener('click', function () { state.variableTrashOpen = !state.variableTrashOpen; renderVariableLibrary(); });
+    $('#variableTrash').addEventListener('click', function () { afterCurrentEditorSaved('variable-library', function () { state.variableTrashOpen = !state.variableTrashOpen; renderVariableLibrary(); }); });
     $('#variableSearch').addEventListener('input', function () { state.variableQuery = this.value; renderVariableLibrary(); });
-    $('#variableCategories').addEventListener('click', function (event) { var category = event.target.closest('[data-variable-category]'); if (!category) return; state.variableCategoryFilter = category.dataset.variableCategory; state.variableId = null; renderVariableLibrary(); });
-    $('#variableList').addEventListener('click', function (event) { if (Date.now() < (state.variableSuppressClickUntil || 0)) { event.preventDefault(); return; } var restore = event.target.closest('[data-variable-restore]'); if (restore) { restoreVariable(restore.dataset.variableRestore); return; } var purge = event.target.closest('[data-variable-purge]'); if (purge) { purgeVariable(purge.dataset.variablePurge); return; } var add = event.target.closest('[data-variable-role-add]'); if (add) { newVariable([add.dataset.variableRoleAdd]); return; } var collapse = event.target.closest('[data-variable-collapse]'); if (collapse) { toggleVariableRole(collapse.dataset.variableCollapse, collapse); return; } var item = event.target.closest('[data-variable-id]'); if (!item) return; state.variableId = item.dataset.variableId; renderVariableLibrary(); });
+    $('#variableCategories').addEventListener('click', function (event) { var category = event.target.closest('[data-variable-category]'); if (!category) return; var nextCategory = category.dataset.variableCategory; afterCurrentEditorSaved('variable-library', function () { state.variableCategoryFilter = nextCategory; state.variableId = null; renderVariableLibrary(); }); });
+    $('#variableList').addEventListener('click', function (event) { if (Date.now() < (state.variableSuppressClickUntil || 0)) { event.preventDefault(); return; } var restore = event.target.closest('[data-variable-restore]'); if (restore) { restoreVariable(restore.dataset.variableRestore); return; } var purge = event.target.closest('[data-variable-purge]'); if (purge) { purgeVariable(purge.dataset.variablePurge); return; } var add = event.target.closest('[data-variable-role-add]'); if (add) { afterCurrentEditorSaved('variable-library', function () { newVariable([add.dataset.variableRoleAdd]); }); return; } var collapse = event.target.closest('[data-variable-collapse]'); if (collapse) { toggleVariableRole(collapse.dataset.variableCollapse, collapse); return; } var item = event.target.closest('[data-variable-id]'); if (!item) return; var selectedId = String(item.dataset.variableId); if (selectedId === String(state.variableId)) return; afterCurrentEditorSaved('variable-library', function () { state.variableId = selectedId; renderVariableLibrary(); }); });
     $('#variableList').addEventListener('dragstart', function (event) { var item = event.target.closest('[data-variable-id]'); if (!item || state.variableTrashOpen) { event.preventDefault(); return; } state.variableDragId = String(item.dataset.variableId); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', state.variableDragId); item.classList.add('is-dragging'); });
     $('#variableList').addEventListener('dragover', function (event) { if (!state.variableDragId) return; var target = event.target.closest('[data-variable-id]'); if (!target || String(target.dataset.variableId) === state.variableDragId) return; var source = $$('[data-variable-id]', this).filter(function (node) { return String(node.dataset.variableId) === state.variableDragId; })[0]; if (!source || source.closest('.variable-role-group') !== target.closest('.variable-role-group')) return; event.preventDefault(); event.dataTransfer.dropEffect = 'move'; target.classList.add('is-drop-target'); });
     $('#variableList').addEventListener('drop', function (event) { if (!state.variableDragId) return; var target = event.target.closest('[data-variable-id]'); if (!target || String(target.dataset.variableId) === state.variableDragId) return; var source = $$('[data-variable-id]', this).filter(function (node) { return String(node.dataset.variableId) === state.variableDragId; })[0]; event.preventDefault(); if (source && source.closest('.variable-role-group') === target.closest('.variable-role-group')) reorderVariableItems(state.variableDragId, String(target.dataset.variableId)); state.variableSuppressClickUntil = Date.now() + 350; state.variableDragId = null; });
@@ -7347,23 +7395,23 @@
     $('#refNew').addEventListener('click', newReference);
     $('#refSave').addEventListener('click', saveReference);
     $('#refDelete').addEventListener('click', trashReference);
-    $('#refTrash').addEventListener('click', function () { state.referenceTrashOpen = !state.referenceTrashOpen; renderReferenceLibrary(); });
+    $('#refTrash').addEventListener('click', function () { afterCurrentEditorSaved('references', function () { state.referenceTrashOpen = !state.referenceTrashOpen; renderReferenceLibrary(); }); });
     $('#refImport').addEventListener('click', importReferenceBibtex);
     $('#refFetchDoi').addEventListener('click', fetchReferenceDoi);
     $('#refCopyCitation').addEventListener('click', function () { copyReference(referenceCitation(activeReference()), '引用'); });
     $('#refCopyBibtex').addEventListener('click', function () { copyReference(referenceBibtex(activeReference()), 'BibTeX'); });
     $('#refSearch').addEventListener('input', function () { state.referenceQuery = this.value; renderReferenceLibrary(); });
     $('#refTypeFilter').addEventListener('change', function () { state.referenceTypeFilter = this.value; renderReferenceLibrary(); });
-    $('#refList').addEventListener('click', function (e) { var restore = e.target.closest('[data-ref-restore]'); if (restore) { restoreReference(restore.dataset.refRestore); return; } var purge = e.target.closest('[data-ref-purge]'); if (purge) { purgeReference(purge.dataset.refPurge); return; } var item = e.target.closest('[data-ref-id]'); if (!item) return; state.referenceId = item.dataset.refId; renderReferenceLibrary(); });
+    $('#refList').addEventListener('click', function (e) { var restore = e.target.closest('[data-ref-restore]'); if (restore) { restoreReference(restore.dataset.refRestore); return; } var purge = e.target.closest('[data-ref-purge]'); if (purge) { purgeReference(purge.dataset.refPurge); return; } var item = e.target.closest('[data-ref-id]'); if (!item) return; var selectedId = item.dataset.refId; if (String(selectedId) === String(state.referenceId)) return; afterCurrentEditorSaved('references', function () { state.referenceId = selectedId; renderReferenceLibrary(); }); });
     referenceFields().forEach(function (id) { $('#' + id).addEventListener('input', queueReferenceAutoSave); $('#' + id).addEventListener('change', queueReferenceAutoSave); });
-    $('#kbTrashToggle').addEventListener('click', function () { state.kbTrashOpen = !state.kbTrashOpen; state.kbDraft = null; renderKnowledgeBase(); });
-    $('#kbFolders').addEventListener('click', function (e) { var remove = e.target.closest('[data-kb-delete-folder]'); if (remove) { deleteKnowledgeFolder(remove.dataset.kbDeleteFolder); return; } var item = e.target.closest('[data-kb-folder]'); if (!item) return; state.kbFolderId = item.dataset.kbFolder; renderKnowledgeBase(); });
-    $('#kbDocs').addEventListener('click', function (e) { var restore = e.target.closest('[data-kb-restore-trash]'); if (restore) { restoreKnowledgeTrash(restore.dataset.kbRestoreTrash); return; } var purge = e.target.closest('[data-kb-purge-trash]'); if (purge) { purgeKnowledgeTrash(purge.dataset.kbPurgeTrash); return; } var remove = e.target.closest('[data-kb-delete-doc]'); if (remove) { deleteKnowledgeDoc(remove.dataset.kbDeleteDoc); return; } var heading = e.target.closest('[data-kb-heading]'); if (heading) { state.kbDocId = Number(heading.dataset.kbDoc); state.kbDraft = null; state.kbHeadingTarget = heading.dataset.kbHeading; state.kbEditorMode = 'rich'; renderKnowledgeBase(); setTimeout(scrollToKnowledgeHeading, 0); return; } var item = e.target.closest('[data-kb-doc]'); if (!item) return; state.kbDocId = Number(item.dataset.kbDoc); state.kbDraft = null; renderKnowledgeBase(); });
+    $('#kbTrashToggle').addEventListener('click', function () { afterCurrentEditorSaved('knowledge-base', function () { state.kbTrashOpen = !state.kbTrashOpen; state.kbDraft = null; renderKnowledgeBase(); }); });
+    $('#kbFolders').addEventListener('click', function (e) { var remove = e.target.closest('[data-kb-delete-folder]'); if (remove) { deleteKnowledgeFolder(remove.dataset.kbDeleteFolder); return; } var item = e.target.closest('[data-kb-folder]'); if (!item) return; var folderId = item.dataset.kbFolder; afterCurrentEditorSaved('knowledge-base', function () { state.kbFolderId = folderId; renderKnowledgeBase(); }); });
+    $('#kbDocs').addEventListener('click', function (e) { var restore = e.target.closest('[data-kb-restore-trash]'); if (restore) { restoreKnowledgeTrash(restore.dataset.kbRestoreTrash); return; } var purge = e.target.closest('[data-kb-purge-trash]'); if (purge) { purgeKnowledgeTrash(purge.dataset.kbPurgeTrash); return; } var remove = e.target.closest('[data-kb-delete-doc]'); if (remove) { deleteKnowledgeDoc(remove.dataset.kbDeleteDoc); return; } var heading = e.target.closest('[data-kb-heading]'); if (heading) { var headingDocId = Number(heading.dataset.kbDoc); var headingText = heading.dataset.kbHeading; afterCurrentEditorSaved('knowledge-base', function () { state.kbDocId = headingDocId; state.kbDraft = null; state.kbHeadingTarget = headingText; state.kbEditorMode = 'rich'; renderKnowledgeBase(); setTimeout(scrollToKnowledgeHeading, 0); }); return; } var item = e.target.closest('[data-kb-doc]'); if (!item) return; var selectedId = Number(item.dataset.kbDoc); if (selectedId === Number(state.kbDocId)) return; afterCurrentEditorSaved('knowledge-base', function () { state.kbDocId = selectedId; state.kbDraft = null; renderKnowledgeBase(); }); });
     $('#kbDocs').addEventListener('dragstart', function (e) { var item = e.target.closest('[data-kb-doc]'); if (!item) return; state.kbDraggingDocId = Number(item.dataset.kbDoc); item.classList.add('is-dragging'); e.dataTransfer.effectAllowed = 'move'; });
     $('#kbDocs').addEventListener('dragend', function () { state.kbDraggingDocId = null; $$('.kb-doc.is-dragging').forEach(function (item) { item.classList.remove('is-dragging'); }); });
     $('#kbDocs').addEventListener('dragover', function (e) { if (state.kbDraggingDocId) e.preventDefault(); });
     $('#kbDocs').addEventListener('drop', function (e) { var target = e.target.closest('[data-kb-doc]'); if (!target || !state.kbDraggingDocId) return; e.preventDefault(); reorderKnowledgeDoc(state.kbDraggingDocId, Number(target.dataset.kbDoc)); });
-    $('#kbEditor').addEventListener('click', function (e) { var history = e.target.closest('[data-version-history]'); if (history) { openVersionHistory('knowledge'); return; } var action = e.target.closest('[data-kb-command]'); if (action) { runKnowledgeRichCommand(action.dataset.kbCommand); return; } var toggle = e.target.closest('[data-kb-mode]'); if (!toggle) return; state.kbDraft = readKnowledgeDraft(); state.kbEditorMode = toggle.dataset.kbMode; renderKnowledgeBase(); });
+    $('#kbEditor').addEventListener('click', function (e) { var history = e.target.closest('[data-version-history]'); if (history) { openVersionHistory('knowledge'); return; } var action = e.target.closest('[data-kb-command]'); if (action) { runKnowledgeRichCommand(action.dataset.kbCommand); return; } var toggle = e.target.closest('[data-kb-mode]'); if (!toggle) return; var draft = readKnowledgeDraft(); var mode = toggle.dataset.kbMode; queueKnowledgeAutoSave(); afterCurrentEditorSaved('knowledge-base', function () { state.kbDraft = draft; state.kbEditorMode = mode; renderKnowledgeBase(); }); });
     $('#kbEditor').addEventListener('input', function (e) { if (e.target.closest('#kbDocTitle, #kbDocContent, #kbRichEditor')) queueKnowledgeAutoSave(); });
     $('#kbEditor').addEventListener('change', function (e) { if (e.target.closest('#kbDocFolder')) queueKnowledgeAutoSave(); });
     window.addEventListener('message', function (event) {
@@ -8342,7 +8390,7 @@
   function persistReference(body, automatic) { return api('/api/references', { method: 'POST', body: JSON.stringify(body) }).then(function (res) { if (!res.ok) throw new Error(res.error || '保存失败'); state.referenceLibrary = res.referenceLibrary; if (!automatic) { renderReferenceLibrary(); toast('文献已同步保存'); } }); }
   function queueReferenceAutoSave() { if (!state.referenceId || state.referenceTrashOpen) return; var body = readReferencePayload(); renderReferencePreview(); queueAutoSave('reference:' + body.id, body, persistReference); }
   function saveReference() { if (!state.referenceId) return; return saveImmediately('reference:' + state.referenceId, readReferencePayload(), persistReference); }
-  function newReference() { return api('/api/references', { method: 'POST', body: JSON.stringify({ action: 'create' }) }).then(function (res) { if (!res.ok) { toast(res.error || '新建失败'); return false; } state.referenceLibrary = res.referenceLibrary; state.referenceTrashOpen = false; state.referenceId = res.referenceLibrary.items[0].id; renderReferenceLibrary(); $('#refTitle').focus(); return true; }); }
+  function newReference() { return afterCurrentEditorSaved('references', function () { return api('/api/references', { method: 'POST', body: JSON.stringify({ action: 'create' }) }).then(function (res) { if (!res.ok) { toast(res.error || '新建失败'); return false; } state.referenceLibrary = res.referenceLibrary; state.referenceTrashOpen = false; state.referenceId = res.referenceLibrary.items[0].id; renderReferenceLibrary(); $('#refTitle').focus(); return true; }); }); }
   function trashReference() { if (!state.referenceId || !confirm('确定将此文献移入回收站吗？')) return; api('/api/references', { method: 'POST', body: JSON.stringify({ action: 'trash', id: state.referenceId }) }).then(function (res) { if (!res.ok) { toast(res.error || '移入回收站失败'); return; } state.referenceLibrary = res.referenceLibrary; state.referenceId = null; renderReferenceLibrary(); toast('文献已移入回收站'); }); }
   function restoreReference(id) { api('/api/references', { method: 'POST', body: JSON.stringify({ action: 'restore', id: id }) }).then(function (res) { if (res.ok) { state.referenceLibrary = res.referenceLibrary; renderReferenceLibrary(); } }); }
   function purgeReference(id) { if (!confirm('确定彻底删除这篇文献吗？此操作无法恢复。')) return; api('/api/references', { method: 'POST', body: JSON.stringify({ action: 'purge', id: id }) }).then(function (res) { if (res.ok) { state.referenceLibrary = res.referenceLibrary; renderReferenceLibrary(); } }); }
@@ -8546,7 +8594,7 @@
       appendProjectExportField(lines, '变量标识', item.symbol);
       appendProjectExportField(lines, '定义', item.definition);
       appendProjectExportField(lines, '数据来源', item.source);
-      appendProjectExportField(lines, '衡量方式与参考文献', normalizedVariableMeasureReferences(item).map(function (entry) { return '研究角色：' + displayVariableRoleText(entry.role) + '；数据来源：' + (entry.source || '未填写') + '；衡量方式：' + (entry.measure || '未填写') + '；参考文献：' + (entry.paper || '未填写'); }).join('\n'));
+      appendProjectExportField(lines, '衡量方式与参考文献', normalizedVariableMeasureReferences(item).map(function (entry) { return '研究角色：' + displayVariableRoleText(entry.role) + '；数据来源：' + (entry.source || '未填写') + '；衡量方式：' + (entry.measures.filter(Boolean).join('；') || '未填写') + '；参考文献：' + (entry.paper || '未填写'); }).join('\n'));
     });
     [['knowledge', '知识库文档'], ['note', '公众号笔记']].forEach(function (group) {
       lines.push('', '### ' + group[1]);
@@ -8665,7 +8713,7 @@
     downloadTextFile('\ufeff' + lines.join('\n').replace(/\n{3,}/g, '\n\n') + '\n', year + '-年度科研进展报告.md');
     toast(year + ' 年度科研报告已导出');
   }
-  function newResearchProject() { api('/api/research-projects', { method: 'POST', body: JSON.stringify({ action: 'create' }) }).then(function (res) { if (!res.ok) { toast(res.error || '新建失败'); return; } state.researchProjects = res.researchProjects; state.projectTrashOpen = false; state.projectCategoryFilter = 'all'; state.projectId = res.researchProjects.projects[0].id; renderResearchProjects(); $('#projectTitle').focus(); }); }
+  function newResearchProject() { afterCurrentEditorSaved('research-projects', function () { return api('/api/research-projects', { method: 'POST', body: JSON.stringify({ action: 'create' }) }).then(function (res) { if (!res.ok) { toast(res.error || '新建失败'); return; } state.researchProjects = res.researchProjects; state.projectTrashOpen = false; state.projectCategoryFilter = 'all'; state.projectId = res.researchProjects.projects[0].id; renderResearchProjects(); $('#projectTitle').focus(); }); }); }
   function readResearchProjectPayload() { return { action: 'save', id: state.projectId, title: $('#projectTitle').value, category: $('#projectCategory').value, status: $('#projectStatus').value, progress: $('#projectProgress').value, start: $('#projectStart').value, end: $('#projectEnd').value, goal: $('#projectGoal').value, members: $('#projectMembers').value, milestones: $('#projectMilestones').value, resources: $('#projectResources').value, links: normalizedProjectLinks((activeResearchProject() || {}).links) }; }
   function addProjectLink() {
     var project = activeResearchProject(), type = $('#projectLinkType').value, id = $('#projectLinkTarget').value;
@@ -8751,7 +8799,7 @@
     var rows = [headers];
     (state.variableLibrary.items || []).forEach(function (item) {
       normalizedVariableMeasureReferences(item).forEach(function (entry) {
-        rows.push([item.id, item.name || '', displayVariableRoleText(entry.role), item.definition || '', entry.measure || '', entry.source || '', entry.paper || '']);
+        rows.push([item.id, item.name || '', displayVariableRoleText(entry.role), item.definition || '', entry.measures.filter(Boolean).join(' / '), entry.source || '', entry.paper || '']);
       });
     });
     var csv = '\uFEFF' + rows.map(function (row) { return row.map(csvCell).join(','); }).join('\r\n');
@@ -8860,7 +8908,7 @@
       return value.length > 70 ? value.slice(0, 67) + '…' : value;
     }
     function referenceText(entries) {
-      return (entries || []).map(function (entry) { return [entry.measure, entry.source, entry.paper].filter(Boolean).join(' / '); }).filter(Boolean).join('；') || '（空）';
+      return (entries || []).map(function (entry) { return [Array.isArray(entry.measures) ? entry.measures.filter(Boolean).join(' / ') : entry.measure, entry.source, entry.paper].filter(Boolean).join(' / '); }).filter(Boolean).join('；') || '（空）';
     }
     var changes = [];
     function compare(label, before, after) {
@@ -8869,7 +8917,7 @@
     compare('变量名称', String(current.name || ''), group.name);
     compare('研究角色', normalizeVariableRoles(current.role)[0], group.role);
     compare('概念定义', String(current.definition || ''), group.definition);
-    var oldEntries = normalizedVariableMeasureReferences(current).map(function (entry) { return { role: normalizeVariableRoles(entry.role)[0], source: entry.source, measure: entry.measure, paper: entry.paper }; });
+    var oldEntries = normalizedVariableMeasureReferences(current).map(function (entry) { return { role: normalizeVariableRoles(entry.role)[0], source: entry.source, measure: entry.measures.filter(Boolean).join(' / '), paper: entry.paper }; });
     var newEntries = group.entries.map(function (entry) { return { role: normalizeVariableRoles(entry.role)[0], source: entry.source, measure: entry.measure, paper: entry.paper }; });
     if (JSON.stringify(oldEntries) !== JSON.stringify(newEntries)) compare('衡量方式/数据来源/参考文献', referenceText(oldEntries), referenceText(newEntries));
     return changes;
@@ -9085,20 +9133,22 @@
     });
   }
   function normalizedVariableMeasureReferences(item) {
-    if (!item) return [{ role: ['被解释变量'], source: '', measure: '', paper: '' }];
+    if (!item) return [{ role: ['被解释变量'], source: '', measure: '', measures: [''], paper: '' }];
     var entries = Array.isArray(item.measureReferences) ? item.measureReferences : [];
     if (!entries.length) entries = [{ role: item.role, source: item.source || '', measure: item.measure || '', paper: item.paper || '' }];
     var fallbackRole = normalizeVariableRoles(item.role), fallbackSource = String(item.source || '');
-    return entries.map(function (entry, index) { entry = entry || {}; return { role: normalizeVariableRoles(entry.role || (index === 0 ? fallbackRole : fallbackRole)), source: String(entry.source != null ? entry.source : (index === 0 ? fallbackSource : '')), measure: String(entry.measure || ''), paper: String(entry.paper || '') }; });
+    return entries.map(function (entry, index) { entry = entry || {}; var measures = Array.isArray(entry.measures) ? entry.measures.map(function (measure) { return String(measure || ''); }) : [String(entry.measure || '')]; if (!measures.length) measures = ['']; return { role: normalizeVariableRoles(entry.role || (index === 0 ? fallbackRole : fallbackRole)), source: String(entry.source != null ? entry.source : (index === 0 ? fallbackSource : '')), measure: measures[0], measures: measures, paper: String(entry.paper || '') }; });
   }
   function renderVariableMeasureReferences(entries, disabled) {
     var container = $('#variableMeasureReferences');
     if (!container) return;
     entries = Array.isArray(entries) && entries.length ? entries : [{ role: ['被解释变量'], source: '', measure: '', paper: '' }];
+    entries = entries.map(function (entry) { entry = entry || {}; var measures = Array.isArray(entry.measures) ? entry.measures.map(function (value) { return String(value || ''); }) : [String(entry.measure || '')]; return { role: entry.role, source: entry.source || '', measure: measures[0] || '', measures: measures.length ? measures : [''], paper: entry.paper || '' }; });
     container.innerHTML = entries.map(function (entry, index) {
       var selectedRoles = normalizeVariableRoles(entry.role);
       var roles = '<div class="variable-entry-role"><span>研究角色</span><div class="variable-role-options">' + variableRoles.map(function (role) { return '<label class="variable-role-option"><input type="radio" name="variable-role-entry-' + index + '" data-variable-role="' + index + '" value="' + escapeHtml(role) + '"' + (selectedRoles.indexOf(role) >= 0 ? ' checked' : '') + (disabled ? ' disabled' : '') + '><span>' + escapeHtml(role) + '</span></label>'; }).join('') + '</div></div>';
-      var measure = '<div class="variable-field variable-measure-field"><div class="variable-measure-field-head"><span>衡量方式</span><button type="button" data-variable-measure-new="' + index + '" title="单独新增一条衡量方式"' + (disabled ? ' disabled' : '') + '>＋新建</button></div><textarea data-variable-measure="' + index + '" placeholder="指标构造、计算公式、赋值规则或处理方式" title="双击新建同研究角色变量"' + (disabled ? ' disabled' : '') + '>' + escapeHtml(entry.measure) + '</textarea></div>';
+      var measureInputs = entry.measures.map(function (value, measureIndex) { return '<textarea data-variable-measure="' + index + '" data-variable-measure-index="' + measureIndex + '" placeholder="指标构造、计算公式、赋值规则或处理方式" title="双击新建同研究角色变量"' + (disabled ? ' disabled' : '') + '>' + escapeHtml(value) + '</textarea>'; }).join('');
+      var measure = '<div class="variable-field variable-measure-field"><div class="variable-measure-field-head"><span>衡量方式</span></div><div class="variable-measure-inputs">' + measureInputs + '<button type="button" data-variable-measure-new="' + index + '" title="在数据来源上方新增一个衡量方式文本框"' + (disabled ? ' disabled' : '') + '>新增</button></div></div>';
       var source = '<label class="variable-field">数据来源<textarea data-variable-source="' + index + '" placeholder="数据来源、样本范围、频率及口径说明" title="双击新建同研究角色变量"' + (disabled ? ' disabled' : '') + '>' + escapeHtml(entry.source) + '</textarea></label>';
       return '<section class="variable-measure-reference-entry">' + (entries.length > 1 ? '<div class="variable-measure-reference-entry-head"><button type="button" data-variable-reference-remove="' + index + '" aria-label="删除此记录组" title="删除此组"' + (disabled ? ' disabled' : '') + '>×</button></div>' : '') + roles + measure + source + '<div class="variable-reference-field"><label for="variablePaper' + index + '">参考文献</label><div class="variable-reference-row"><input id="variablePaper' + index + '" data-variable-paper="' + index + '" list="variableReferenceOptions" placeholder="选择或填写作者、年份、DOI、文献标题"' + (disabled ? ' disabled' : '') + '><button type="button" data-variable-reference-new="' + index + '" title="新建参考文献并关联到这一记录"' + (disabled ? ' disabled' : '') + '>＋新建</button></div></div></section>';
     }).join('');
@@ -9131,7 +9181,7 @@
     var query = (state.variableQuery || '').trim().toLowerCase();
     var visible = items.filter(function (item) {
       if (state.variableCategoryFilter !== 'all' && !normalizedVariableMeasureReferences(item).some(function (entry) { return normalizeVariableRoles(entry.role).indexOf(state.variableCategoryFilter) >= 0; })) return false;
-      var pairedSearch = normalizedVariableMeasureReferences(item).map(function (entry) { return [displayVariableRoleText(entry.role), entry.source, entry.measure, entry.paper].join(' '); }).join(' ');
+      var pairedSearch = normalizedVariableMeasureReferences(item).map(function (entry) { return [displayVariableRoleText(entry.role), entry.source, entry.measures.join(' '), entry.paper].join(' '); }).join(' ');
       return !query || [item.name, item.symbol, displayVariableRoleText(item.role), item.definition, item.measure, item.source, item.paper, pairedSearch, item.notes].join(' ').toLowerCase().indexOf(query) >= 0;
     });
     if (!visible.some(function (item) { return String(item.id) === String(state.variableId); })) state.variableId = visible[0] ? visible[0].id : null;
@@ -9170,11 +9220,12 @@
     }).catch(function (error) { toast((error && error.message) || '新建变量失败，请重试'); }).then(function () { state.variableCreating = false; });
   }
   function readVariableMeasureReferences() {
-    return $$('[data-variable-measure]', $('#variableMeasureReferences')).map(function (field) {
-      var index = field.dataset.variableMeasure;
-      var reference = $('[data-variable-paper="' + index + '"]', $('#variableMeasureReferences'));
-      var source = $('[data-variable-source="' + index + '"]', $('#variableMeasureReferences'));
-      return { role: $$('[data-variable-role="' + index + '"]:checked', $('#variableMeasureReferences')).map(function (input) { return input.value; }), source: source ? source.value : '', measure: field.value, paper: reference ? reference.value : '' };
+    return $$('.variable-measure-reference-entry', $('#variableMeasureReferences')).map(function (row, index) {
+      var reference = $('[data-variable-paper="' + index + '"]', row);
+      var source = $('[data-variable-source="' + index + '"]', row);
+      var measures = $$('[data-variable-measure="' + index + '"]', row).map(function (field) { return field.value; });
+      if (!measures.length) measures = [''];
+      return { role: $$('[data-variable-role="' + index + '"]:checked', row).map(function (input) { return input.value; }), source: source ? source.value : '', measure: measures[0], measures: measures, paper: reference ? reference.value : '' };
     });
   }
   function addVariableMeasureReference() {
@@ -9190,9 +9241,10 @@
     if (!state.variableId || state.variableTrashOpen) return;
     var entries = readVariableMeasureReferences();
     var current = entries[index] || entries[0] || { role: ['被解释变量'], source: '' };
-    entries.push({ role: current.role.slice(), source: current.source, measure: '', paper: '' });
+    current.measures = (current.measures || [current.measure || '']).concat('');
+    current.measure = current.measures[0] || '';
     renderVariableMeasureReferences(entries, false);
-    var next = $('[data-variable-measure="' + (entries.length - 1) + '"]', $('#variableMeasureReferences'));
+    var next = $('[data-variable-measure="' + index + '"][data-variable-measure-index="' + (current.measures.length - 1) + '"]', $('#variableMeasureReferences'));
     if (next) next.focus();
     queueVariableAutoSave();
   }
@@ -9414,7 +9466,7 @@
   }
   function promptVariables(text) { var seen = {}; return (String(text || '').match(/{{\s*([\w\u4e00-\u9fa5-]+)\s*}}/g) || []).map(function (item) { return item.replace(/{{\s*|\s*}}/g, ''); }).filter(function (name) { if (seen[name]) return false; seen[name] = true; return true; }); }
   function renderPromptResult() { var body = $('#promptBody').value || '', variables = promptVariables(body), container = $('#promptVariables'); var existing = {}; $$('[data-prompt-var]', container).forEach(function (input) { existing[input.dataset.promptVar] = input.value; }); container.innerHTML = variables.length ? variables.map(function (name) { return '<label>' + escapeHtml(name) + '<input data-prompt-var="' + escapeHtml(name) + '" placeholder="填写 ' + escapeHtml(name) + '" value="' + escapeHtml(existing[name] || '') + '"></label>'; }).join('') : '<div class="prompt-variable-empty">此提示词没有变量，可直接复制。</div>'; var values = {}; $$('[data-prompt-var]', container).forEach(function (input) { values[input.dataset.promptVar] = input.value; }); $('#promptResult').textContent = body.replace(/{{\s*([\w\u4e00-\u9fa5-]+)\s*}}/g, function (_, name) { return values[name] || '{{ ' + name + ' }}'; }); }
-  function newPrompt(targetCategory) { var categories = state.promptLibrary.categories || []; var fallbackCategory = categories.indexOf('通用') >= 0 || !categories.length ? '通用' : categories[0]; var category = targetCategory || (state.promptCategoryFilter === 'all' ? fallbackCategory : state.promptCategoryFilter); state.promptCategoryFilter = category; state.promptQuery = ''; state.promptCollapsedCategories[category] = false; api('/api/prompt-library', { method: 'POST', body: JSON.stringify({ action: 'create', category: category }) }).then(function (res) { if (!res.ok) { toast(res.error || '新建失败'); return; } state.promptLibrary = res.promptLibrary; state.promptTrashOpen = false; state.promptId = res.promptLibrary.prompts[0].id; renderPromptLibrary(); $('#promptTitle').focus(); }); }
+  function newPrompt(targetCategory) { afterCurrentEditorSaved('prompt-library', function () { var categories = state.promptLibrary.categories || []; var fallbackCategory = categories.indexOf('通用') >= 0 || !categories.length ? '通用' : categories[0]; var category = targetCategory || (state.promptCategoryFilter === 'all' ? fallbackCategory : state.promptCategoryFilter); state.promptCategoryFilter = category; state.promptQuery = ''; state.promptCollapsedCategories[category] = false; return api('/api/prompt-library', { method: 'POST', body: JSON.stringify({ action: 'create', category: category }) }).then(function (res) { if (!res.ok) { toast(res.error || '新建失败'); return; } state.promptLibrary = res.promptLibrary; state.promptTrashOpen = false; state.promptId = res.promptLibrary.prompts[0].id; renderPromptLibrary(); $('#promptTitle').focus(); }); }); }
   function createPromptCategory(value) {
     var name = String(value || '').trim().slice(0, 40);
     if (!name) { toast('请输入分类名称'); return; }
@@ -9593,7 +9645,7 @@
   function queueNoteAutoSave() { if (!state.noteId || state.noteTrashOpen) return; var body = readNotePayload(); queueAutoSave('note:' + body.id, body, persistNoteStudio); }
   function saveNoteStudio() { if (!state.noteId) return; var body = readNotePayload(); setManualSaveStatus($('#noteSave'), 'saving'); return saveImmediately('note:' + body.id, body, persistNoteStudio); }
 
-  function newNoteStudio() { api('/api/note-studio', { method: 'POST', body: JSON.stringify({ action: 'create' }) }).then(function (res) { if (!res.ok) { toast(res.error || '新建失败'); return; } state.noteStudio = res.noteStudio; state.noteTrashOpen = false; state.noteId = res.noteStudio.notes[0].id; renderNoteStudio(); $('#noteTitle').focus(); }); }
+  function newNoteStudio() { afterCurrentEditorSaved('note-studio', function () { return api('/api/note-studio', { method: 'POST', body: JSON.stringify({ action: 'create' }) }).then(function (res) { if (!res.ok) { toast(res.error || '新建失败'); return; } state.noteStudio = res.noteStudio; state.noteTrashOpen = false; state.noteId = res.noteStudio.notes[0].id; renderNoteStudio(); $('#noteTitle').focus(); }); }); }
   function trashNoteStudio() { if (!state.noteId || !confirm('确定将这篇笔记移入回收站吗？')) return; api('/api/note-studio', { method: 'POST', body: JSON.stringify({ action: 'trash', id: state.noteId }) }).then(function (res) { if (!res.ok) { toast(res.error || '移入回收站失败'); return; } state.noteStudio = res.noteStudio; state.noteId = null; renderNoteStudio(); toast('笔记已移入回收站'); }); }
   function restoreNoteStudio(id) { api('/api/note-studio', { method: 'POST', body: JSON.stringify({ action: 'restore', id: id }) }).then(function (res) { if (!res.ok) { toast(res.error || '恢复失败'); return; } state.noteStudio = res.noteStudio; renderNoteStudio(); toast('笔记已恢复'); }); }
   function purgeNoteStudio(id) { if (!confirm('确定彻底删除这篇笔记吗？此操作无法恢复。')) return; api('/api/note-studio', { method: 'POST', body: JSON.stringify({ action: 'purge', id: id }) }).then(function (res) { if (!res.ok) { toast(res.error || '彻底删除失败'); return; } state.noteStudio = res.noteStudio; renderNoteStudio(); toast('已彻底删除'); }); }
@@ -10032,7 +10084,7 @@
 
   function newKnowledgeDoc() {
     var title = '未命名文档';
-    api('/api/knowledge-base', { method: 'POST', body: JSON.stringify({ action: 'create-doc', title: title, folderId: state.kbFolderId === 'all' ? '' : state.kbFolderId }) }).then(function (res) { if (!res.ok) { toast(res.error || '请先登录后创建'); return; } state.knowledgeBase = res.knowledgeBase; state.kbDocId = res.knowledgeBase.docs[0].id; state.kbDraft = null; state.kbEditorMode = 'rich'; renderKnowledgeBase(); });
+    afterCurrentEditorSaved('knowledge-base', function () { return api('/api/knowledge-base', { method: 'POST', body: JSON.stringify({ action: 'create-doc', title: title, folderId: state.kbFolderId === 'all' ? '' : state.kbFolderId }) }).then(function (res) { if (!res.ok) { toast(res.error || '请先登录后创建'); return; } state.knowledgeBase = res.knowledgeBase; state.kbDocId = res.knowledgeBase.docs[0].id; state.kbDraft = null; state.kbEditorMode = 'rich'; renderKnowledgeBase(); }); });
   }
 
   function reorderKnowledgeDoc(fromId, toId) {
@@ -10521,7 +10573,7 @@
     items = items.concat(cmdkSearchGroup((data.knowledge || {}).docs, '知识库', 'title', ['content'], needle, function (item) { openCmdkRecord('knowledge-base', item, 'knowledge'); }));
     items = items.concat(cmdkSearchGroup((data.notes || {}).notes, '笔记', 'title', ['markdown'], needle, function (item) { openCmdkRecord('note-studio', item, 'notes'); }));
     items = items.concat(cmdkSearchGroup((data.references || {}).items, '文献与引用', 'title', ['authors', 'year', 'source', 'doi', 'tags', 'notes'], needle, function (item) { openCmdkRecord('references', item, 'references'); }));
-    var searchableVariables = ((data.variables || {}).items || []).map(function (item) { var copied = Object.assign({}, item); copied.measureReferenceText = (Array.isArray(item.measureReferences) ? item.measureReferences : []).map(function (entry) { return [entry.role, entry.source, entry.measure, entry.paper].join(' '); }).join(' '); return copied; });
+    var searchableVariables = ((data.variables || {}).items || []).map(function (item) { var copied = Object.assign({}, item); copied.measureReferenceText = (Array.isArray(item.measureReferences) ? item.measureReferences : []).map(function (entry) { return [entry.role, entry.source, Array.isArray(entry.measures) ? entry.measures.join(' ') : entry.measure, entry.paper].join(' '); }).join(' '); return copied; });
     items = items.concat(cmdkSearchGroup(searchableVariables, '变量库', 'name', ['symbol', 'role', 'definition', 'measure', 'source', 'paper', 'measureReferenceText', 'notes'], needle, function (item) { openCmdkRecord('variable-library', item, 'variables'); }));
     items = items.concat(cmdkSearchGroup((data.projects || {}).projects, '研究项目', 'title', ['category', 'goal', 'milestones', 'resources', 'members'], needle, function (item) { openCmdkRecord('research-projects', item, 'projects'); }));
     items = items.concat(cmdkSearchGroup((data.prompts || {}).prompts, '提示词', 'title', ['category', 'tags', 'body'], needle, function (item) { openCmdkRecord('prompt-library', item, 'prompts'); }));
