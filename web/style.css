@@ -7165,6 +7165,15 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .variable-reference-row { display:flex; align-items:center; gap:8px; min-width:0; }
 .variable-reference-row input { flex:1; min-width:0; padding:7px 2px; border:0; border-bottom:1px solid var(--hairline); outline:0; background:transparent; color:var(--text); font:12px "Noto Sans SC",sans-serif; }
 .variable-reference-row button { flex:none; padding:6px 9px; border:1px solid var(--hairline); border-radius:5px; background:transparent; color:var(--accent); cursor:pointer; font:11px "Noto Sans SC",sans-serif; }
+.variable-inline-input-row { display:flex; align-items:center; gap:8px; min-width:0; }
+.variable-inline-input-row textarea,.variable-inline-input-row input { flex:1; min-width:0; }
+.variable-inline-remove { flex:none; width:26px; height:26px; padding:0; border:1px solid var(--hairline); border-radius:5px; background:transparent; color:var(--text-muted); cursor:pointer; font:17px/1 sans-serif; }
+.variable-inline-remove:hover { border-color:rgba(190,68,68,.35); background:rgba(190,68,68,.1); color:#bc4444; }
+.variable-inline-remove:disabled { opacity:.5; cursor:default; }
+.variable-reference-inputs { display:grid; gap:8px; }
+.variable-reference-inputs input { padding:7px 2px; border:0; border-bottom:1px solid var(--hairline); outline:0; background:transparent; color:var(--text); font:12px "Noto Sans SC",sans-serif; }
+.variable-reference-add { justify-self:start; padding:4px 10px; border:1px dashed var(--hairline); border-radius:5px; background:transparent; color:var(--accent); cursor:pointer; font:10px "Noto Sans SC",sans-serif; }
+.variable-reference-add:hover { border-color:var(--accent); background:var(--accent-dim); }
 .variable-measure-reference { min-width:0; margin:12px 0; padding:12px; border:1px solid var(--hairline-soft); border-radius:8px; background:var(--glass); }
 .variable-measure-reference-entry { min-width:0; padding:0 0 12px; margin-bottom:12px; border-bottom:1px solid var(--hairline-soft); }
 .variable-measure-reference-entry-head { display:flex; justify-content:flex-end; height:0; position:relative; z-index:1; }
@@ -7176,6 +7185,7 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .variable-measure-reference-entry .variable-field { min-width:0; margin:0 0 9px; }
 .variable-measure-reference-entry .variable-field textarea { min-height:68px; }
 .variable-measure-inputs { display:grid; gap:8px; }
+.variable-measure-inputs .variable-inline-input-row textarea { min-height:68px; }
 .variable-measure-inputs > button { justify-self:start; padding:4px 10px; border:1px dashed var(--hairline); border-radius:5px; background:transparent; color:var(--accent); cursor:pointer; font:10px "Noto Sans SC",sans-serif; }
 .variable-measure-inputs > button:hover { border-color:var(--accent); background:var(--accent-dim); }
 .variable-measure-inputs > button:disabled { opacity:.5; cursor:default; }
