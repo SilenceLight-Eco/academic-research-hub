@@ -6871,6 +6871,10 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .ref-folder-section.is-active > .ref-folder-row { background:var(--accent-dim); }
 .ref-folder-row { display:flex; min-width:0; align-items:center; gap:2px; border-radius:6px; }
 .ref-folder-section.is-drop-target > .ref-folder-row { outline:1px dashed var(--accent); background:var(--accent-dim); }
+.ref-folder-section.is-reorder-target > .ref-folder-row { outline:1px dashed var(--accent); background:var(--accent-dim); }
+.ref-folder-section.is-dragging { opacity:.48; }
+.ref-folder-drag { flex:none; width:15px; padding:2px 0; border:0; background:transparent; color:var(--text-muted); cursor:grab; font-size:13px; line-height:1; }
+.ref-folder-drag:active { cursor:grabbing; }
 .ref-folder-toggle { display:grid; flex:none; width:21px; height:25px; place-items:center; padding:0; border:0; background:transparent; color:var(--text-muted); cursor:pointer; font:16px/1 "Noto Sans SC",sans-serif; }
 .ref-folder-toggle:hover { color:var(--accent); }
 .ref-folder-select { display:flex; min-width:0; flex:1; align-items:center; gap:7px; padding:6px 6px; border:0; background:transparent; color:var(--text-secondary); cursor:pointer; font:11px "Noto Sans SC",sans-serif; text-align:left; }

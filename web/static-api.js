@@ -851,6 +851,18 @@
         await saveWorkspace(data, dataRevision);
         return response({ ok: true, referenceLibrary: bulkReferenceLibrary, selectedCount: bulkReferences.length, movedCount: bulkMovedCount });
       }
+      if (path === '/api/references' && method === 'POST' && body.action === 'folder-reorder') {
+        var reorderLibrary = data.referenceLibrary || (data.referenceLibrary = { items: [], trash: [], folders: [] });
+        reorderLibrary.folders = Array.isArray(reorderLibrary.folders) ? reorderLibrary.folders : [];
+        var requestedFolderIds = Array.isArray(body.ids) ? body.ids.map(function (id) { return String(id || '').trim(); }) : [];
+        var currentFolderIds = reorderLibrary.folders.map(function (folder) { return String(folder.id); });
+        if (requestedFolderIds.length !== currentFolderIds.length || new Set(requestedFolderIds).size !== requestedFolderIds.length || requestedFolderIds.some(function (id) { return currentFolderIds.indexOf(id) < 0; })) return response({ ok: false, error: '文件夹列表已发生变化，请刷新后重试' }, 409);
+        var folderById = Object.create(null);
+        reorderLibrary.folders.forEach(function (folder) { folderById[String(folder.id)] = folder; });
+        reorderLibrary.folders = requestedFolderIds.map(function (id) { return folderById[id]; });
+        await saveWorkspace(data, dataRevision);
+        return response({ ok: true, referenceLibrary: reorderLibrary });
+      }
       if (path === '/api/references' && method === 'POST' && ['folder-create', 'folder-rename', 'folder-delete'].indexOf(body.action) >= 0) {
         var folderLibrary = data.referenceLibrary || (data.referenceLibrary = { items: [], trash: [], folders: [] });
         folderLibrary.items = Array.isArray(folderLibrary.items) ? folderLibrary.items : [];

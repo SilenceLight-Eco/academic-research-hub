@@ -72,6 +72,7 @@
     referenceFolderId: 'all',
     referenceCollapsedFolders: { all: true, unfiled: true },
     referenceDraggingId: null,
+    referenceDraggingFolderId: null,
     referenceSelectedIds: [],
     referenceBulkFolderId: '',
     referenceTrashOpen: false,
@@ -7747,6 +7748,15 @@
       if (move) moveReferenceToFolder(move.dataset.refMoveId, move.value);
     });
     $('#refFolders').addEventListener('dragover', function (event) {
+      if (state.referenceDraggingFolderId) {
+        var folderTarget = event.target.closest('.ref-folder-section[data-ref-folder-section]');
+        if (!folderTarget || ['all', 'unfiled'].indexOf(folderTarget.dataset.refFolderSection) >= 0 || String(folderTarget.dataset.refFolderSection) === String(state.referenceDraggingFolderId)) return;
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+        $$('.ref-folder-section.is-reorder-target', $('#refFolders')).forEach(function (row) { if (row !== folderTarget) row.classList.remove('is-reorder-target'); });
+        folderTarget.classList.add('is-reorder-target');
+        return;
+      }
       var target = event.target.closest('[data-ref-folder-select]');
       if (!target || !state.referenceDraggingId || ['all'].indexOf(target.dataset.refFolderSelect) >= 0) return;
       event.preventDefault();
@@ -7758,6 +7768,15 @@
       if (section && !section.contains(event.relatedTarget)) section.classList.remove('is-drop-target');
     });
     $('#refFolders').addEventListener('drop', function (event) {
+      if (state.referenceDraggingFolderId) {
+        var folderTarget = event.target.closest('.ref-folder-section[data-ref-folder-section]');
+        $$('.ref-folder-section.is-reorder-target', $('#refFolders')).forEach(function (row) { row.classList.remove('is-reorder-target'); });
+        if (!folderTarget || ['all', 'unfiled'].indexOf(folderTarget.dataset.refFolderSection) >= 0) return;
+        event.preventDefault();
+        var folderRowBounds = $('.ref-folder-row', folderTarget).getBoundingClientRect();
+        reorderReferenceFolder(state.referenceDraggingFolderId, folderTarget.dataset.refFolderSection, event.clientY >= folderRowBounds.top + folderRowBounds.height / 2);
+        return;
+      }
       var target = event.target.closest('[data-ref-folder-select]');
       $$('.ref-folder-section.is-drop-target', $('#refFolders')).forEach(function (row) { row.classList.remove('is-drop-target'); });
       if (!target || !state.referenceDraggingId || target.dataset.refFolderSelect === 'all') return;
@@ -7783,6 +7802,14 @@
     $('#refTypeFilter').addEventListener('change', function () { state.referenceTypeFilter = this.value; renderReferenceLibrary(); });
     $('#refList').addEventListener('click', function (e) { var restore = e.target.closest('[data-ref-restore]'); if (restore) { restoreReference(restore.dataset.refRestore); return; } var purge = e.target.closest('[data-ref-purge]'); if (purge) { purgeReference(purge.dataset.refPurge); return; } var item = e.target.closest('[data-ref-id]'); if (!item) return; var selectedId = item.dataset.refId; if (String(selectedId) === String(state.referenceId)) return; afterCurrentEditorSaved('references', function () { state.referenceId = selectedId; renderReferenceLibrary(); }); });
     $('#refFolders').addEventListener('dragstart', function (event) {
+      var folderHandle = event.target.closest('[data-ref-folder-drag]');
+      if (folderHandle) {
+        if (state.referenceTrashOpen) { event.preventDefault(); return; }
+        state.referenceDraggingFolderId = folderHandle.dataset.refFolderDrag;
+        folderHandle.closest('.ref-folder-section').classList.add('is-dragging');
+        if (event.dataTransfer) { event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', 'folder:' + state.referenceDraggingFolderId); }
+        return;
+      }
       var item = event.target.closest('[data-ref-id]');
       if (!item || state.referenceTrashOpen) { event.preventDefault(); return; }
       state.referenceDraggingId = item.dataset.refId;
@@ -7791,8 +7818,9 @@
     });
     $('#refFolders').addEventListener('dragend', function () {
       state.referenceDraggingId = null;
+      state.referenceDraggingFolderId = null;
       $$('.ref-list-item.is-dragging').forEach(function (item) { item.classList.remove('is-dragging'); });
-      $$('.ref-folder-section.is-drop-target').forEach(function (row) { row.classList.remove('is-drop-target'); });
+      $$('.ref-folder-section.is-drop-target,.ref-folder-section.is-reorder-target,.ref-folder-section.is-dragging').forEach(function (row) { row.classList.remove('is-drop-target', 'is-reorder-target', 'is-dragging'); });
     });
     referenceFields().filter(function (id) { return id !== 'refFolder'; }).forEach(function (id) { $('#' + id).addEventListener('input', queueReferenceAutoSave); $('#' + id).addEventListener('change', queueReferenceAutoSave); });
     $('#refFolder').addEventListener('change', function () {
@@ -8837,7 +8865,7 @@
       var collapsed = state.referenceCollapsedFolders[id] !== false;
       var entries = folderItems(id);
       var tools = canManage ? '<div class="ref-folder-tools"><button type="button" data-ref-folder-rename="' + escapeHtml(String(id)) + '" title="重命名文件夹" aria-label="重命名' + escapeHtml(label) + '">✎</button><button type="button" data-ref-folder-delete="' + escapeHtml(String(id)) + '" title="删除文件夹" aria-label="删除' + escapeHtml(label) + '">×</button></div>' : '';
-      return '<section class="ref-folder-section' + (selected ? ' is-active' : '') + '" data-ref-folder-section="' + escapeHtml(String(id)) + '"><div class="ref-folder-row"><button type="button" class="ref-folder-toggle" data-ref-folder-toggle="' + escapeHtml(String(id)) + '" aria-expanded="' + (!collapsed) + '" aria-label="' + (collapsed ? '展开' : '折叠') + label + '"><span aria-hidden="true">' + (collapsed ? '›' : '⌄') + '</span></button><button type="button" class="ref-folder-select" data-ref-folder-select="' + escapeHtml(String(id)) + '" title="' + escapeHtml(label) + '"><span class="ref-folder-glyph" aria-hidden="true">▰</span><span class="ref-folder-name">' + escapeHtml(label) + '</span><span class="ref-folder-count">' + entries.length + '</span></button>' + tools + '</div><div class="ref-folder-contents"' + (collapsed ? ' hidden' : '') + '>' + (entries.length ? entries.map(referenceRow).join('') : '<div class="ref-folder-empty">此文件夹暂无文献</div>') + '</div></section>';
+      return '<section class="ref-folder-section' + (selected ? ' is-active' : '') + '" data-ref-folder-section="' + escapeHtml(String(id)) + '"><div class="ref-folder-row"><button type="button" class="ref-folder-toggle" data-ref-folder-toggle="' + escapeHtml(String(id)) + '" aria-expanded="' + (!collapsed) + '" aria-label="' + (collapsed ? '展开' : '折叠') + label + '"><span aria-hidden="true">' + (collapsed ? '›' : '⌄') + '</span></button>' + (canManage ? '<button type="button" class="ref-folder-drag" draggable="true" data-ref-folder-drag="' + escapeHtml(String(id)) + '" title="拖动以调整文件夹顺序" aria-label="拖动排序：' + escapeHtml(label) + '">⠿</button>' : '') + '<button type="button" class="ref-folder-select" data-ref-folder-select="' + escapeHtml(String(id)) + '" title="' + escapeHtml(label) + '"><span class="ref-folder-glyph" aria-hidden="true">▰</span><span class="ref-folder-name">' + escapeHtml(label) + '</span><span class="ref-folder-count">' + entries.length + '</span></button>' + tools + '</div><div class="ref-folder-contents"' + (collapsed ? ' hidden' : '') + '>' + (entries.length ? entries.map(referenceRow).join('') : '<div class="ref-folder-empty">此文件夹暂无文献</div>') + '</div></section>';
     }
     $('#refFolderAll').classList.toggle('is-active', String(state.referenceFolderId) === 'all');
     root.innerHTML = folderRow('unfiled', '未分类', false) + folders.map(function (folder) { return folderRow(folder.id, folder.name || '未命名文件夹', true); }).join('');
@@ -8868,6 +8896,27 @@
       toggle.setAttribute('aria-label', (expanded ? '折叠' : '展开') + ($('.ref-folder-name', section) || {}).textContent);
       var glyph = $('span', toggle); if (glyph) glyph.textContent = expanded ? '⌄' : '›';
     }
+  }
+  function reorderReferenceFolder(sourceId, targetId, afterTarget) {
+    sourceId = String(sourceId || ''); targetId = String(targetId || '');
+    var folders = ((state.referenceLibrary || {}).folders || []).slice();
+    if (!sourceId || !targetId || sourceId === targetId || !folders.some(function (folder) { return String(folder.id) === sourceId; }) || !folders.some(function (folder) { return String(folder.id) === targetId; })) return;
+    afterCurrentEditorSaved('references', function () {
+      var currentFolders = ((state.referenceLibrary || {}).folders || []).slice();
+      var sourceIndex = currentFolders.findIndex(function (folder) { return String(folder.id) === sourceId; });
+      var targetIndex = currentFolders.findIndex(function (folder) { return String(folder.id) === targetId; });
+      if (sourceIndex < 0 || targetIndex < 0) return;
+      var moved = currentFolders.splice(sourceIndex, 1)[0];
+      targetIndex = currentFolders.findIndex(function (folder) { return String(folder.id) === targetId; });
+      currentFolders.splice(targetIndex + (afterTarget ? 1 : 0), 0, moved);
+      var orderedIds = currentFolders.map(function (folder) { return String(folder.id); });
+      return api('/api/references', { method: 'POST', body: JSON.stringify({ action: 'folder-reorder', ids: orderedIds }) }).then(function (res) {
+        if (!res.ok) throw new Error(res.error || '调整文件夹顺序失败');
+        state.referenceLibrary = res.referenceLibrary;
+        renderReferenceFolders();
+        toast('文件夹顺序已保存');
+      }).catch(function (error) { toast(error.message || '调整文件夹顺序失败'); });
+    });
   }
   function createReferenceFolder(name) {
     name = String(name || '').trim();

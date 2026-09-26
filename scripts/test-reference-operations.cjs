@@ -204,6 +204,21 @@ test('reference folders persist, rename safely, and preserve references when del
   assert.ok(folderId);
   assert.equal(created.referenceLibrary.folders[0].name, '识别策略');
 
+  await new Promise(resolve => setTimeout(resolve, 2));
+  const secondFolderResponse = await harness.request({ action: 'folder-create', name: '数据与方法' });
+  const secondFolder = await secondFolderResponse.json();
+  const secondFolderId = secondFolder.folderId;
+  assert.equal(secondFolderResponse.status, 200);
+  assert.ok(secondFolderId);
+
+  const reorderResponse = await harness.request({ action: 'folder-reorder', ids: [secondFolderId, folderId] });
+  const reordered = await reorderResponse.json();
+  assert.equal(reorderResponse.status, 200);
+  assert.deepEqual(reordered.referenceLibrary.folders.map(folder => String(folder.id)), [String(secondFolderId), String(folderId)]);
+  const invalidReorderResponse = await harness.request({ action: 'folder-reorder', ids: [secondFolderId, secondFolderId] });
+  assert.equal(invalidReorderResponse.status, 409);
+  assert.deepEqual(harness.readWorkspace().referenceLibrary.folders.map(folder => String(folder.id)), [String(secondFolderId), String(folderId)]);
+
   const assignResponse = await harness.request({
     action: 'save', id: 'paper-a', folderId,
     title: 'Paper A', authors: 'Author A', year: '2023', type: '期刊论文',
@@ -230,18 +245,19 @@ test('reference folders persist, rename safely, and preserve references when del
   const renameResponse = await harness.request({ action: 'folder-rename', id: folderId, name: '因果识别' });
   const renamed = await renameResponse.json();
   assert.equal(renameResponse.status, 200);
-  assert.equal(renamed.referenceLibrary.folders[0].name, '因果识别');
+  assert.equal(renamed.referenceLibrary.folders.find(folder => String(folder.id) === String(folderId)).name, '因果识别');
   assert.equal(renamed.referenceLibrary.items.find(item => item.id === 'paper-a').folderId, String(folderId));
 
   const deleteResponse = await harness.request({ action: 'folder-delete', id: folderId });
   const deleted = await deleteResponse.json();
   assert.equal(deleteResponse.status, 200);
-  assert.equal(deleted.referenceLibrary.folders.length, 0);
+  assert.equal(deleted.referenceLibrary.folders.length, 1);
+  assert.equal(deleted.referenceLibrary.folders[0].name, '数据与方法');
   assert.equal(deleted.referenceLibrary.items.find(item => item.id === 'paper-a').folderId, '');
   assert.equal(deleted.referenceLibrary.items.find(item => item.id === 'paper-b').folderId, '');
   assert.equal(deleted.referenceLibrary.items.find(item => item.id === 'paper-a').notes, 'Keep this record');
 
   const persisted = harness.readWorkspace().referenceLibrary;
-  assert.equal(persisted.folders.length, 0);
+  assert.equal(persisted.folders.length, 1);
   assert.equal(persisted.items.length, 2);
 });
