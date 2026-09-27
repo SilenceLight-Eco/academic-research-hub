@@ -103,9 +103,17 @@ function createApiHarness(payload) {
         body: JSON.stringify(action)
       });
     },
+    setLocalItem(key, value) { localStorage.setItem(key, value); },
     readWorkspace() { return structuredClone(workspaceRow.payload); }
   };
 }
+
+test('browser preference edits are written to the cloud workspace', async () => {
+  const harness = createApiHarness({ todos: [], browser: {} });
+  harness.setLocalItem('academic-workbench-theme', 'dark');
+  await new Promise(resolve => setTimeout(resolve, 850));
+  assert.equal(harness.readWorkspace().browser['academic-workbench-theme'], 'dark');
+});
 
 test('variable library saves, duplicates, and restores linked reference IDs', async () => {
   const harness = createApiHarness({

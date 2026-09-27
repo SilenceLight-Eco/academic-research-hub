@@ -402,7 +402,7 @@
   function api(url, options) {
     function request() {
       var requestOptions = Object.assign({ headers: { 'Content-Type': 'application/json' } }, options);
-      if (pendingExitFlush) requestOptions.keepalive = true;
+      if (pendingExitFlush && typeof requestOptions.body === 'string' && new Blob([requestOptions.body]).size <= 24000) requestOptions.keepalive = true;
       return fetch(url, requestOptions)
         .then(function (r) { return r.json(); })
         .then(function (data) {
@@ -450,6 +450,15 @@
     var time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
     setGlobalSaveState((account ? '已同步到云端 ' : '已保存在本机 ') + time, 'saved');
   }
+
+  window.addEventListener('academic-workspace-preference-save-error', function (event) {
+    if (!account || activeWorkspaceConflict || hasPendingAutoSave()) return;
+    var message = event.detail && event.detail.message;
+    setGlobalSaveState((message ? '偏好同步失败：' + message : '偏好同步失败') + ' · 将自动重试', navigator.onLine === false ? 'offline' : 'error');
+  });
+  window.addEventListener('academic-workspace-preference-save-success', function () {
+    if (account && !activeWorkspaceConflict && !hasPendingAutoSave() && !hasUnsavedChanges()) saveStateAfterSuccess();
+  });
 
   function retryAutoSave(key, slot, revision) {
     if (!slot || !slot.dirty || slot.revision !== revision || slot.timer || activeWorkspaceConflict) return;
@@ -750,10 +759,20 @@
 
   function checkAccount() {
     return api('/api/auth/me').then(function (result) {
+      if (!result || !Object.prototype.hasOwnProperty.call(result, 'user')) throw new Error('无法检查登录状态');
       setAccount(result.user);
       if (!account) return;
-      return api('/api/sync').then(function (sync) { applySyncData(sync.data); return syncData(); });
-    }).catch(function () { setAccount(null); });
+      return api('/api/sync').then(function (sync) {
+        if (!sync || !sync.data) throw new Error((sync && sync.error) || '无法读取云端工作区');
+        applySyncData(sync.data);
+        return syncData();
+      }).catch(function () {
+        setGlobalSaveState(navigator.onLine === false ? '离线 · 已保留登录状态，联网后重试' : '已登录 · 云端同步失败，将自动重试', navigator.onLine === false ? 'offline' : 'error');
+      });
+    }).catch(function () {
+      if (account) setGlobalSaveState(navigator.onLine === false ? '离线 · 已保留登录状态，联网后重试' : '登录状态检查失败 · 请稍后重试', navigator.onLine === false ? 'offline' : 'error');
+      else setAccount(null);
+    });
   }
 
   function openAuth() { $('#authModal').hidden = false; $('#authForgot').hidden = registering; $('#authEmail').focus(); }
@@ -11819,6 +11838,12 @@
     loadWeekly().catch(function () {});
     // 切回标签页时立即续跑翻译（看门狗1秒兜底，这里更即时）
     document.addEventListener('visibilitychange', function () {
+      if (document.hidden) {
+        // visibilitychange normally fires before pagehide; flush while the page can
+        // still complete ordinary fetch requests instead of relying only on unload.
+        if (hasUnsavedChanges() && !activeWorkspaceConflict) flushAllAutoSaves();
+        return;
+      }
       if (!document.hidden && pdfTransState.running && !pdfTransState.cancelled) {
         pumpPdfTransWorkers();
       }

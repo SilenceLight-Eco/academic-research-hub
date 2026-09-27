@@ -43,6 +43,7 @@
   var activeWriteRevision = null;
   var applyingBrowserSnapshot = false;
   var saveTimer = null;
+  var saveRetryAttempt = 0;
   var focusKeys = ['academic-workbench-theme', 'wb_pomo_counts', 'wb_focus_preset', 'wb_focus_log', 'wb_focus_state'];
   var researchHubKeys = ['research-hub-crossref-email', 'research-hub-crossref-citations-v1', 'research-hub-stages-v1', 'research-hub-fields-v1', 'research-hub-cards-v1', 'research-hub-theme', 'research-hub-unassigned-data-code-v1', 'academic-workbench-tracker-display-v1', 'academic-workbench-journal-categories-v1', 'academic-workbench-journal-category-order-v1', 'academic-workbench-journal-category-colors-v1'];
 
@@ -132,6 +133,7 @@
   function resetWorkspaceSession() {
     workspaceSessionGeneration += 1;
     clearTimeout(saveTimer);
+    saveRetryAttempt = 0;
     workspace = null;
     workspaceRevision = null;
     workspaceRevisionKnown = false;
@@ -548,11 +550,22 @@
   function queueSave() {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(function () {
+      saveTimer = null;
       loadWorkspace().then(function (latestPayload) {
         if (!latestPayload) return;
         return saveWorkspace(copyPayload(latestPayload), workspaceRevision, false, Date.now());
+      }).then(function () {
+        saveRetryAttempt = 0;
+        window.dispatchEvent(new CustomEvent('academic-workspace-preference-save-success'));
       }).catch(function (error) {
-        if (error.workspaceConflict) window.dispatchEvent(new CustomEvent('academic-workspace-conflict', { detail: error.workspaceConflict }));
+        if (error.workspaceConflict) {
+          window.dispatchEvent(new CustomEvent('academic-workspace-conflict', { detail: error.workspaceConflict }));
+          return;
+        }
+        window.dispatchEvent(new CustomEvent('academic-workspace-preference-save-error', { detail: { message: error.message || '云端同步失败' } }));
+        saveRetryAttempt += 1;
+        var delay = Math.min(300000, 5000 * Math.pow(2, Math.min(saveRetryAttempt - 1, 6)));
+        saveTimer = setTimeout(function () { saveTimer = null; queueSave(); }, delay);
       });
     }, 750);
   }
