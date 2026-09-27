@@ -429,12 +429,174 @@
   var researchHubKeys = ['research-hub-crossref-email', 'research-hub-crossref-citations-v1', 'research-hub-stages-v1', 'research-hub-fields-v1', 'research-hub-cards-v1', 'research-hub-theme', 'research-hub-unassigned-data-code-v1', 'academic-workbench-tracker-display-v1', 'academic-workbench-journal-categories-v1', 'academic-workbench-journal-category-order-v1', 'academic-workbench-journal-category-colors-v1'];
   var autoSaveSlots = {};
   var autoSaveChain = Promise.resolve();
+  var autoSaveDraftDbPromise = null;
+  var autoSaveDraftWriteChain = Promise.resolve();
+  var autoSaveDraftRestoreAccount = '';
+  var autoSaveDraftRestoring = false;
   var autoSaveRunning = 0;
   var AUTO_SAVE_INTERVAL = 180000;
   var AUTO_SAVE_RETRY_BASE = 5000;
   var AUTO_SAVE_RETRY_MAX = 300000;
   var activeVersionHistory = null;
   var manualSaveStatusTimers = Object.create(null);
+
+  function autoSaveDraftAccountKey() {
+    return account && account.email ? String(account.email).trim().toLowerCase() : 'local';
+  }
+
+  function openAutoSaveDraftDb() {
+    if (autoSaveDraftDbPromise) return autoSaveDraftDbPromise;
+    autoSaveDraftDbPromise = new Promise(function (resolve, reject) {
+      if (!window.indexedDB) { reject(new Error('当前浏览器不支持本机草稿存储')); return; }
+      var request;
+      try { request = window.indexedDB.open('academic-research-hub-autosaves', 1); }
+      catch (error) { reject(error); return; }
+      request.onupgradeneeded = function () {
+        var db = request.result;
+        if (!db.objectStoreNames.contains('pending')) db.createObjectStore('pending', { keyPath: 'id' });
+      };
+      request.onsuccess = function () {
+        var db = request.result;
+        db.onversionchange = function () { db.close(); autoSaveDraftDbPromise = null; };
+        resolve(db);
+      };
+      request.onerror = function () { reject(request.error || new Error('无法打开本机草稿存储')); };
+      request.onblocked = function () { reject(new Error('本机草稿存储正在升级，请关闭其他工作台标签页后重试')); };
+    }).catch(function (error) {
+      autoSaveDraftDbPromise = null;
+      throw error;
+    });
+    return autoSaveDraftDbPromise;
+  }
+
+  function queueAutoSaveDraftDbOperation(operation) {
+    var next = autoSaveDraftWriteChain.catch(function () {}).then(function () {
+      return openAutoSaveDraftDb().then(operation);
+    });
+    autoSaveDraftWriteChain = next.then(function () {}, function () {});
+    return next;
+  }
+
+  function persistAutoSaveDraft(key, slot) {
+    var draftAccount = autoSaveDraftAccountKey();
+    slot.draftUpdatedAt = Math.max(Date.now(), (slot.draftUpdatedAt || 0) + 1);
+    slot.draftAccount = draftAccount;
+    slot.draftRevisionTimes = slot.draftRevisionTimes || Object.create(null);
+    slot.draftRevisionTimes[slot.revision] = slot.draftUpdatedAt;
+    var record = {
+      id: draftAccount + '|' + key,
+      account: draftAccount,
+      key: key,
+      payload: JSON.parse(JSON.stringify(slot.payload)),
+      updatedAt: slot.draftUpdatedAt
+    };
+    return queueAutoSaveDraftDbOperation(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction('pending', 'readwrite');
+        tx.objectStore('pending').put(record);
+        tx.oncomplete = resolve;
+        tx.onerror = function () { reject(tx.error || new Error('无法保存本机草稿')); };
+        tx.onabort = function () { reject(tx.error || new Error('本机草稿保存已取消')); };
+      });
+    }).catch(function () {
+      if (slot.dirty) setGlobalSaveState('本机草稿暂存失败 · 请保持页面打开并检查浏览器存储空间', 'error');
+    });
+  }
+
+  function scheduleAutoSaveDraft(key, slot) {
+    if (slot.draftTimer) clearTimeout(slot.draftTimer);
+    slot.draftTimer = setTimeout(function () {
+      slot.draftTimer = null;
+      if (slot.dirty) persistAutoSaveDraft(key, slot);
+    }, 350);
+  }
+
+  function removeSyncedAutoSaveDraft(draftAccount, key, syncedAt) {
+    return queueAutoSaveDraftDbOperation(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction('pending', 'readwrite');
+        var store = tx.objectStore('pending');
+        var request = store.get(draftAccount + '|' + key);
+        request.onsuccess = function () {
+          var record = request.result;
+          if (record && record.account === draftAccount && Number(record.updatedAt) <= Number(syncedAt)) store.delete(record.id);
+        };
+        tx.oncomplete = resolve;
+        tx.onerror = function () { reject(tx.error || new Error('已同步草稿清理失败')); };
+        tx.onabort = function () { reject(tx.error || new Error('已同步草稿清理已取消')); };
+      });
+    }).catch(function () {});
+  }
+
+  function listAutoSaveDrafts(draftAccount) {
+    return openAutoSaveDraftDb().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction('pending', 'readonly');
+        var request = tx.objectStore('pending').getAll();
+        request.onsuccess = function () {
+          resolve((request.result || []).filter(function (record) { return record && record.account === draftAccount && record.key; }));
+        };
+        request.onerror = function () { reject(request.error || new Error('无法读取本机草稿')); };
+      });
+    });
+  }
+
+  function persistForAutoSaveKey(key) {
+    if (key.indexOf('tracker-feed:') === 0) return persistTrackerFeed;
+    if (key === 'study-progress') return persistStudyProgress;
+    if (key.indexOf('academic-record-draft:') === 0) return persistAcademicRecord;
+    if (key.indexOf('data-code:') === 0) return persistDataCodeItem;
+    if (key.indexOf('reference:') === 0) return persistReference;
+    if (key.indexOf('project:') === 0) return persistResearchProject;
+    if (key.indexOf('variable:') === 0) return persistVariable;
+    if (key.indexOf('prompt:') === 0) return persistPrompt;
+    if (key.indexOf('note:') === 0) return persistNoteStudio;
+    if (key.indexOf('knowledge:') === 0) return persistKnowledgeDoc;
+    return null;
+  }
+
+  function restoreAutoSaveDrafts() {
+    var draftAccount = autoSaveDraftAccountKey();
+    if (autoSaveDraftRestoring || autoSaveDraftRestoreAccount === draftAccount) return Promise.resolve();
+    autoSaveDraftRestoring = true;
+    return listAutoSaveDrafts(draftAccount).then(function (records) {
+      if (autoSaveDraftAccountKey() !== draftAccount) return;
+      records.sort(function (a, b) { return Number(a.updatedAt) - Number(b.updatedAt); });
+      var restored = 0;
+      var restoredKeys = [];
+      records.forEach(function (record) {
+        var persist = persistForAutoSaveKey(String(record.key));
+        var existing = autoSaveSlots[record.key];
+        if (!persist || !record.payload || (existing && existing.dirty)) {
+          if (existing && existing.dirty) persistAutoSaveDraft(record.key, existing);
+          return;
+        }
+        var slot = existing || { revision: 0, timer: null, inFlight: 0, dirty: false, retryAttempt: 0 };
+        slot.revision += 1;
+        slot.payload = record.payload;
+        slot.persist = persist;
+        slot.dirty = true;
+        slot.draftUpdatedAt = Number(record.updatedAt) || Date.now();
+        slot.retryAttempt = 0;
+        slot.draftAccount = draftAccount;
+        slot.draftRevisionTimes = slot.draftRevisionTimes || Object.create(null);
+        slot.draftRevisionTimes[slot.revision] = slot.draftUpdatedAt;
+        autoSaveSlots[record.key] = slot;
+        restored += 1;
+        restoredKeys.push(record.key);
+      });
+      autoSaveDraftRestoreAccount = draftAccount;
+      if (restored) {
+        setGlobalSaveState('发现 ' + restored + ' 条未同步草稿 · 正在恢复到云端…', 'saving');
+        restoredKeys.forEach(function (key) {
+          var slot = autoSaveSlots[key];
+          if (slot && slot.dirty && slot.persist && !slot.inFlight) runAutoSave(key, slot.revision, slot.payload, slot.persist, true);
+        });
+      }
+    }).catch(function () {
+      setGlobalSaveState('无法读取本机待同步草稿 · 云端数据仍可正常使用', 'error');
+    }).then(function () { autoSaveDraftRestoring = false; });
+  }
 
   function setGlobalSaveState(text, status) {
     var target = $('#globalSaveState');
@@ -489,6 +651,12 @@
   function runAutoSave(key, revision, payload, persist, automatic) {
     autoSaveRunning += 1;
     var activeSlot = autoSaveSlots[key];
+    if (activeSlot && activeSlot.revision === revision && !(activeSlot.draftRevisionTimes && activeSlot.draftRevisionTimes[revision])) {
+      if (activeSlot.draftTimer) { clearTimeout(activeSlot.draftTimer); activeSlot.draftTimer = null; }
+      persistAutoSaveDraft(key, activeSlot);
+    }
+    var draftAccount = activeSlot && activeSlot.draftAccount || autoSaveDraftAccountKey();
+    var syncedDraftAt = activeSlot && activeSlot.draftRevisionTimes && activeSlot.draftRevisionTimes[revision] || 0;
     if (activeSlot) activeSlot.inFlight = (activeSlot.inFlight || 0) + 1;
     setGlobalSaveState('保存中…', 'saving');
     autoSaveChain = autoSaveChain.catch(function () {}).then(function () { return persist(payload, automatic); }).then(function () {
@@ -498,6 +666,7 @@
         slot.inFlight = Math.max(0, (slot.inFlight || 0) - 1);
         if (slot.revision === revision) { slot.dirty = false; slot.retryAttempt = 0; }
       }
+      if (syncedDraftAt) removeSyncedAutoSaveDraft(draftAccount, key, syncedDraftAt);
       if (slot && slot.revision === revision && !hasPendingAutoSave() && !hasUnsavedChanges()) {
         saveStateAfterSuccess();
       }
@@ -524,6 +693,7 @@
       runAutoSave(key, slot.revision, slot.payload, slot.persist, true);
     }, AUTO_SAVE_INTERVAL);
     autoSaveSlots[key] = slot;
+    scheduleAutoSaveDraft(key, slot);
     setGlobalSaveState(navigator.onLine === false ? '离线 · 修改暂存本机，联网后重试' : '有更改待保存', navigator.onLine === false ? 'offline' : 'pending');
   }
 
@@ -582,6 +752,8 @@
     slot.persist = persist;
     slot.dirty = true;
     autoSaveSlots[key] = slot;
+    if (slot.draftTimer) { clearTimeout(slot.draftTimer); slot.draftTimer = null; }
+    persistAutoSaveDraft(key, slot);
     return runAutoSave(key, slot.revision, payload, persist, false);
   }
 
@@ -590,6 +762,7 @@
     if (!hasUnsavedChanges()) return;
     pendingExitFlush = true;
     exitFlushStarted = true;
+    flushAutoSaveDrafts();
     flushAllAutoSaves(true);
     event.preventDefault();
     event.returnValue = '尚有修改未保存，是否保存后离开？';
@@ -602,7 +775,17 @@
   function flushAutoSavesOnPageHide() {
     if (exitFlushStarted || !hasUnsavedChanges()) return;
     pendingExitFlush = true;
+    flushAutoSaveDrafts();
     flushAllAutoSaves(true);
+  }
+
+  function flushAutoSaveDrafts() {
+    Object.keys(autoSaveSlots).forEach(function (key) {
+      var slot = autoSaveSlots[key];
+      if (!slot || !slot.dirty) return;
+      if (slot.draftTimer) { clearTimeout(slot.draftTimer); slot.draftTimer = null; }
+      persistAutoSaveDraft(key, slot);
+    });
   }
 
   function setManualSaveStatus(button, status) {
@@ -745,7 +928,9 @@
   }
 
   function setAccount(user) {
+    var previousDraftAccount = autoSaveDraftAccountKey();
     account = user || null;
+    if (previousDraftAccount !== autoSaveDraftAccountKey()) autoSaveDraftRestoreAccount = '';
     var button = $('#accountButton');
     if (button) button.textContent = account ? account.email : '登录同步';
     if (account) setGlobalSaveState(navigator.onLine === false ? '离线 · 修改暂存本机，联网后重试' : '正在检查云端同步…', navigator.onLine === false ? 'offline' : 'saving');
@@ -761,17 +946,17 @@
     return api('/api/auth/me').then(function (result) {
       if (!result || !Object.prototype.hasOwnProperty.call(result, 'user')) throw new Error('无法检查登录状态');
       setAccount(result.user);
-      if (!account) return;
+      if (!account) return restoreAutoSaveDrafts();
       return api('/api/sync').then(function (sync) {
         if (!sync || !sync.data) throw new Error((sync && sync.error) || '无法读取云端工作区');
         applySyncData(sync.data);
-        return syncData();
+        return syncData().then(restoreAutoSaveDrafts);
       }).catch(function () {
         setGlobalSaveState(navigator.onLine === false ? '离线 · 已保留登录状态，联网后重试' : '已登录 · 云端同步失败，将自动重试', navigator.onLine === false ? 'offline' : 'error');
       });
     }).catch(function () {
       if (account) setGlobalSaveState(navigator.onLine === false ? '离线 · 已保留登录状态，联网后重试' : '登录状态检查失败 · 请稍后重试', navigator.onLine === false ? 'offline' : 'error');
-      else setAccount(null);
+      else { setAccount(null); restoreAutoSaveDrafts(); }
     });
   }
 
@@ -1173,7 +1358,9 @@
             applySyncData(sync.data);
             var time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
             setGlobalSaveState('云端同步正常 ' + time, 'saved');
-          } else return syncData();
+            return restoreAutoSaveDrafts();
+          }
+          return syncData().then(restoreAutoSaveDrafts);
         });
       }).catch(function (err) { error.textContent = err.message || '登录失败'; error.hidden = false; });
   }
