@@ -7689,9 +7689,41 @@
     $('#variableMeasureReferences').addEventListener('focusout', function (event) {
       var newPaper = event.target.closest('[data-variable-paper-new]');
       if (newPaper && newPaper.value.trim()) createVariableReference(Number(newPaper.dataset.variablePaper), Number(newPaper.dataset.variablePaperIndex), newPaper);
+      var paperItem = event.target.closest('.variable-reference-paper-item');
+      if (paperItem && !(event.relatedTarget && event.relatedTarget.closest('[data-variable-reference-recent]'))) {
+        var recentMenu = $('[data-variable-reference-recent]', paperItem);
+        if (recentMenu) recentMenu.hidden = true;
+        paperItem.classList.remove('is-picker-open');
+      }
     });
     $('#variableMeasureReferenceAdd').addEventListener('click', addVariableMeasureReference);
+    $('#variableMeasureReferences').addEventListener('pointerdown', function (event) {
+      if (event.target.closest('[data-variable-reference-pick]')) event.preventDefault();
+    });
     $('#variableMeasureReferences').addEventListener('click', function (event) {
+      var recentPick = event.target.closest('[data-variable-reference-pick]');
+      if (recentPick) {
+        var recentItem = recentPick.closest('.variable-reference-paper-item');
+        var recentSelect = recentItem && $('[data-variable-reference-select]', recentItem);
+        if (recentSelect) {
+          recentSelect.value = recentPick.dataset.variableReferencePick;
+          recentSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        return;
+      }
+      var paperInput = event.target.closest('[data-variable-paper]');
+      if (paperInput) {
+        var paperItem = paperInput.closest('.variable-reference-paper-item');
+        var recentMenu = paperItem && $('[data-variable-reference-recent]', paperItem);
+        if (recentMenu) {
+          $$('.variable-reference-paper-item.is-picker-open', $('#variableMeasureReferences')).forEach(function (item) {
+            if (item !== paperItem) { item.classList.remove('is-picker-open'); var menu = $('[data-variable-reference-recent]', item); if (menu) menu.hidden = true; }
+          });
+          recentMenu.hidden = false;
+          paperItem.classList.add('is-picker-open');
+        }
+        return;
+      }
       var linkedReference = event.target.closest('[data-variable-reference-open]');
       if (linkedReference) {
         var reference = ((state.referenceLibrary && state.referenceLibrary.items) || []).find(function (item) { return String(item.id) === String(linkedReference.dataset.variableReferenceOpen); });
@@ -7709,6 +7741,14 @@
       if (removePaper) { removeVariableReferenceOnly(Number(removePaper.dataset.variableReferenceRemovePaper), Number(removePaper.dataset.variableReferenceIndex)); return; }
       var removeReference = event.target.closest('[data-variable-reference-remove]');
       if (removeReference) removeVariableMeasureReference(Number(removeReference.dataset.variableReferenceRemove));
+    });
+    document.addEventListener('click', function (event) {
+      if ($('#variableMeasureReferences').contains(event.target)) return;
+      $$('.variable-reference-paper-item.is-picker-open', $('#variableMeasureReferences')).forEach(function (item) {
+        item.classList.remove('is-picker-open');
+        var menu = $('[data-variable-reference-recent]', item);
+        if (menu) menu.hidden = true;
+      });
     });
     $('#refNew').addEventListener('click', newReference);
     $('#refSave').addEventListener('click', saveReference);
@@ -10098,6 +10138,12 @@
     var attribution = [authors, year ? '(' + year + ')' : ''].filter(Boolean).join(' ');
     return [attribution, title].filter(Boolean).join('. ') || title || '未命名文献';
   }
+  function latestVariableReferences() {
+    return ((state.referenceLibrary && state.referenceLibrary.items) || []).map(function (reference, index) {
+      var timestamp = Date.parse(String(reference.updated || reference.updatedAt || reference.createdAt || ''));
+      return { reference: reference, index: index, timestamp: isNaN(timestamp) ? 0 : timestamp };
+    }).sort(function (left, right) { return right.timestamp - left.timestamp || left.index - right.index; }).slice(0, 3).map(function (entry) { return entry.reference; });
+  }
   function resizeVariableMeasureTextarea(textarea) {
     if (!textarea || !textarea.isConnected) return;
     textarea.style.width = '100%';
@@ -10121,9 +10167,11 @@
         var linkedId = entry.paperReferenceIds[paperIndex] || '';
         var linkedReference = ((state.referenceLibrary && state.referenceLibrary.items) || []).find(function (reference) { return String(reference.id) === String(linkedId); });
         var referenceChoices = ((state.referenceLibrary && state.referenceLibrary.items) || []).filter(function (reference) { return reference && reference.title; });
+        var recentReferences = latestVariableReferences().filter(function (reference) { return reference && reference.title; });
+        var recentPicker = '<div class="variable-reference-recent" data-variable-reference-recent hidden><span>最近保存的参考文献</span>' + (recentReferences.length ? recentReferences.map(function (reference) { return '<button type="button" data-variable-reference-pick="' + escapeHtml(reference.id) + '">' + escapeHtml(referenceCitationLabel(reference)) + '</button>'; }).join('') : '<em>文献库暂无记录</em>') + '</div>';
         var linkSelect = '<select class="variable-reference-select" data-variable-reference-select="' + index + '" data-variable-reference-index="' + paperIndex + '" aria-label="关联文献库条目"' + (disabled ? ' disabled' : '') + '><option value="">关联文献库条目…</option>' + referenceChoices.map(function (reference) { return '<option value="' + escapeHtml(reference.id) + '"' + (String(reference.id) === String(linkedId) ? ' selected' : '') + '>' + escapeHtml(referenceCitationLabel(reference)) + '</option>'; }).join('') + '</select>';
         var linkedCard = linkedId ? '<button type="button" class="variable-reference-linked" data-variable-reference-open="' + escapeHtml(linkedId) + '" title="打开文献详情">' + escapeHtml(referenceCitationLabel(linkedReference) || '文献记录暂不可用') + ' ↗</button>' : '';
-        return '<div class="variable-reference-paper-item"><div class="variable-inline-input-row"><input' + (paperIndex === 0 ? ' id="variablePaper' + index + '"' : '') + ' data-variable-paper="' + index + '" data-variable-paper-index="' + paperIndex + '" data-variable-paper-new="true"' + (linkedId ? ' data-variable-paper-linked-text="' + escapeHtml(value) + '"' : '') + ' list="variableReferenceOptions" placeholder="选择或填写作者、年份、DOI、文献标题"' + (disabled ? ' disabled' : '') + ' value="' + escapeHtml(value) + '">' + (paperIndex > 0 ? '<button type="button" class="variable-inline-remove" data-variable-reference-remove-paper="' + index + '" data-variable-reference-index="' + paperIndex + '" aria-label="删除此参考文献" title="删除此参考文献"' + (disabled ? ' disabled' : '') + '>×</button>' : '') + '</div>' + linkSelect + linkedCard + '</div>';
+        return '<div class="variable-reference-paper-item"><div class="variable-inline-input-row"><input' + (paperIndex === 0 ? ' id="variablePaper' + index + '"' : '') + ' data-variable-paper="' + index + '" data-variable-paper-index="' + paperIndex + '" data-variable-paper-new="true"' + (linkedId ? ' data-variable-paper-linked-text="' + escapeHtml(value) + '"' : '') + ' placeholder="点击选择最近文献，或填写作者、年份、DOI、标题"' + (disabled ? ' disabled' : '') + ' value="' + escapeHtml(value) + '">' + (paperIndex > 0 ? '<button type="button" class="variable-inline-remove" data-variable-reference-remove-paper="' + index + '" data-variable-reference-index="' + paperIndex + '" aria-label="删除此参考文献" title="删除此参考文献"' + (disabled ? ' disabled' : '') + '>×</button>' : '') + '</div>' + recentPicker + linkSelect + linkedCard + '</div>';
       }).join('');
       return '<section class="variable-measure-reference-entry">' + (entries.length > 1 ? '<div class="variable-measure-reference-entry-head"><button type="button" data-variable-reference-remove="' + index + '" aria-label="删除此记录组" title="删除此组"' + (disabled ? ' disabled' : '') + '>×</button></div>' : '') + roles + measure + source + '<div class="variable-reference-field"><label>参考文献</label><div class="variable-reference-inputs">' + paperInputs + '<button type="button" class="variable-reference-add" data-variable-reference-new="' + index + '" title="在下方新增参考文献输入框"' + (disabled ? ' disabled' : '') + '>＋ 新建</button></div></div></section>';
     }).join('');

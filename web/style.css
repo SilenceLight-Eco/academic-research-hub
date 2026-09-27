@@ -7316,7 +7316,14 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .variable-inline-remove:disabled { opacity:.5; cursor:default; }
 .variable-reference-inputs { display:grid; gap:8px; }
 .variable-reference-inputs input { padding:7px 2px; border:0; border-bottom:1px solid var(--hairline); outline:0; background:transparent; color:var(--text); font:12px "Noto Sans SC",sans-serif; }
-.variable-reference-paper-item { display:grid; gap:5px; min-width:0; }
+.variable-reference-paper-item { position:relative; display:grid; gap:5px; min-width:0; }
+.variable-reference-paper-item.is-picker-open { z-index:8; }
+.variable-reference-recent { position:absolute; z-index:10; top:31px; left:0; right:0; display:grid; gap:3px; padding:8px; border:1px solid var(--hairline); border-radius:7px; background:var(--glass-strong); box-shadow:0 10px 28px rgba(20,30,40,.18); }
+.variable-reference-recent[hidden] { display:none; }
+.variable-reference-recent > span { padding:1px 5px 4px; color:var(--text-muted); font-size:10px; }
+.variable-reference-recent > button { min-width:0; padding:7px 6px; border:0; border-radius:4px; background:transparent; color:var(--text); text-align:left; font:11px/1.5 "Noto Sans SC",sans-serif; overflow-wrap:anywhere; cursor:pointer; }
+.variable-reference-recent > button:hover { background:var(--accent-dim); color:var(--accent); }
+.variable-reference-recent > em { padding:5px; color:var(--text-muted); font-size:11px; font-style:normal; }
 .variable-reference-select { width:100%; min-width:0; padding:5px 2px; border:0; border-bottom:1px solid var(--hairline); background:transparent; color:var(--text-secondary); font:11px "Noto Sans SC",sans-serif; }
 .variable-reference-linked { justify-self:start; max-width:100%; padding:3px 0; border:0; background:transparent; color:var(--accent); text-align:left; font:11px/1.5 "Noto Sans SC",sans-serif; cursor:pointer; overflow-wrap:anywhere; }
 .variable-reference-linked:hover { text-decoration:underline; }
