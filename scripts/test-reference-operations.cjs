@@ -124,6 +124,7 @@ test('variable library saves, duplicates, and restores linked reference IDs', as
   });
   const linkedEntry = {
     role: ['核心解释变量'], source: '文献库', measures: ['见参考文献'], measure: '见参考文献',
+    instrumentVariables: ['距离最近港口', 'shift-share 工具变量'], instrumentVariable: '距离最近港口',
     papers: ['Author A (2024). Linked paper title'], paper: 'Author A (2024). Linked paper title',
     paperReferenceIds: ['reference-42']
   };
@@ -134,6 +135,7 @@ test('variable library saves, duplicates, and restores linked reference IDs', as
   const saved = await saveResponse.json();
   assert.equal(saveResponse.status, 200);
   assert.deepEqual(Array.from(saved.variableLibrary.items[0].measureReferences[0].paperReferenceIds), ['reference-42']);
+  assert.deepEqual(Array.from(saved.variableLibrary.items[0].measureReferences[0].instrumentVariables), ['距离最近港口', 'shift-share 工具变量']);
 
   const duplicateResponse = await harness.request({
     action: 'duplicate', id: 'variable-1',
@@ -142,15 +144,17 @@ test('variable library saves, duplicates, and restores linked reference IDs', as
   const duplicated = await duplicateResponse.json();
   assert.equal(duplicateResponse.status, 200);
   assert.deepEqual(Array.from(duplicated.variableLibrary.items[0].measureReferences[0].paperReferenceIds), ['reference-42']);
+  assert.deepEqual(Array.from(duplicated.variableLibrary.items[0].measureReferences[0].instrumentVariables), ['距离最近港口', 'shift-share 工具变量']);
 
   const importResponse = await harness.request({
-    action: 'import', items: [{ name: '导入变量', role: '控制变量', measureReferences: [{ papers: ['legacy citation'] }] }]
+    action: 'import', items: [{ name: '导入变量', role: '控制变量', measureReferences: [{ papers: ['legacy citation'], instrumentVariables: ['以邻为壑'] }] }]
   }, '/api/variable-library');
   const imported = await importResponse.json();
   const importedVariable = imported.variableLibrary.items.find(item => item.name === '导入变量');
   assert.equal(importResponse.status, 200);
   assert.deepEqual(Array.from(importedVariable.measureReferences[0].paperReferenceIds), ['']);
   assert.equal(importedVariable.measureReferences[0].papers[0], 'legacy citation');
+  assert.equal(importedVariable.measureReferences[0].instrumentVariables[0], '以邻为壑');
 });
 
 test('duplicate merge preserves the original record and supports restoring it', async () => {
