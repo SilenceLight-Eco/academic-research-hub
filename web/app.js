@@ -11195,17 +11195,18 @@
     var selection = window.getSelection();
     if (!selection || !selection.rangeCount || !selection.isCollapsed || !editorContainsSelection(editor, selection)) return null;
     var original = selection.getRangeAt(0).cloneRange();
+    // Markdown 触发符只允许在当前块内识别。Selection.modify('lineboundary')
+    // 在标题后刚按 Enter 的空段落中偶尔会跨回上一块，导致下一行的 * 被误判。
+    var block = original.endContainer;
+    block = block && (block.nodeType === Node.ELEMENT_NODE ? block : block.parentElement);
+    while (block && block.parentElement !== editor) block = block.parentElement;
+    if (!block || block === editor || !block.contains(original.endContainer)) return null;
+    var lineRange = document.createRange();
     try {
-      // lineboundary 由浏览器按真实换行计算，适用于已有文档的 <p>、<div>、<br> 等不同结构。
-      if (typeof selection.modify !== 'function') return null;
-      selection.modify('extend', 'backward', 'lineboundary');
-      var lineRange = selection.getRangeAt(0).cloneRange();
-      var text = selection.toString().replace(/\u00a0/g, ' ');
-      return { range: lineRange, text: text };
-    } finally {
-      selection.removeAllRanges();
-      selection.addRange(original);
-    }
+      lineRange.selectNodeContents(block);
+      lineRange.setEnd(original.endContainer, original.endOffset);
+    } catch (error) { return null; }
+    return { range: lineRange, text: lineRange.toString().replace(/\u00a0/g, ' ') };
   }
 
   function selectKnowledgeRange(range) {
