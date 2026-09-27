@@ -7316,6 +7316,10 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .variable-inline-remove:disabled { opacity:.5; cursor:default; }
 .variable-reference-inputs { display:grid; gap:8px; }
 .variable-reference-inputs input { padding:7px 2px; border:0; border-bottom:1px solid var(--hairline); outline:0; background:transparent; color:var(--text); font:12px "Noto Sans SC",sans-serif; }
+.variable-reference-paper-item { display:grid; gap:5px; min-width:0; }
+.variable-reference-select { width:100%; min-width:0; padding:5px 2px; border:0; border-bottom:1px solid var(--hairline); background:transparent; color:var(--text-secondary); font:11px "Noto Sans SC",sans-serif; }
+.variable-reference-linked { justify-self:start; max-width:100%; padding:3px 0; border:0; background:transparent; color:var(--accent); text-align:left; font:11px/1.5 "Noto Sans SC",sans-serif; cursor:pointer; overflow-wrap:anywhere; }
+.variable-reference-linked:hover { text-decoration:underline; }
 .variable-reference-add { justify-self:start; padding:4px 10px; border:1px dashed var(--hairline); border-radius:5px; background:transparent; color:var(--accent); cursor:pointer; font:10px "Noto Sans SC",sans-serif; }
 .variable-reference-add:hover { border-color:var(--accent); background:var(--accent-dim); }
 .variable-measure-reference { min-width:0; margin:12px 0; padding:12px; border:1px solid var(--hairline-soft); border-radius:8px; background:var(--glass); }

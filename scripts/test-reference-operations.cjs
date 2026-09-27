@@ -97,8 +97,8 @@ function createApiHarness(payload) {
   vm.runInNewContext(staticApiSource, context);
 
   return {
-    request(action) {
-      return window.fetch('/api/references', {
+    request(action, endpoint = '/api/references') {
+      return window.fetch(endpoint, {
         method: 'POST',
         body: JSON.stringify(action)
       });
@@ -106,6 +106,44 @@ function createApiHarness(payload) {
     readWorkspace() { return structuredClone(workspaceRow.payload); }
   };
 }
+
+test('variable library saves, duplicates, and restores linked reference IDs', async () => {
+  const harness = createApiHarness({
+    variableLibrary: {
+      items: [{ id: 'variable-1', name: '核心解释变量', role: ['核心解释变量'], measureReferences: [] }],
+      trash: []
+    }
+  });
+  const linkedEntry = {
+    role: ['核心解释变量'], source: '文献库', measures: ['见参考文献'], measure: '见参考文献',
+    papers: ['Author A (2024). Linked paper title'], paper: 'Author A (2024). Linked paper title',
+    paperReferenceIds: ['reference-42']
+  };
+  const saveResponse = await harness.request({
+    action: 'save', id: 'variable-1', name: '核心解释变量', role: ['核心解释变量'],
+    measureReferences: [linkedEntry]
+  }, '/api/variable-library');
+  const saved = await saveResponse.json();
+  assert.equal(saveResponse.status, 200);
+  assert.deepEqual(Array.from(saved.variableLibrary.items[0].measureReferences[0].paperReferenceIds), ['reference-42']);
+
+  const duplicateResponse = await harness.request({
+    action: 'duplicate', id: 'variable-1',
+    currentVariable: { id: 'variable-1', name: '核心解释变量', role: ['核心解释变量'], measureReferences: [linkedEntry] }
+  }, '/api/variable-library');
+  const duplicated = await duplicateResponse.json();
+  assert.equal(duplicateResponse.status, 200);
+  assert.deepEqual(Array.from(duplicated.variableLibrary.items[0].measureReferences[0].paperReferenceIds), ['reference-42']);
+
+  const importResponse = await harness.request({
+    action: 'import', items: [{ name: '导入变量', role: '控制变量', measureReferences: [{ papers: ['legacy citation'] }] }]
+  }, '/api/variable-library');
+  const imported = await importResponse.json();
+  const importedVariable = imported.variableLibrary.items.find(item => item.name === '导入变量');
+  assert.equal(importResponse.status, 200);
+  assert.deepEqual(Array.from(importedVariable.measureReferences[0].paperReferenceIds), ['']);
+  assert.equal(importedVariable.measureReferences[0].papers[0], 'legacy citation');
+});
 
 test('duplicate merge preserves the original record and supports restoring it', async () => {
   const harness = createApiHarness({
