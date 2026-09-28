@@ -7825,6 +7825,7 @@
       checkbox.addEventListener('change', function () { renderDataCodeProgress(); queueDataCodeAutoSave(); });
     });
     $('#variableSave').addEventListener('click', saveVariable);
+    $('#variableSaveInline').addEventListener('click', saveVariable);
     $('#variableDelete').addEventListener('click', trashVariable);
     $('#variableTrash').addEventListener('click', function () { afterCurrentEditorSaved('variable-library', function () { state.variableTrashOpen = !state.variableTrashOpen; renderVariableLibrary(); }); });
     $('#variableSearch').addEventListener('input', function () { state.variableQuery = this.value; renderVariableLibrary(); });
@@ -10410,6 +10411,7 @@
       renderVariableMeasureReferences([], true);
       $('#variableDelete').hidden = true;
       $('#variableDuplicate').hidden = true;
+      $('#variableSaveInline').disabled = true;
       $('#variableSaveStatus').textContent = '回收站中的变量可恢复或彻底删除。';
       renderProjectBacklinks('variable', null, $('#variableProjectLinks'));
       return;
@@ -10434,6 +10436,7 @@
     variableFields().forEach(function (id) { $('#' + id).disabled = false; $('#' + id).readOnly = !active; });
     $('#variableDelete').hidden = !active;
     $('#variableDuplicate').hidden = !active;
+    $('#variableSaveInline').disabled = !active;
     $('#variableName').value = active ? active.name || '' : '';
     $('#variableReferenceOptions').innerHTML = ((state.referenceLibrary && state.referenceLibrary.items) || []).map(function (reference) { return reference.title ? '<option value="' + escapeHtml(reference.title) + '"></option>' : ''; }).join('');
     $('#variableDefinition').value = active ? active.definition || '' : '';
