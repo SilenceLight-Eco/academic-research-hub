@@ -40,6 +40,15 @@ type Subscription = {
   last_error?: string | null;
 };
 
+const NBER_TRACKER_ID = "NBER-WP";
+const NBER_WORKING_PAPERS_TITLE = "NBER Working Papers";
+const NBER_WORKING_PAPERS_FEED = "https://back.nber.org/rss/new.xml";
+
+function isNberWorkingPapersQuery(value: unknown): boolean {
+  const normalized = normalizeTitle(value);
+  return /^(?:nber|nberworkingpapers?|nberworkingpaperseries|nber期刊|nber论文|nber工作论文|nationalbureauofeconomicresearch|nationalbureauofeconomicresearchworkingpapers?)$/.test(normalized);
+}
+
 type CrossrefWork = Record<string, unknown>;
 type RefreshResult = { id: string; ok: boolean; processed?: number; error?: string; warning?: string; checked_at?: string };
 
@@ -284,7 +293,13 @@ function parseFeed(xml: string): Array<Record<string, unknown>> {
     node.localName.toLowerCase() === (isAtom ? "entry" : "item")
   );
   return nodes.slice(0, 40).map((node) => {
-    const title = plainText(directChildText(node, ["title"]));
+    let title = plainText(directChildText(node, ["title"]));
+    let authors = feedAuthors(node);
+    const nberTitleAuthors = title.match(/^(.+?)\s+--\s+by\s+(.+)$/i);
+    if (nberTitleAuthors) {
+      title = nberTitleAuthors[1].trim();
+      if (!authors.length) authors = nberTitleAuthors[2].split(/,\s*/).map(plainText).filter(Boolean).slice(0, 100);
+    }
     const link = feedItemLink(node, isAtom);
     const summary = directChildText(node, ["summary", "description", "encoded", "content"]);
     const publishedRaw = directChildText(node, ["published", "updated", "pubdate", "date", "issued"]);
@@ -296,7 +311,7 @@ function parseFeed(xml: string): Array<Record<string, unknown>> {
       title,
       link,
       abstract: plainText(summary),
-      authors: feedAuthors(node),
+      authors,
       // RSS/Atom categories are commonly classifications, not author keywords.
       keywords: [],
       publication_date,
@@ -511,6 +526,9 @@ async function crossrefWorksByDoi(dois: string[]) {
 }
 
 async function searchJournals(query: string) {
+  if (isNberWorkingPapersQuery(query)) {
+    return [{ issn: NBER_TRACKER_ID, title: NBER_WORKING_PAPERS_TITLE, publisher: "National Bureau of Economic Research" }];
+  }
   const directIssn = normalizeIssn(query);
   if (directIssn) {
     const item = await crossref(`journals/${encodeURIComponent(directIssn)}`);
@@ -672,6 +690,9 @@ async function refreshSubscription(subscription: Subscription) {
     if (!feedItems.length && subscription.publisher === "手动 RSS") {
       if (fallbackNotice) throw new Error(`${fallbackNotice}；手动登记期刊没有 Crossref 后备，请检查 RSS 地址。`);
       if (!subscription.feed_url) throw new Error("手动登记的期刊需要有效的官网 RSS / Atom 地址才能追踪。");
+    }
+    if (!feedItems.length && subscription.issn === NBER_TRACKER_ID) {
+      throw new Error(`NBER 官方工作论文 RSS 暂时无法读取${fallbackNotice ? `：${fallbackNotice}` : ""}，请稍后重试。`);
     }
     if (!feedItems.length && subscription.publisher !== "手动 RSS") {
       const message = subscription.publisher === "按刊名检索"
@@ -1025,18 +1046,21 @@ Deno.serve(async (request: Request) => {
       if (query.length > 300) return json(request, { ok: false, error: "期刊名称最多 300 个字符" }, 400);
       const suppliedIssn = String(body.issn || "").trim();
       const requestedIssn = normalizeIssn(suppliedIssn || query);
-      if (suppliedIssn && !requestedIssn) return json(request, { ok: false, error: "ISSN 格式无效，请使用 1234-567X 格式" }, 400);
+      const requestedNberId = suppliedIssn.toUpperCase() === NBER_TRACKER_ID;
+      if (suppliedIssn && !requestedIssn && !requestedNberId) return json(request, { ok: false, error: "ISSN 格式无效，请使用 1234-567X 格式" }, 400);
       const feedUrl = String(body.feedUrl || "").trim();
       if (feedUrl) {
         try { publicHttpsUrl(feedUrl); } catch (error) { return json(request, { ok: false, error: error instanceof Error ? error.message : "RSS 地址无效" }, 400); }
       }
       let candidates: Array<{ issn: string; title: string; publisher: string }> = [];
       let crossrefError: unknown = null;
-      try { candidates = await searchJournals(requestedIssn || query); }
+      try { candidates = requestedNberId
+        ? await searchJournals(NBER_WORKING_PAPERS_TITLE)
+        : await searchJournals(requestedIssn || query); }
       catch (error) { crossrefError = error; }
       const normalizedQuery = normalizeTitle(query);
       const exact = candidates.filter((item) => normalizeTitle(item.title) === normalizedQuery);
-      let journal = requestedIssn ? candidates[0] : exact[0] || null;
+      let journal = requestedNberId ? candidates[0] : requestedIssn ? candidates[0] : exact[0] || null;
       if (!requestedIssn && exact.length > 1 && !feedUrl) {
         return json(request, { ok: false, error: "找到多个刊名完全相同的期刊，请在候选列表中选择准确的刊名和 ISSN" }, 409);
       }
@@ -1057,7 +1081,8 @@ Deno.serve(async (request: Request) => {
       }
       const issn = journal.issn;
       const existingRows = await rest(`journal_subscriptions?user_id=eq.${encodeURIComponent(userId)}&issn=eq.${encodeURIComponent(issn)}&select=feed_url`);
-      const savedFeedUrl = feedUrl || (Array.isArray(existingRows) ? String(existingRows[0]?.feed_url || "") : "");
+      const savedFeedUrl = feedUrl || (Array.isArray(existingRows) ? String(existingRows[0]?.feed_url || "") : "")
+        || (issn === NBER_TRACKER_ID ? NBER_WORKING_PAPERS_FEED : "");
       const category = typeof body.category === "string"
         ? body.category.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 60)
         : undefined;

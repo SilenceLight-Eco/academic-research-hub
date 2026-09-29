@@ -6763,7 +6763,7 @@
       return '<div class="tracker-subscription' + (item.last_error ? ' is-error' : '') + (isSelected ? ' is-selected' : '') + (isBulkSelected ? ' is-bulk-selected' : '') + '">' +
         (state.trackerCategoryManageMode ? '<label class="tracker-bulk-select"><input type="checkbox" data-tracker-bulk-select="' + escapeHtml(item.id) + '"' + (isBulkSelected ? ' checked' : '') + '><span class="sr-only">选择 ' + escapeHtml(item.journal_title || item.issn) + '</span></label>' : '') +
         '<button type="button" class="tracker-subscription-main" data-tracker-select-journal="' + escapeHtml(item.id) + '" aria-pressed="' + isSelected + '" aria-label="查看期刊：' + escapeHtml(item.journal_title || item.issn) + '" title="' + escapeHtml(item.journal_title || item.issn) + '">' +
-        '<b title="' + escapeHtml(item.journal_title || item.issn) + '">' + escapeHtml(item.journal_title || item.issn) + '</b><span>' + escapeHtml(String(item.issn || '').indexOf('MANUAL-') === 0 ? (item.publisher === '按刊名检索' ? '按刊名检索' : '手动 RSS') : (item.issn || '')) + '</span></button>' +
+        '<b title="' + escapeHtml(item.journal_title || item.issn) + '">' + escapeHtml(item.journal_title || item.issn) + '</b><span>' + escapeHtml(item.issn === 'NBER-WP' ? '工作论文系列' : String(item.issn || '').indexOf('MANUAL-') === 0 ? (item.publisher === '按刊名检索' ? '按刊名检索' : '手动 RSS') : (item.issn || '')) + '</span></button>' +
         '<select class="tracker-subscription-category" data-tracker-category="' + escapeHtml(item.id) + '" aria-label="设置 ' + escapeHtml(item.journal_title || item.issn) + ' 的分类">' + itemCategoryOptions + '</select>' +
         '<em title="' + escapeHtml(status) + '">' + escapeHtml(status) + '</em>' +
         '<small class="tracker-check-time" title="' + escapeHtml(item.last_error ? status + '；按失败持续时间自动退避重试' : '期刊最近一次检查时间') + '">' + escapeHtml(checkStatus) + '</small>' +
@@ -6950,7 +6950,8 @@
         var action = subscription
           ? '<button type="button" class="tracker-untrack" data-tracker-remove="' + escapeHtml(subscription.id) + '" aria-label="取消追踪 ' + escapeHtml(fullTitle) + '">取消追踪</button>'
           : '<button type="button" data-tracker-add="' + escapeHtml(journal.issn) + '" aria-label="追踪 ' + escapeHtml(fullTitle) + '">追踪</button>';
-        return '<div class="tracker-search-result"><div><b title="' + escapeHtml(fullTitle) + '" aria-label="期刊全名：' + escapeHtml(fullTitle) + '">' + escapeHtml(fullTitle) + '</b><span>' + escapeHtml(journal.issn) + (journal.publisher ? ' · ' + escapeHtml(journal.publisher) : '') + '</span></div>' + action + '</div>';
+        var identifierLabel = journal.issn === 'NBER-WP' ? '工作论文系列' : journal.issn;
+        return '<div class="tracker-search-result"><div><b title="' + escapeHtml(fullTitle) + '" aria-label="期刊全名：' + escapeHtml(fullTitle) + '">' + escapeHtml(fullTitle) + '</b><span>' + escapeHtml(identifierLabel) + (journal.publisher ? ' · ' + escapeHtml(journal.publisher) : '') + '</span></div>' + action + '</div>';
       }).join('');
     } else {
       container.innerHTML = header + '<div class="tracker-empty"><b>没有找到期刊</b><span>请检查名称，或改用完整刊名、ISSN 搜索。</span></div>';
