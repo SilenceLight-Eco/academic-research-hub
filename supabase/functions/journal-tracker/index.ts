@@ -264,34 +264,108 @@ async function publishedSemanticScholarMetadata(doi: string, title: string) {
   };
 }
 
-function directChildText(node: Element, names: string[]): string {
-  const match = Array.from(node.children).find((child) => names.includes(child.localName.toLowerCase()));
-  return match ? String(match.textContent || "").trim() : "";
+type FeedXmlNode = { name: string; attributes: Record<string, string>; content: Array<string | FeedXmlNode> };
+
+function decodeXmlEntities(value: string): string {
+  return value
+    .replace(/&#x([\da-f]+);/gi, (_, digits: string) => {
+      const codePoint = Number.parseInt(digits, 16);
+      return Number.isFinite(codePoint) && codePoint >= 0 && codePoint <= 0x10ffff && !(codePoint >= 0xd800 && codePoint <= 0xdfff)
+        ? String.fromCodePoint(codePoint) : "�";
+    })
+    .replace(/&#(\d+);/g, (_, digits: string) => {
+      const codePoint = Number.parseInt(digits, 10);
+      return Number.isFinite(codePoint) && codePoint >= 0 && codePoint <= 0x10ffff && !(codePoint >= 0xd800 && codePoint <= 0xdfff)
+        ? String.fromCodePoint(codePoint) : "�";
+    })
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"').replace(/&apos;|&#39;/g, "'").replace(/&amp;/g, "&");
 }
 
-function feedItemLink(node: Element, isAtom: boolean): string {
-  if (!isAtom) return directChildText(node, ["link"]);
-  const link = Array.from(node.children).find((child) => child.localName.toLowerCase() === "link" && (!child.getAttribute("rel") || child.getAttribute("rel") === "alternate"));
-  return link ? (link.getAttribute("href") || String(link.textContent || "").trim()) : "";
+function feedLocalName(name: string): string {
+  const separator = name.lastIndexOf(":");
+  return (separator >= 0 ? name.slice(separator + 1) : name).toLowerCase();
 }
 
-function feedAuthors(node: Element): string[] {
-  const authors = Array.from(node.children).filter((child) => ["author", "creator"].includes(child.localName.toLowerCase()));
-  return authors.map((author) => {
+function parseFeedXml(xml: string): FeedXmlNode {
+  const root: FeedXmlNode = { name: "", attributes: {}, content: [] };
+  const stack: FeedXmlNode[] = [];
+  let nodeCount = 0;
+  const tokens = xml.match(/<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<\?[\s\S]*?\?>|<![^>]*>|<\/?[^>]+>|[^<]+/g) || [];
+  for (const token of tokens) {
+    if (token.startsWith("<!--") || token.startsWith("<?") || /^<!doctype\b/i.test(token) || /^<![^[]/i.test(token)) continue;
+    if (token.startsWith("<![CDATA[")) {
+      if (stack.length) stack[stack.length - 1].content.push(token.slice(9, -3));
+      continue;
+    }
+    if (token.startsWith("</")) {
+      const closingName = token.match(/^<\/\s*([^\s>]+)\s*>$/)?.[1];
+      const current = stack.pop();
+      if (!closingName || !current || current.name !== closingName) throw new Error("官网 RSS/Atom XML 标签不匹配");
+      continue;
+    }
+    if (token.startsWith("<")) {
+      const startMatch = token.match(/^<\s*([^\s/>]+)([\s\S]*?)\s*\/?>$/);
+      if (!startMatch) throw new Error("官网 RSS/Atom 格式无法解析");
+      const node: FeedXmlNode = { name: startMatch[1], attributes: {}, content: [] };
+      const attributeText = startMatch[2].replace(/\/\s*$/, "");
+      const attributePattern = /([^\s=]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+      for (const match of attributeText.matchAll(attributePattern)) node.attributes[match[1]] = decodeXmlEntities(match[2] ?? match[3] ?? "");
+      nodeCount += 1;
+      if (nodeCount > 100_000 || stack.length > 100) throw new Error("官网 RSS/Atom 层级或节点数量超出限制");
+      if (stack.length) stack[stack.length - 1].content.push(node);
+      else if (root.name) throw new Error("官网 RSS/Atom 存在多个根节点");
+      else { root.name = node.name; root.content.push(node); }
+      if (!/\/\s*>$/.test(token)) stack.push(node);
+      continue;
+    }
+    if (stack.length) stack[stack.length - 1].content.push(decodeXmlEntities(token));
+    else if (token.trim()) throw new Error("官网 RSS/Atom 根节点外存在无效文本");
+  }
+  if (stack.length || !root.name) throw new Error("官网 RSS/Atom 格式无法解析");
+  return root.content[0] as FeedXmlNode;
+}
+
+function feedNodeChildren(node: FeedXmlNode): FeedXmlNode[] {
+  return node.content.filter((part): part is FeedXmlNode => typeof part !== "string");
+}
+
+function feedNodeText(node: FeedXmlNode): string {
+  return node.content.map((part) => typeof part === "string" ? part : feedNodeText(part)).join("");
+}
+
+function directChildText(node: FeedXmlNode, names: string[]): string {
+  const match = feedNodeChildren(node).find((child) => names.includes(feedLocalName(child.name)));
+  return match ? feedNodeText(match).trim() : "";
+}
+
+function feedItemLink(node: FeedXmlNode, isAtom: boolean): string {
+  const links = feedNodeChildren(node).filter((child) => feedLocalName(child.name) === "link");
+  const link = isAtom ? links.find((child) => !child.attributes.rel || child.attributes.rel === "alternate") : links[0];
+  return link ? (link.attributes.href || feedNodeText(link).trim()) : "";
+}
+
+function feedAuthors(node: FeedXmlNode): string[] {
+  return feedNodeChildren(node).filter((child) => ["author", "creator"].includes(feedLocalName(child.name))).map((author) => {
     const nestedName = directChildText(author, ["name"]);
-    return plainText(nestedName || author.textContent);
+    return plainText(nestedName || feedNodeText(author));
   }).filter(Boolean).slice(0, 100);
+}
+
+function feedDescendants(node: FeedXmlNode, name: string): FeedXmlNode[] {
+  return feedNodeChildren(node).flatMap((child) => [
+    ...(feedLocalName(child.name) === name ? [child] : []),
+    ...feedDescendants(child, name),
+  ]);
 }
 
 function parseFeed(xml: string): Array<Record<string, unknown>> {
   if (xml.length > 2_000_000) throw new Error("RSS feed 超过 2 MB，已停止解析");
-  const document = new DOMParser().parseFromString(xml, "application/xml");
-  if (!document || document.querySelector("parsererror")) throw new Error("官网 RSS/Atom 格式无法解析");
-  const rootName = document.documentElement.localName.toLowerCase();
+  const root = parseFeedXml(xml);
+  const rootName = feedLocalName(root.name);
   const isAtom = rootName === "feed";
-  const nodes = Array.from(document.getElementsByTagName("*")).filter((node) =>
-    node.localName.toLowerCase() === (isAtom ? "entry" : "item")
-  );
+  if (!isAtom && rootName !== "rss" && rootName !== "rdf") throw new Error("官网 RSS/Atom 根节点无法识别");
+  const nodes = feedDescendants(root, isAtom ? "entry" : "item");
   return nodes.slice(0, 40).map((node) => {
     let title = plainText(directChildText(node, ["title"]));
     let authors = feedAuthors(node);
