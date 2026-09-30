@@ -38,6 +38,7 @@ type Subscription = {
   last_checked_at: string | null;
   last_success_at?: string | null;
   last_error?: string | null;
+  last_sync_details?: SyncDetails;
 };
 
 const NBER_TRACKER_ID = "NBER-WP";
@@ -50,7 +51,18 @@ function isNberWorkingPapersQuery(value: unknown): boolean {
 }
 
 type CrossrefWork = Record<string, unknown>;
-type RefreshResult = { id: string; ok: boolean; processed?: number; error?: string; warning?: string; checked_at?: string };
+type FeedItems = Array<Record<string, unknown>> & { feed_kind?: "rss" | "atom" };
+type SyncDetails = {
+  status: "success" | "fallback" | "error";
+  discovery_source: "rss" | "atom" | "crossref" | null;
+  attempted_source: "rss_atom" | "crossref";
+  processed: number;
+  completed_at: string;
+  duration_ms: number;
+  warning?: string;
+  error?: string;
+};
+type RefreshResult = { id: string; ok: boolean; processed?: number; error?: string; warning?: string; checked_at?: string; details?: SyncDetails };
 
 function serviceHeaders(extra: Record<string, string> = {}) {
   return {
@@ -359,14 +371,14 @@ function feedDescendants(node: FeedXmlNode, name: string): FeedXmlNode[] {
   ]);
 }
 
-function parseFeed(xml: string): Array<Record<string, unknown>> {
+function parseFeed(xml: string): FeedItems {
   if (xml.length > 2_000_000) throw new Error("RSS feed 超过 2 MB，已停止解析");
   const root = parseFeedXml(xml);
   const rootName = feedLocalName(root.name);
   const isAtom = rootName === "feed";
   if (!isAtom && rootName !== "rss" && rootName !== "rdf") throw new Error("官网 RSS/Atom 根节点无法识别");
   const nodes = feedDescendants(root, isAtom ? "entry" : "item");
-  return nodes.slice(0, 40).map((node) => {
+  const items = nodes.slice(0, 40).map((node) => {
     let title = plainText(directChildText(node, ["title"]));
     let authors = feedAuthors(node);
     const nberTitleAuthors = title.match(/^(.+?)\s+--\s+by\s+(.+)$/i);
@@ -384,6 +396,7 @@ function parseFeed(xml: string): Array<Record<string, unknown>> {
     return {
       title,
       link,
+      feed_kind: isAtom ? "atom" : "rss",
       abstract: plainText(summary),
       authors,
       // RSS/Atom categories are commonly classifications, not author keywords.
@@ -392,6 +405,7 @@ function parseFeed(xml: string): Array<Record<string, unknown>> {
       doi: doiMatch ? normalizeDoi(doiMatch[0].replace(/[.,;)]+$/, "")) : "",
     };
   }).filter((item) => item.title);
+  return Object.assign(items, { feed_kind: isAtom ? "atom" as const : "rss" as const });
 }
 
 function publicHttpsUrl(value: unknown): URL {
@@ -475,15 +489,16 @@ async function fetchArticlePageMetadata(value: unknown): Promise<{ abstract: str
   return { abstract: "", keywords: [] };
 }
 
-async function fetchFeed(feedUrl: string): Promise<Array<Record<string, unknown>>> {
+async function fetchFeed(feedUrl: string): Promise<FeedItems> {
   const url = publicHttpsUrl(feedUrl);
-  const response = await fetch(url, { headers: { Accept: "application/atom+xml, application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.5", "User-Agent": "AcademicResearchHub/1.0 (journal RSS reader)" }, redirect: "manual" });
+  const signal = AbortSignal.timeout(20_000);
+  const response = await fetch(url, { headers: { Accept: "application/atom+xml, application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.5", "User-Agent": "AcademicResearchHub/1.0 (journal RSS reader)" }, redirect: "manual", signal });
   if (response.status >= 300 && response.status < 400) {
     const location = response.headers.get("location");
     if (!location) throw new Error("期刊 RSS 返回了无效跳转");
     const redirectUrl = new URL(location, url);
     publicHttpsUrl(redirectUrl.toString());
-    const redirectResponse = await fetch(redirectUrl, { headers: { Accept: "application/atom+xml, application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.5", "User-Agent": "AcademicResearchHub/1.0 (journal RSS reader)" }, redirect: "manual" });
+    const redirectResponse = await fetch(redirectUrl, { headers: { Accept: "application/atom+xml, application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.5", "User-Agent": "AcademicResearchHub/1.0 (journal RSS reader)" }, redirect: "manual", signal });
     if (!redirectResponse.ok) throw new Error(`期刊 RSS 返回 ${redirectResponse.status}`);
     return parseFeed(await readFeedBody(redirectResponse));
   }
@@ -720,6 +735,7 @@ async function recordRefreshLogs(subscriptions: Subscription[], results: Refresh
       ok: result.ok,
       article_count: Math.max(0, Number(result.processed) || 0),
       error: result.error || result.warning || null,
+      details: result.details || {},
     }];
   });
   if (!rows.length) return;
@@ -749,26 +765,31 @@ async function refreshSubscription(subscription: Subscription) {
   const safePrevious = Number.isNaN(previous.getTime()) ? fallbackSince : previous;
   const since = new Date(Math.min(safePrevious.getTime(), startedAt.getTime()) - 14 * 86400_000).toISOString().slice(0, 10);
   let fallbackNotice = "";
+  let discoverySource: SyncDetails["discovery_source"] = null;
+  let crossrefAttempted = false;
+  const attemptedSource = subscription.feed_url ? "rss_atom" : "crossref";
   try {
-    let feedItems: Array<Record<string, unknown>> = [];
+    let feedItems: FeedItems = [];
     let crossrefDiscovery: CrossrefWork[] = [];
+    let feedRead = false;
     if (subscription.feed_url) {
       try {
         feedItems = await fetchFeed(subscription.feed_url);
+        feedRead = true;
+        discoverySource = (feedItems.feed_kind || feedItems[0]?.feed_kind) === "atom" ? "atom" : "rss";
       } catch (error) {
-        fallbackNotice = subscription.publisher === "手动 RSS"
-          ? `官网 RSS 读取失败：${error instanceof Error ? error.message : "读取失败"}`
-          : `官网 RSS 读取失败，已使用 Crossref 后备：${error instanceof Error ? error.message : "读取失败"}`;
+        fallbackNotice = `官网 RSS / Atom 读取失败：${error instanceof Error ? error.message : "读取失败"}`;
       }
     }
-    if (!feedItems.length && subscription.publisher === "手动 RSS") {
+    if (!feedRead && subscription.publisher === "手动 RSS") {
       if (fallbackNotice) throw new Error(`${fallbackNotice}；手动登记期刊没有 Crossref 后备，请检查 RSS 地址。`);
       if (!subscription.feed_url) throw new Error("手动登记的期刊需要有效的官网 RSS / Atom 地址才能追踪。");
     }
-    if (!feedItems.length && subscription.issn === NBER_TRACKER_ID) {
+    if (!feedRead && subscription.issn === NBER_TRACKER_ID) {
       throw new Error(`NBER 官方工作论文 RSS 暂时无法读取${fallbackNotice ? `：${fallbackNotice}` : ""}，请稍后重试。`);
     }
-    if (!feedItems.length && subscription.publisher !== "手动 RSS") {
+    if (!feedRead && subscription.publisher !== "手动 RSS") {
+      crossrefAttempted = true;
       const message = subscription.publisher === "按刊名检索"
         ? await crossref("works", {
           filter: `from-pub-date:${since},container-title:${subscription.journal_title}`,
@@ -785,6 +806,8 @@ async function refreshSubscription(subscription: Subscription) {
       crossrefDiscovery = (Array.isArray(message.items) ? message.items : [])
         .filter((item: CrossrefWork) => !item.type || item.type === "journal-article")
         .slice(0, 40) as CrossrefWork[];
+      discoverySource = "crossref";
+      if (fallbackNotice) fallbackNotice += "；本次已使用 Crossref 后备完成检查。";
       if (!crossrefDiscovery.length && subscription.publisher === "按刊名检索") {
         throw new Error(`Crossref 暂未找到「${subscription.journal_title}」的可追踪文章；请填写该刊官网 RSS / Atom 地址后重试。`);
       }
@@ -840,8 +863,8 @@ async function refreshSubscription(subscription: Subscription) {
       const title = plainText(item.title || (semantic && semantic.title) || (fallback && (Array.isArray(fallback.title) ? fallback.title[0] : fallback.title))) || "未命名文章";
       const url = plainText(item.link || (fallback && fallback.URL)) || (doi ? `https://doi.org/${doi}` : "");
       const sources = [];
-      if (subscription.feed_url && !fallbackNotice && feedItems.length && !crossrefDiscovery.length) sources.push("期刊官网 RSS");
-      if (crossrefDiscovery.length || fallbackNotice || !subscription.feed_url) sources.push("Crossref");
+      const discoveryLabel = discoverySource === "crossref" ? "Crossref" : discoverySource === "atom" ? "期刊官网 Atom" : "期刊官网 RSS";
+      sources.push(discoveryLabel);
       if (semantic) sources.push("Semantic Scholar");
       if (openAlex) sources.push("OpenAlex");
       if (fallback) sources.push("Crossref");
@@ -854,7 +877,7 @@ async function refreshSubscription(subscription: Subscription) {
         title,
         authors,
         abstract,
-        abstract_source: rssAbstract ? "期刊官网 RSS" : (semanticAbstract ? "Semantic Scholar" : (openAlexAbstract ? "OpenAlex" : (crossrefAbstract ? "Crossref" : (pageAbstract ? "文章原文页面" : "")))),
+        abstract_source: rssAbstract ? discoveryLabel : (semanticAbstract ? "Semantic Scholar" : (openAlexAbstract ? "OpenAlex" : (crossrefAbstract ? "Crossref" : (pageAbstract ? "文章原文页面" : "")))),
         keywords,
         keyword_source: keywordSource,
         publication_date: date,
@@ -870,20 +893,31 @@ async function refreshSubscription(subscription: Subscription) {
         body: JSON.stringify(rows),
       });
     }
+    const details: SyncDetails = {
+      status: fallbackNotice ? "fallback" : "success",
+      discovery_source: discoverySource,
+      attempted_source: attemptedSource,
+      processed: rows.length,
+      completed_at: new Date().toISOString(),
+      duration_ms: Date.now() - startedAt.getTime(),
+      ...(fallbackNotice ? { warning: fallbackNotice.slice(0, 1000) } : {}),
+    };
     await rest(`journal_subscriptions?id=eq.${encodeURIComponent(subscription.id)}`, {
       method: "PATCH",
       headers: { Prefer: "return=minimal" },
-      body: JSON.stringify({ last_checked_at: startedAt.toISOString(), last_success_at: startedAt.toISOString(), last_error: fallbackNotice || null, updated_at: startedAt.toISOString() }),
+      body: JSON.stringify({ last_checked_at: startedAt.toISOString(), last_success_at: details.completed_at, last_error: null, last_sync_details: details, updated_at: details.completed_at }),
     });
-    return { id: subscription.id, ok: true, processed: rows.length, warning: fallbackNotice || undefined, checked_at: startedAt.toISOString() };
+    return { id: subscription.id, ok: true, processed: rows.length, warning: fallbackNotice || undefined, checked_at: startedAt.toISOString(), details };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "抓取失败";
+    const failure = error instanceof Error ? error.message : "抓取失败";
+    const message = fallbackNotice && crossrefAttempted && !discoverySource ? `${fallbackNotice}；Crossref 后备失败：${failure}` : failure;
+    const details: SyncDetails = { status: "error", discovery_source: discoverySource, attempted_source: attemptedSource, processed: 0, completed_at: new Date().toISOString(), duration_ms: Date.now() - startedAt.getTime(), error: message.slice(0, 1000) };
     await rest(`journal_subscriptions?id=eq.${encodeURIComponent(subscription.id)}`, {
       method: "PATCH",
       headers: { Prefer: "return=minimal" },
-      body: JSON.stringify({ last_checked_at: startedAt.toISOString(), last_error: message.slice(0, 500), updated_at: startedAt.toISOString() }),
+      body: JSON.stringify({ last_checked_at: startedAt.toISOString(), last_error: message.slice(0, 500), last_sync_details: details, updated_at: details.completed_at }),
     }).catch(() => null);
-    return { id: subscription.id, ok: false, error: message, checked_at: startedAt.toISOString() };
+    return { id: subscription.id, ok: false, error: message, checked_at: startedAt.toISOString(), details };
   }
 }
 
@@ -1180,10 +1214,11 @@ Deno.serve(async (request: Request) => {
       });
       const subscription = Array.isArray(inserted) ? inserted[0] as Subscription : null;
       const firstRefresh = subscription ? await refreshSubscription(subscription) : null;
+      if (subscription && firstRefresh) await recordRefreshLogs([subscription], [firstRefresh], "added");
       return json(request, {
         ok: true,
         ...(await listForUser(userId)),
-        warning: firstRefresh && !firstRefresh.ok ? firstRefresh.error : undefined,
+        warning: firstRefresh ? firstRefresh.error || firstRefresh.warning : undefined,
       });
     }
     if (action === "set-feed") {
@@ -1201,8 +1236,9 @@ Deno.serve(async (request: Request) => {
         headers: { Prefer: "return=minimal" },
         body: JSON.stringify({ feed_url: feedUrl, updated_at: new Date().toISOString() }),
       });
-      if (feedUrl) await refreshSubscription({ ...subscription, feed_url: feedUrl });
-      return json(request, { ok: true, ...(await listForUser(userId)) });
+      const refreshed = await refreshSubscription({ ...subscription, feed_url: feedUrl });
+      await recordRefreshLogs([subscription], [refreshed], "feed");
+      return json(request, { ok: true, warning: refreshed.error || refreshed.warning, ...(await listForUser(userId)) });
     }
     if (action === "set-category") {
       const id = String(body.id || "");

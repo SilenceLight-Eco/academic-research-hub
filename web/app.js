@@ -90,6 +90,7 @@
     journalTrackerRefreshingAll: false,
     journalTrackerRefreshingCategory: '',
     journalTrackerRetryingFailed: false,
+    journalTrackerRefreshingId: '',
     journalTrackerQuery: '',
     journalTrackerFilter: 'all',
     trackerJournalCategoryFilter: 'all',
@@ -6305,7 +6306,7 @@
   function startTrackerListPolling() {
     if (trackerListPollTimer) return;
     trackerListPollTimer = window.setInterval(function () {
-      if (state.panel !== 'journal-tracker' || document.hidden || !account || !state.journalTrackerLoaded || state.journalTrackerLoading || trackerListPollInFlight || state.journalTrackerRefreshingAll || state.journalTrackerRefreshingCategory || state.journalTrackerRetryingFailed) return;
+      if (state.panel !== 'journal-tracker' || document.hidden || !account || !state.journalTrackerLoaded || state.journalTrackerLoading || trackerListPollInFlight || trackerRefreshIsBusy()) return;
       trackerListPollInFlight = true;
       journalTrackerRequest({ action: 'count' }).then(function (result) {
         if (state.panel !== 'journal-tracker' || !Number.isFinite(result && result.articleCount)) return;
@@ -6350,6 +6351,59 @@
     var result = {};
     (state.journalTracker.subscriptions || []).forEach(function (item) { result[String(item.id)] = item; });
     return result;
+  }
+
+  function trackerRefreshIsBusy() {
+    return Boolean(state.journalTrackerRefreshingAll || state.journalTrackerRefreshingCategory || state.journalTrackerRetryingFailed || state.journalTrackerRefreshingId);
+  }
+
+  function trackerSourceLabel(source) {
+    return { rss: '官网 RSS', atom: '官网 Atom', rss_atom: '官网 RSS / Atom', crossref: 'Crossref' }[source] || '尚未记录';
+  }
+
+  function trackerSyncState(item) {
+    var details = item.last_sync_details || {};
+    if (!details.status) {
+      var log = (state.journalTracker.refreshLogs || []).find(function (entry) {
+        return String(entry.subscription_id) === String(item.id) && entry.checked_at === item.last_checked_at && entry.details && entry.details.status;
+      });
+      if (log) details = log.details;
+    }
+    var legacyFallback = Boolean(item.last_error && item.last_success_at && Date.parse(item.last_success_at) === Date.parse(item.last_checked_at));
+    var status = details.status || (item.last_error ? (legacyFallback ? 'fallback' : 'error') : item.last_success_at ? 'success' : 'pending');
+    return {
+      status: status,
+      source: details.discovery_source,
+      attemptedSource: details.attempted_source,
+      message: details.error || details.warning || item.last_error || '',
+      processed: Number.isFinite(details.processed) ? details.processed : null,
+      duration: Number.isFinite(details.duration_ms) ? details.duration_ms : null,
+      completedAt: details.completed_at || ''
+    };
+  }
+
+  function trackerSyncAdvice(message) {
+    if (/429|限流|rate.?limit/i.test(message)) return '来源暂时限流，请稍后重试。';
+    if (/403|forbidden/i.test(message)) return '来源拒绝访问，请检查公开订阅地址或稍后重试。';
+    if (/404|not found/i.test(message)) return '来源地址不存在，请检查 RSS / Atom 地址。';
+    if (/timeout|timed out|超时|fetch|network|连接/i.test(message)) return '来源连接失败或超时，请稍后重试。';
+    if (/解析|根节点|XML|跳转|RSS.*地址/i.test(message)) return '请检查该地址是否为公开的 RSS / Atom 订阅源。';
+    return '可查看具体原因后重试，必要时更新官网订阅地址。';
+  }
+
+  function renderTrackerSyncDetails(item, busy) {
+    var sync = trackerSyncState(item);
+    var checking = String(state.journalTrackerRefreshingId) === String(item.id);
+    var labels = { success: '更新成功', fallback: '后备更新成功', error: '更新失败', pending: '等待首次检查' };
+    var source = sync.source ? trackerSourceLabel(sync.source) : '尚未记录';
+    var attempted = sync.status === 'error' && sync.attemptedSource ? '<small>尝试来源：' + trackerSourceLabel(sync.attemptedSource) + '</small>' : '';
+    var counts = sync.status !== 'error' && sync.processed !== null ? '<small>本次处理 ' + sync.processed + ' 篇' + (sync.duration !== null ? ' · 耗时 ' + Math.max(1, Math.round(sync.duration / 1000)) + ' 秒' : '') + '</small>' : '';
+    var message = sync.message ? '<details class="tracker-sync-reason"><summary>' + (sync.status === 'fallback' ? '查看后备更新原因' : '查看失败原因') + '</summary><p>' + escapeHtml(sync.message) + '</p><p>' + escapeHtml(trackerSyncAdvice(sync.message)) + '</p></details>' : '';
+    return '<div class="tracker-sync-info"><span class="tracker-sync-badge is-' + sync.status + '" role="status">' + (checking ? '正在检查…' : labels[sync.status] || labels.pending) + '</span>' +
+      '<small>更新来源：' + source + '</small>' + attempted +
+      '<small>最近检查：' + escapeHtml(trackerDateLabel(item.last_checked_at, true)) + '</small>' +
+      '<small>最近成功：' + escapeHtml(item.last_success_at ? trackerDateLabel(item.last_success_at, true) : '尚无成功记录') + '</small>' + counts + message +
+      '<button type="button" class="tracker-sync-retry" data-tracker-refresh-one="' + escapeHtml(item.id) + '"' + (busy || item.enabled === false ? ' disabled' : '') + '>' + (checking ? '正在检查…' : sync.status === 'error' || sync.status === 'fallback' ? '立即重试' : '重新检查') + '</button></div>';
   }
 
   var trackerEasyScholarSettingsKey = 'academic-workbench-easyscholar-settings-v1';
@@ -6677,24 +6731,26 @@
     var checks = subscriptions.map(function (item) { return item.last_checked_at; }).filter(Boolean).sort().reverse();
     $('#trackerLastCheck').textContent = checks.length ? trackerDateLabel(checks[0], true) : '尚未检查';
     var refreshLogs = state.journalTracker.refreshLogs || [];
-    var failingSubscriptions = subscriptions.filter(function (item) { return item.enabled !== false && Boolean(item.last_error); });
+    var failingSubscriptions = subscriptions.filter(function (item) { return item.enabled !== false && trackerSyncState(item).status === 'error'; });
+    var fallbackSubscriptions = subscriptions.filter(function (item) { return item.enabled !== false && trackerSyncState(item).status === 'fallback'; });
     var runHistory = $('#trackerRunHistory');
-    runHistory.hidden = !refreshLogs.length && !failingSubscriptions.length;
+    runHistory.hidden = !refreshLogs.length && !failingSubscriptions.length && !fallbackSubscriptions.length;
     if (!runHistory.hidden) {
       var latestLog = refreshLogs[0];
       var recentFailures = failingSubscriptions.slice(0, 4).map(function (item) {
         return '<li><b>' + escapeHtml(item.journal_title || item.issn) + '</b><span title="' + escapeHtml(item.last_error || '') + '">' + escapeHtml(item.last_error || '抓取失败') + '</span></li>';
       }).join('');
-      var sourceLabels = { scheduled: '后台定时', automatic: '自动检查', manual: '手动检查', category: '分类检查', retry: '失败重试' };
+      var sourceLabels = { scheduled: '后台定时', automatic: '自动检查', manual: '手动检查', category: '分类检查', retry: '失败重试', added: '添加期刊', feed: '修改来源' };
       var logRows = refreshLogs.slice(0, 8).map(function (log) {
         var journal = subscriptionById[String(log.subscription_id)] || {};
         var logTitle = journal.journal_title || journal.issn || '已移除的期刊';
         var outcome = log.ok ? (log.error ? '完成·有提示' : '成功') : '失败';
         var outcomeClass = log.ok ? (log.error ? 'is-warning' : 'is-success') : 'is-error';
         var detail = log.error ? '<small title="' + escapeHtml(log.error) + '">' + escapeHtml(log.error) + '</small>' : '';
-        return '<li><time>' + escapeHtml(trackerDateLabel(log.checked_at, true)) + '</time><span class="tracker-run-log-title" title="' + escapeHtml(logTitle) + '">' + escapeHtml(logTitle) + '</span><span class="tracker-run-source">' + escapeHtml(sourceLabels[log.source] || '检查') + '</span><b class="' + outcomeClass + '">' + outcome + '</b><span class="tracker-run-count">+' + Number(log.article_count || 0) + ' 篇</span>' + detail + '</li>';
+        var discoveryLabel = trackerSourceLabel(log.details && log.details.discovery_source);
+        return '<li><time>' + escapeHtml(trackerDateLabel(log.checked_at, true)) + '</time><span class="tracker-run-log-title" title="' + escapeHtml(logTitle) + '">' + escapeHtml(logTitle) + '</span><span class="tracker-run-source">' + escapeHtml(sourceLabels[log.source] || '检查') + '</span><span class="tracker-run-discovery">' + discoveryLabel + '</span><b class="' + outcomeClass + '">' + outcome + '</b><span class="tracker-run-count">处理 ' + Number(log.article_count || 0) + ' 篇</span>' + detail + '</li>';
       }).join('');
-      runHistory.innerHTML = '<div class="tracker-run-banner' + (failingSubscriptions.length ? ' has-failures' : '') + '"><div class="tracker-run-banner-title"><span class="tracker-run-indicator"></span><div><b>' + (failingSubscriptions.length ? '后台更新需要关注' : '后台更新运行正常') + '</b><span>' + (failingSubscriptions.length ? failingSubscriptions.length + ' 本期刊存在抓取问题；系统会在每日北京时间 08:00 再次检查，也可手动重试。' : latestLog ? '最近检查：' + escapeHtml(trackerDateLabel(latestLog.checked_at, true)) + '；每日北京时间 08:00 自动检查。' : '每日北京时间 08:00 自动检查，关闭网页后仍会运行。') + '</span></div></div>' + (recentFailures ? '<ul class="tracker-run-failures">' + recentFailures + '</ul>' : '') + (logRows ? '<details class="tracker-run-details"><summary>最近检查记录（' + refreshLogs.length + '）</summary><ol>' + logRows + '</ol></details>' : '') + '</div>';
+      runHistory.innerHTML = '<div class="tracker-run-banner' + (failingSubscriptions.length ? ' has-failures' : fallbackSubscriptions.length ? ' has-warnings' : '') + '"><div class="tracker-run-banner-title"><span class="tracker-run-indicator"></span><div><b>' + (failingSubscriptions.length ? '期刊更新需要关注' : fallbackSubscriptions.length ? '部分期刊使用后备来源' : '期刊更新检查正常') + '</b><span>' + (failingSubscriptions.length ? failingSubscriptions.length + ' 本期刊更新失败，可在期刊下方立即重试。' : latestLog ? '最近检查：' + escapeHtml(trackerDateLabel(latestLog.checked_at, true)) + '。' : '') + (fallbackSubscriptions.length ? ' ' + fallbackSubscriptions.length + ' 本期刊已通过后备来源完成更新。' : '') + ' 每日北京时间 08:00 自动检查。</span></div></div>' + (recentFailures ? '<ul class="tracker-run-failures">' + recentFailures + '</ul>' : '') + (logRows ? '<details class="tracker-run-details"><summary>最近检查记录（' + refreshLogs.length + '）</summary><ol>' + logRows + '</ol></details>' : '') + '</div>';
     }
     var unreadCount = articles.filter(function (article) { return article.is_read !== true; }).length;
     var unreadLabel = $('#trackerUnreadCount');
@@ -6711,9 +6767,9 @@
       if (state.trackerJournalCategoryFilter !== 'all' && (String(item.category || '').trim() || '未分类') !== state.trackerJournalCategoryFilter) return false;
       return true;
     });
-    var failedSubscriptions = failureScopeSubscriptions.filter(function (item) { return Boolean(item.last_error); });
+    var failedSubscriptions = failureScopeSubscriptions.filter(function (item) { return trackerSyncState(item).status === 'error'; });
     var retryFailedButton = $('#trackerRetryFailed');
-    var trackerRefreshBusy = Boolean(state.journalTrackerRefreshingAll || state.journalTrackerRefreshingCategory || state.journalTrackerRetryingFailed);
+    var trackerRefreshBusy = trackerRefreshIsBusy();
     categoryRefreshButton.hidden = refreshCategory === 'all';
     categoryRefreshButton.disabled = refreshCategory === 'all' || refreshSubscriptions.length === 0 || trackerRefreshBusy;
     categoryRefreshButton.textContent = state.journalTrackerRefreshingCategory === refreshCategory ? '正在刷新…' : '刷新此分类（' + refreshSubscriptions.length + '）';
@@ -6750,23 +6806,19 @@
     var bulkTools = state.trackerCategoryManageMode ? '<div class="tracker-category-bulk-tools"><span>已选 ' + selectedJournalIds.length + ' 本期刊</span><select id="trackerBulkCategory" aria-label="批量移动到分类">' + categoryOptions + '</select><button type="button" data-tracker-bulk-apply' + (selectedJournalIds.length ? '' : ' disabled') + '>批量移动</button><button type="button" data-tracker-bulk-clear>取消选择</button></div>' : '';
     $('#trackerSubscriptions').classList.toggle('is-managing-categories', Boolean(state.trackerCategoryManageMode));
     function renderTrackerSubscription(item) {
-      var status = item.last_error ? item.last_error : (item.last_success_at ? '更新于 ' + trackerDateLabel(item.last_success_at, true) : '等待首次检查');
-      var checkedAt = Date.parse(item.last_checked_at || '');
-      var checkStatus = checkedAt ? '最近检查 ' + trackerDateLabel(item.last_checked_at, true) : '尚未检查';
-      if (item.last_error && checkedAt) checkStatus += ' · 下次自动检查 ' + trackerBeijingDateLabel(trackerNextDailyRun(Date.now())) + '（北京时间）';
+      var sync = trackerSyncState(item);
       var isSelected = String(state.journalTrackerFilter) === String(item.id);
       var isBulkSelected = Boolean(state.trackerSelectedJournalIds && state.trackerSelectedJournalIds[String(item.id)]);
       var currentCategory = String(item.category || '').trim();
       var itemCategoryOptions = '<option value=""' + (!currentCategory ? ' selected' : '') + '>未分类</option>' + journalCategories.filter(function (category) { return category !== '未分类'; }).map(function (category) {
         return '<option value="' + escapeHtml(category) + '"' + (category === currentCategory ? ' selected' : '') + '>' + escapeHtml(category) + '</option>';
       }).join('') + '<option value="__new_category__">＋ 新建分类…</option>';
-      return '<div class="tracker-subscription' + (item.last_error ? ' is-error' : '') + (isSelected ? ' is-selected' : '') + (isBulkSelected ? ' is-bulk-selected' : '') + '">' +
+      return '<div class="tracker-subscription' + (sync.status === 'error' ? ' is-error' : sync.status === 'fallback' ? ' is-warning' : '') + (isSelected ? ' is-selected' : '') + (isBulkSelected ? ' is-bulk-selected' : '') + '">' +
         (state.trackerCategoryManageMode ? '<label class="tracker-bulk-select"><input type="checkbox" data-tracker-bulk-select="' + escapeHtml(item.id) + '"' + (isBulkSelected ? ' checked' : '') + '><span class="sr-only">选择 ' + escapeHtml(item.journal_title || item.issn) + '</span></label>' : '') +
         '<button type="button" class="tracker-subscription-main" data-tracker-select-journal="' + escapeHtml(item.id) + '" aria-pressed="' + isSelected + '" aria-label="查看期刊：' + escapeHtml(item.journal_title || item.issn) + '" title="' + escapeHtml(item.journal_title || item.issn) + '">' +
         '<b title="' + escapeHtml(item.journal_title || item.issn) + '">' + escapeHtml(item.journal_title || item.issn) + '</b><span>' + escapeHtml(item.issn === 'NBER-WP' ? '工作论文系列' : String(item.issn || '').indexOf('MANUAL-') === 0 ? (item.publisher === '按刊名检索' ? '按刊名检索' : '手动 RSS') : (item.issn || '')) + '</span></button>' +
         '<select class="tracker-subscription-category" data-tracker-category="' + escapeHtml(item.id) + '" aria-label="设置 ' + escapeHtml(item.journal_title || item.issn) + ' 的分类">' + itemCategoryOptions + '</select>' +
-        '<em title="' + escapeHtml(status) + '">' + escapeHtml(status) + '</em>' +
-        '<small class="tracker-check-time" title="' + escapeHtml(item.last_error ? status + '；按失败持续时间自动退避重试' : '期刊最近一次检查时间') + '">' + escapeHtml(checkStatus) + '</small>' +
+        renderTrackerSyncDetails(item, trackerRefreshBusy) +
         '<div class="tracker-feed-config"><input type="url" data-tracker-feed-input="' + escapeHtml(item.id) + '" value="' + escapeHtml(item.feed_url || '') + '" placeholder="官网 RSS / Atom 地址" aria-label="' + escapeHtml(item.journal_title || item.issn) + ' RSS 地址"><button type="button" data-tracker-feed-save="' + escapeHtml(item.id) + '">保存 RSS</button></div>' +
         '<button type="button" data-tracker-remove="' + escapeHtml(item.id) + '" title="停止追踪" aria-label="停止追踪 ' + escapeHtml(item.journal_title || item.issn) + '">×</button></div>';
     }
@@ -7081,7 +7133,7 @@
   }
 
   function refreshJournalTracker() {
-    if (state.journalTrackerRefreshingAll || state.journalTrackerRefreshingCategory || state.journalTrackerRetryingFailed) return;
+    if (trackerRefreshIsBusy()) return;
     var button = $('#trackerRefresh');
     state.journalTrackerRefreshingAll = true;
     renderJournalTracker();
@@ -7100,7 +7152,7 @@
 
   function refreshTrackerCategory() {
     var category = state.trackerJournalCategoryFilter;
-    if (category === 'all' || state.journalTrackerRefreshingAll || state.journalTrackerRefreshingCategory || state.journalTrackerRetryingFailed) return;
+    if (category === 'all' || trackerRefreshIsBusy()) return;
     var subscriptions = (state.journalTracker.subscriptions || []).filter(function (item) { return (String(item.category || '').trim() || '未分类') === category && item.enabled !== false; });
     if (!subscriptions.length) { toast('该分类没有启用中的期刊'); return; }
     state.journalTrackerRefreshingCategory = category;
@@ -7122,11 +7174,11 @@
   }
 
   function retryFailedTrackerJournals() {
-    if (state.journalTrackerRefreshingAll || state.journalTrackerRefreshingCategory || state.journalTrackerRetryingFailed) return;
+    if (trackerRefreshIsBusy()) return;
     var category = state.trackerJournalCategoryFilter;
     var journalId = state.journalTrackerFilter;
     var failedSubscriptions = (state.journalTracker.subscriptions || []).filter(function (item) {
-      if (item.enabled === false || !item.last_error) return false;
+      if (item.enabled === false || trackerSyncState(item).status !== 'error') return false;
       if (journalId !== 'all' && String(item.id) !== String(journalId)) return false;
       if (category !== 'all' && (String(item.category || '').trim() || '未分类') !== category) return false;
       return true;
@@ -7153,6 +7205,32 @@
       setTrackerStatus((error && error.message) || '重试失败期刊时出错', true);
     }).then(function () {
       state.journalTrackerRetryingFailed = false;
+      renderJournalTracker();
+    });
+  }
+
+  function refreshOneTrackerJournal(id) {
+    if (trackerRefreshIsBusy()) return;
+    var subscription = trackerSubscriptionMap()[String(id)];
+    if (!subscription || subscription.enabled === false) return;
+    state.journalTrackerRefreshingId = String(id);
+    renderJournalTracker();
+    setTrackerStatus('正在检查“' + (subscription.journal_title || subscription.issn) + '”…', false);
+    return journalTrackerRequest({ action: 'refresh', id: id }).then(function (result) {
+      applyJournalTrackerData(result);
+      var outcome = (result.results || []).find(function (item) { return String(item.id) === String(id); });
+      if (!outcome) throw new Error('没有返回该期刊的检查结果，请重新载入后重试');
+      if (!outcome.ok) {
+        setTrackerStatus(outcome.error || '该期刊暂时无法更新，可查看期刊下方的失败原因。', true);
+        toast('该期刊检查失败');
+      } else {
+        setTrackerStatus(outcome.warning || '该期刊检查完成，本次处理 ' + Number(outcome.processed || 0) + ' 篇文章。', false);
+        toast(outcome.warning ? '已通过后备来源完成检查' : '该期刊检查完成');
+      }
+    }).catch(function (error) {
+      setTrackerStatus((error && error.message) || '期刊检查失败，请稍后重试', true);
+    }).then(function () {
+      state.journalTrackerRefreshingId = '';
       renderJournalTracker();
     });
   }
@@ -7466,6 +7544,8 @@
       }
       var rankButton = event.target.closest('[data-tracker-journal-rank]');
       if (rankButton) { queryTrackerJournalRank(rankButton.dataset.trackerJournalRank, rankButton); return; }
+      var refreshOneButton = event.target.closest('[data-tracker-refresh-one]');
+      if (refreshOneButton) { refreshOneTrackerJournal(refreshOneButton.dataset.trackerRefreshOne); return; }
       var selectButton = event.target.closest('[data-tracker-select-journal]');
       if (selectButton) {
         state.journalTrackerFilter = selectButton.dataset.trackerSelectJournal;
