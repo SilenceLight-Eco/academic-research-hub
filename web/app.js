@@ -7363,10 +7363,24 @@
       sessionID: 'academic-workbench-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10)
     };
     connectorPayload.target = targetId;
-    requestTrackerZoteroBridge('import', connectorPayload, 20000).then(function (result) {
+    return requestTrackerZoteroBridge('import', connectorPayload, 20000).then(function (result) {
       persistTrackerZoteroImport(storageKey, { importedAt: new Date().toISOString(), status: 'confirmed', result: result });
-      toast(result.collectionApplied === false ? '条目已导入 Zotero，但分类移动失败；请检查 Connector 版本后手动归类' : 'Zotero 桌面端已确认接收条目并归入所选分类');
-      renderJournalTracker();
+      var message = result.collectionApplied === false ? '条目已导入 Zotero，但分类移动失败；请检查 Connector 版本后手动归类' : 'Zotero 桌面端已确认接收条目并归入所选分类';
+      var currentArticle = (state.journalTracker.articles || []).filter(function (item) { return String(item.id) === String(id); })[0];
+      // Only a confirmed import counts as reading. Re-importing an already-read
+      // article must not reset its read_at or extend the three-day retention.
+      if (currentArticle && currentArticle.is_read === true) {
+        toast(message);
+        renderJournalTracker();
+        return;
+      }
+      if (target) target.textContent = '已导入，保存已读…';
+      return saveTrackedArticleRead(id, true).then(function () {
+        toast(message + '；已自动标记为已读');
+      }, function (error) {
+        renderJournalTracker();
+        toast('已导入 Zotero，但自动标记已读失败：' + ((error && error.message) || '请手动标为已读'));
+      });
     }).catch(function (error) {
       if (target) { target.disabled = false; target.textContent = trackerZoteroImported[storageKey] ? '重新导入' : '导入Zotero'; }
       toast((error && error.message) || '桌面导入失败，请先测试本机连接');
