@@ -19,6 +19,14 @@
 
 ## 部署步骤
 
+### 已读清理与防重复
+
+执行 `supabase/migrations/202610020001_journal_read_dedup_history.sql` 后，已读文章仍按阅读时间保留三天再清理，但数据库私有表会保留轻量的 DOI / 标题指纹与阅读时间。已清理文章再次出现在 RSS 或 Crossref 中时，不会重新收录为未读。规范化 DOI，以及忽略大小写、空格、标点的完整长标题用于识别同一期刊内的同一文章；发表日期变化不会创建新副本。
+
+去重触发器适用于定时更新、手动更新和数据库的已读操作；不需要重新部署 Edge Function。已有且未清理的已读文章会回填历史，过去已删除的阅读记录无法凭空恢复。手动改为未读仍有效，取消期刊订阅或删除账号时会同步清理相应的去重记录。去重记录不包含摘要、关键词或全文，也不会暴露给其他用户。
+
+回归验证：`node scripts/test-journal-read-dedup.cjs <@electric-sql/pglite 模块路径>`，在隔离 PostgreSQL 中执行实际迁移，覆盖三天清理后再发现、DOI/日期/标点变化、已读状态保持与未读操作。
+
 1. 在 Supabase SQL Editor 执行 `supabase/migrations/202609210002_journal_tracker.sql`。
 2. 部署 `supabase/functions/journal-tracker`，并保持 `supabase/config.toml` 中该函数的 `verify_jwt = false`。函数内部仍会验证普通用户的登录令牌；关闭网关 JWT 校验是为了允许 Cron 使用独立密钥调用。
 3. 在 Supabase Edge Function Secrets 中添加高强度随机值 `JOURNAL_TRACKER_CRON_SECRET`。
