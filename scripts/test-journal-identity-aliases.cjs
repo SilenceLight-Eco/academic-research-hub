@@ -61,6 +61,26 @@ async function main() {
     await assert.rejects(db.query(`insert into journal_articles(subscription_id,user_id,article_key,title)
       values($1,'10000000-0000-0000-0000-000000000002','borrowed','An unrelated article belonging to another user')`,[sub]),
       /subscription does not belong/);
+    // Reported production example: a previously read paper reappeared on Oct 3
+    // without any surviving read history. Once restored, successive refreshes
+    // and the three-day cleanup must not turn it into a new unread article.
+    const reportedTitle = 'Does innovation success need advocacy? Stakeholder involvement in firm innovation';
+    const reportedDoi = '10.1002/smj.70127';
+    await insert(reportedDoi, reportedDoi, reportedTitle);
+    await db.exec("update journal_articles set is_read=true,read_at=now()-interval '4 days'");
+    const restoredAt = (await db.query('select read_at from journal_articles')).rows[0].read_at;
+    for (let refresh = 0; refresh < 3; refresh++) {
+      await insert(reportedDoi, reportedDoi, reportedTitle);
+      const article = (await db.query('select is_read,read_at from journal_articles')).rows[0];
+      assert.equal(article.is_read, true, 'a refresh must preserve the reported article reading status');
+      assert.deepEqual(article.read_at, restoredAt, 'a refresh must not extend its read retention');
+    }
+    await db.exec("delete from journal_articles where is_read and read_at < now()-interval '3 days'");
+    for (let refresh = 0; refresh < 3; refresh++) {
+      await insert(reportedDoi, reportedDoi, reportedTitle);
+      await insert('rss-date-change|' + refresh, null, reportedTitle.replace('?', ':'));
+      assert.equal(await count(), 0, 'the reported article must stay absent after cleanup and repeated rediscovery');
+    }
     // Alias storage is private and cannot link another user's data.
     assert.equal((await db.query("select has_table_privilege('authenticated','journal_tracker_private.article_identity_aliases','SELECT') allowed")).rows[0].allowed, false);
     const migration = fs.readFileSync(path.join(__dirname, '../supabase/migrations/202610040001_journal_identity_aliases.sql'), 'utf8');
