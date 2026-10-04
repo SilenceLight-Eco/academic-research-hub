@@ -33,6 +33,8 @@
 
 回归验证：`node scripts/test-journal-read-dedup.cjs <@electric-sql/pglite 模块路径>`，在隔离 PostgreSQL 中执行实际迁移，覆盖三天清理后再发现、DOI/日期/标点变化、已读状态保持与未读操作。
 
+后续执行 `supabase/migrations/202610040001_journal_identity_aliases.sql`，修复尚未阅读时发现的新 DOI / 标题被丢弃的问题：跳过重复条目时仍记住它的新标识；阅读、三天清理后继续保留这些标识，已清理文章出现新标题时也扩展历史。只有真正从已读改为未读才清除相应阅读历史，普通元数据更新不会清除。迁移不删除文章、不替用户标记已读，也无法恢复升级前已丢失的标识。补充验证：`node scripts/test-journal-identity-aliases.cjs <@electric-sql/pglite 模块路径>`。
+
 1. 在 Supabase SQL Editor 执行 `supabase/migrations/202609210002_journal_tracker.sql`。
 2. 部署 `supabase/functions/journal-tracker`，并保持 `supabase/config.toml` 中该函数的 `verify_jwt = false`。函数内部仍会验证普通用户的登录令牌；关闭网关 JWT 校验是为了允许 Cron 使用独立密钥调用。
 3. 在 Supabase Edge Function Secrets 中添加高强度随机值 `JOURNAL_TRACKER_CRON_SECRET`。

@@ -25,7 +25,8 @@ async function main() {
       insert into auth.users values('${user}');
       insert into journal_subscriptions values('${sub}', '${user}'), ('${otherSub}', '${user}');
     `);
-    const migration = fs.readFileSync(path.join(__dirname, '../supabase/migrations/202610020001_journal_read_dedup_history.sql'), 'utf8');
+    const migration = ['202610020001_journal_read_dedup_history.sql', '202610040001_journal_identity_aliases.sql']
+      .map(file => fs.readFileSync(path.join(__dirname, '../supabase/migrations', file), 'utf8')).join('\n');
     await db.exec(migration);
     const insert = (key, doi, text = title, sid = sub) => db.query(`
       insert into journal_articles(subscription_id,user_id,article_key,doi,title)
