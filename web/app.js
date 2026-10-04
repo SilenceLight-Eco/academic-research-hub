@@ -6647,6 +6647,16 @@
     var articleList = $('#trackerArticles');
     if (articleList) articleList.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
+  function trackerArticleDatesMarkup(article) {
+    var publication = '<span class="tracker-publication-date">发表：' + escapeHtml(article.publication_date || '日期暂缺') + '</span>';
+    var timestamp = Date.parse(article.discovered_at || '');
+    var hint = '当前设备时区；首次收录时间不随信息补全或重复检查改变';
+    if (!Number.isFinite(timestamp)) return publication + '<span class="tracker-ingestion-date" title="未记录有效的首次收录时间">首次收录：时间暂缺</span>';
+    var date = new Date(timestamp);
+    var label = trackerLocalDateKey(date) + ' ' + String(date.getHours()).padStart(2, '0') + ':' + String(date.getMinutes()).padStart(2, '0');
+    return publication + '<span class="tracker-ingestion-date" title="' + hint + '">首次收录：<time datetime="' + date.toISOString() + '">' + label + '</time></span>';
+  }
+
   function renderTrackerArticleDetail() {
     var detail = $('#trackerArticleDetail');
     if (!detail) return;
@@ -6661,7 +6671,7 @@
     var isRead = article.is_read === true;
     var desktopImported = Boolean(trackerZoteroImported['desktop:' + (article.doi || article.id)]);
     detail.innerHTML = '<button type="button" class="tracker-detail-back" data-tracker-back-to-list>← 返回文献列表</button>' +
-      '<div class="tracker-detail-scroll"><div class="tracker-article-meta"><span class="tracker-article-journal">' + escapeHtml(journal.journal_title || '期刊') + '</span>' + trackerArticleCategoryMarkup(journal) + '<span class="tracker-read-badge ' + (isRead ? 'is-read' : 'is-unread') + '">' + (isRead ? '已读' : '未读') + '</span><span>' + escapeHtml(article.publication_date || '日期暂缺') + '</span>' + (article.doi ? '<span>DOI ' + escapeHtml(article.doi) + '</span>' : '') + '</div>' +
+      '<div class="tracker-detail-scroll"><div class="tracker-article-meta"><span class="tracker-article-journal">' + escapeHtml(journal.journal_title || '期刊') + '</span>' + trackerArticleCategoryMarkup(journal) + '<span class="tracker-read-badge ' + (isRead ? 'is-read' : 'is-unread') + '">' + (isRead ? '已读' : '未读') + '</span>' + trackerArticleDatesMarkup(article) + (article.doi ? '<span>DOI ' + escapeHtml(article.doi) + '</span>' : '') + '</div>' +
       '<h2 class="tracker-detail-title">' + escapeHtml(title) + '</h2>' + titleTranslation + trackerEasyScholarRankMarkup(journal) +
       '<section class="tracker-detail-section"><h3>作者</h3><p>' + escapeHtml(authors) + '</p></section>' +
       '<section class="tracker-detail-section"><h3>摘要 <span>' + escapeHtml(article.abstract_source || '来源暂缺') + '</span></h3><p class="tracker-article-abstract">' + escapeHtml(article.abstract || '该数据源尚未提供摘要。') + '</p></section>' +
@@ -6942,7 +6952,7 @@
       var isRead = article.is_read === true;
       var desktopImported = Boolean(trackerZoteroImported['desktop:' + (article.doi || article.id)]);
       return '<article class="tracker-article' + (isRead ? '' : ' is-unread') + '">' +
-      '<div class="tracker-article-meta"><span class="tracker-article-journal">' + escapeHtml(journal.journal_title || '期刊') + '</span>' + trackerArticleCategoryMarkup(journal) + '<span class="tracker-read-badge ' + (isRead ? 'is-read' : 'is-unread') + '">' + (isRead ? '已读' : '未读') + '</span><span>' + escapeHtml(article.publication_date || '日期暂缺') + '</span>' + (article.doi ? '<span>DOI ' + escapeHtml(article.doi) + '</span>' : '') + '</div>' +
+      '<div class="tracker-article-meta"><span class="tracker-article-journal">' + escapeHtml(journal.journal_title || '期刊') + '</span>' + trackerArticleCategoryMarkup(journal) + '<span class="tracker-read-badge ' + (isRead ? 'is-read' : 'is-unread') + '">' + (isRead ? '已读' : '未读') + '</span>' + trackerArticleDatesMarkup(article) + (article.doi ? '<span>DOI ' + escapeHtml(article.doi) + '</span>' : '') + '</div>' +
         '<h4><button type="button" class="tracker-article-title" data-tracker-open-detail="' + escapeHtml(article.id) + '">' + escapeHtml(title) + '</button></h4>' + titleTranslation + trackerEasyScholarRankMarkup(journal) + '<p class="tracker-article-authors">' + escapeHtml(authors) + '</p>' +
         (keywords.length ? '<div class="tracker-keywords">' + keywords.map(function (keyword) { return '<span>' + escapeHtml(keyword) + '</span>'; }).join('') + '</div><div class="tracker-provenance">关键词来源：' + escapeHtml(article.keyword_source || '未标明') + '</div>' : '<div class="tracker-provenance">该数据源尚未提供关键词</div>') +
         '<div class="tracker-provenance">文章 / 元数据来源：' + escapeHtml((article.metadata_sources || []).join('、') || '未标明') + '</div>' +
