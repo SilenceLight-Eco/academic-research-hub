@@ -16,12 +16,12 @@ async function main() {
       create table journal_subscriptions(id uuid primary key, user_id uuid references auth.users(id));
       create table journal_articles(
         id uuid primary key default gen_random_uuid(), subscription_id uuid references journal_subscriptions(id) on delete cascade,
-        user_id uuid references auth.users(id), article_key text not null, doi text, title text not null,
+        user_id uuid references auth.users(id), article_key text not null, doi text, title text not null, url text not null default '',
         is_read boolean not null default false, read_at timestamptz, discovered_at timestamptz not null default now(),
         abstract text default '', unique(subscription_id,article_key));
       insert into auth.users values('${user}'); insert into journal_subscriptions values('${sub}','${user}');
     `);
-    for (const file of ['202610020001_journal_read_dedup_history.sql', '202610040001_journal_identity_aliases.sql']) {
+    for (const file of ['202610020001_journal_read_dedup_history.sql', '202610040001_journal_identity_aliases.sql', '202610040002_journal_url_identities.sql']) {
       const target = path.join(__dirname, '../supabase/migrations', file);
       if (fs.existsSync(target)) await db.exec(fs.readFileSync(target, 'utf8'));
     }

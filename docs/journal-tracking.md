@@ -35,6 +35,8 @@
 
 后续执行 `supabase/migrations/202610040001_journal_identity_aliases.sql`，修复尚未阅读时发现的新 DOI / 标题被丢弃的问题：跳过重复条目时仍记住它的新标识；阅读、三天清理后继续保留这些标识，已清理文章出现新标题时也扩展历史。只有真正从已读改为未读才清除相应阅读历史，普通元数据更新不会清除。迁移不删除文章、不替用户标记已读，也无法恢复升级前已丢失的标识。补充验证：`node scripts/test-journal-identity-aliases.cjs <@electric-sql/pglite 模块路径>`。
 
+无 DOI 文献还需执行 `supabase/migrations/202610040002_journal_url_identities.sql`：增加原文链接指纹及 NBER 官方工作论文编号。NBER 的详情页、PDF 和修订版链接共用编号；一般原文链接忽略常见推广参数和页内锚点，但保留文章编号等查询参数及路径大小写。短标题不单独用于去重，避免把同名文章误合并；共享首页、列表页及非 HTTP 链接不作为文献标识。此前保存及新学到的链接标识在已读三天清理后仍保留。迁移回填现存文章，不删除文章、不改变阅读状态，也不能恢复过去已经丢失的记录。仅在同一账号、同一期刊订阅内生效；取消订阅后会清除对应历史。本次只修改数据库，无需更新前端或重新部署函数。回归验证：`node scripts/test-journal-url-identities.cjs <@electric-sql/pglite 模块路径>`。
+
 1. 在 Supabase SQL Editor 执行 `supabase/migrations/202609210002_journal_tracker.sql`。
 2. 部署 `supabase/functions/journal-tracker`，并保持 `supabase/config.toml` 中该函数的 `verify_jwt = false`。函数内部仍会验证普通用户的登录令牌；关闭网关 JWT 校验是为了允许 Cron 使用独立密钥调用。
 3. 在 Supabase Edge Function Secrets 中添加高强度随机值 `JOURNAL_TRACKER_CRON_SECRET`。

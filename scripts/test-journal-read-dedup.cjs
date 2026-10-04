@@ -19,13 +19,13 @@ async function main() {
       create table public.journal_subscriptions(id uuid primary key, user_id uuid references auth.users(id) on delete cascade);
       create table public.journal_articles(
         id uuid primary key default gen_random_uuid(), subscription_id uuid references public.journal_subscriptions(id) on delete cascade,
-        user_id uuid references auth.users(id) on delete cascade, article_key text not null, doi text, title text not null,
+        user_id uuid references auth.users(id) on delete cascade, article_key text not null, doi text, title text not null, url text not null default '',
         is_read boolean not null default false, read_at timestamptz, discovered_at timestamptz not null default now(),
         abstract text default '', unique(subscription_id, article_key));
       insert into auth.users values('${user}');
       insert into journal_subscriptions values('${sub}', '${user}'), ('${otherSub}', '${user}');
     `);
-    const migration = ['202610020001_journal_read_dedup_history.sql', '202610040001_journal_identity_aliases.sql']
+    const migration = ['202610020001_journal_read_dedup_history.sql', '202610040001_journal_identity_aliases.sql', '202610040002_journal_url_identities.sql']
       .map(file => fs.readFileSync(path.join(__dirname, '../supabase/migrations', file), 'utf8')).join('\n');
     await db.exec(migration);
     const insert = (key, doi, text = title, sid = sub) => db.query(`
