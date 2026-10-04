@@ -95,6 +95,7 @@
     journalTrackerFilter: 'all',
     trackerJournalCategoryFilter: 'all',
     trackerPublicationRange: 'all',
+    trackerDiscoveryRange: 'all',
     trackerPublicationFrom: '',
     trackerPublicationTo: '',
     trackerAddCategory: '',
@@ -284,6 +285,7 @@
       if (!saved || typeof saved !== 'object') return;
       var migrateAllStatusExpansion = Number(saved.version || 0) < 2 && (!saved.readFilter || saved.readFilter === 'all');
       if (['all', '7days', '30days', 'custom'].indexOf(saved.publicationRange) >= 0) state.trackerPublicationRange = saved.publicationRange;
+      if (['all', 'today', '7days'].indexOf(saved.discoveryRange) >= 0) state.trackerDiscoveryRange = saved.discoveryRange;
       if (typeof saved.publicationFrom === 'string') state.trackerPublicationFrom = saved.publicationFrom;
       if (typeof saved.publicationTo === 'string') state.trackerPublicationTo = saved.publicationTo;
       if (typeof saved.journalFilter === 'string') state.journalTrackerFilter = saved.journalFilter;
@@ -309,6 +311,7 @@
       localStorage.setItem(trackerDisplayPreferencesKey, JSON.stringify({
         version: 2,
         publicationRange: state.trackerPublicationRange,
+        discoveryRange: state.trackerDiscoveryRange,
         publicationFrom: state.trackerPublicationFrom,
         publicationTo: state.trackerPublicationTo,
         journalFilter: state.journalTrackerFilter,
@@ -6712,6 +6715,9 @@
     var rangeStart = range === '7days' ? trackerDateDaysAgoKey(6) : range === '30days' ? trackerDateDaysAgoKey(29) : '';
     var rangeFrom = range === 'custom' ? state.trackerPublicationFrom : '';
     var rangeTo = range === 'custom' ? state.trackerPublicationTo : '';
+    var discoveryRange = state.trackerDiscoveryRange || 'all';
+    var discoveryStart = discoveryRange === 'today' ? today : discoveryRange === '7days' ? trackerDateDaysAgoKey(6) : '';
+    var now = Date.now();
     return articles.filter(function (article) {
       if (state.journalTrackerFilter !== 'all' && String(article.subscription_id) !== String(state.journalTrackerFilter)) return false;
       if (state.trackerJournalCategoryFilter !== 'all') {
@@ -6720,6 +6726,13 @@
       }
       if (state.journalTrackerReadFilter === 'unread' && article.is_read === true) return false;
       if (state.journalTrackerReadFilter === 'read' && article.is_read !== true) return false;
+      if (discoveryStart) {
+        // Use first ingestion, never updated_at, publication_date or last_checked_at.
+        var discoveredAt = Date.parse(article.discovered_at || '');
+        if (!Number.isFinite(discoveredAt) || discoveredAt > now) return false;
+        var discoveryDate = trackerLocalDateKey(new Date(discoveredAt));
+        if (discoveryDate < discoveryStart || discoveryDate > today) return false;
+      }
       var hasDateBounds = Boolean(rangeStart || (range === 'custom' && (rangeFrom || rangeTo)));
       if (hasDateBounds) {
         var publicationDate = trackerPublicationDateKey(article.publication_date);
@@ -6875,6 +6888,10 @@
     var customDateTo = $('#trackerPublicationTo');
     var dateRangeHint = $('#trackerDateRangeHint');
     if (dateRangeSelect) dateRangeSelect.value = state.trackerPublicationRange || 'all';
+    var discoveryRangeSelect = $('#trackerDiscoveryRange');
+    var discoveryRangeHint = $('#trackerDiscoveryRangeHint');
+    if (discoveryRangeSelect) discoveryRangeSelect.value = state.trackerDiscoveryRange || 'all';
+    if (discoveryRangeHint) discoveryRangeHint.hidden = !state.trackerDiscoveryRange || state.trackerDiscoveryRange === 'all';
     if (customDateRange) customDateRange.hidden = state.trackerPublicationRange !== 'custom';
     if (customDateFrom) customDateFrom.value = state.trackerPublicationFrom || '';
     if (customDateTo) customDateTo.value = state.trackerPublicationTo || '';
@@ -6937,7 +6954,7 @@
       var unreadArticles = visible.filter(function (article) { return article.is_read !== true; });
       var readArticles = visible.filter(function (article) { return article.is_read === true; });
       $('#trackerArticles').innerHTML = renderArticleGroup('unread', '未读文章', unreadArticles) + renderArticleGroup('read', '已读文章', readArticles);
-    } else $('#trackerArticles').innerHTML = '<div class="tracker-empty">' + emptyIcon + '<b>' + (articles.length ? '没有匹配的文章' : '等待第一批最新文章') + '</b><span>' + (subscriptions.length ? '点击“立即检查更新”，系统会优先读取官网 RSS，并由 Semantic Scholar 与 Crossref 补充元数据。' : '先在左侧添加要追踪的期刊，首次添加后会立即抓取近期文章。') + '</span></div>';
+    } else $('#trackerArticles').innerHTML = '<div class="tracker-empty">' + emptyIcon + '<b>' + (articles.length ? '没有匹配的文章' : '等待第一批最新文章') + '</b><span>' + (state.trackerDiscoveryRange && state.trackerDiscoveryRange !== 'all' ? '当前收录时段没有匹配的文章，可切换为“全部收录时间”或放宽其他筛选条件。' : subscriptions.length ? '点击“立即检查更新”，系统会优先读取官网 RSS，并由 Semantic Scholar 与 Crossref 补充元数据。' : '先在左侧添加要追踪的期刊，首次添加后会立即抓取近期文章。') + '</span></div>';
 
     renderTrackerArticleDetail();
     scheduleVisibleTrackerTitleTranslations();
@@ -7248,6 +7265,15 @@
     });
   }
 
+  function setTrackerDiscoveryRange(value) {
+    state.trackerDiscoveryRange = ['all', 'today', '7days'].indexOf(value) >= 0 ? value : 'all';
+    state.trackerArticlePages = { unread: 1, read: 1 };
+    saveTrackerDisplayPreferences();
+    renderJournalTracker();
+    var articleList = $('#trackerArticles');
+    if (articleList) articleList.scrollTop = 0;
+  }
+
   function saveTrackedArticleToLibrary(id) {
     var article = (state.journalTracker.articles || []).filter(function (item) { return String(item.id) === String(id); })[0];
     if (!article) return;
@@ -7444,6 +7470,8 @@
     var query = (state.journalTrackerQuery || '').trim();
     if (query) scope.push('搜索词：' + query);
     if (state.journalTrackerReadFilter === 'unread') scope.push('仅未读');
+    if (state.trackerDiscoveryRange === 'today') scope.push('收录时间：今日新增');
+    if (state.trackerDiscoveryRange === '7days') scope.push('收录时间：最近 7 天新增');
     if (state.trackerPublicationRange === '7days') scope.push('最近 7 天');
     if (state.trackerPublicationRange === '30days') scope.push('最近 30 天');
     if (state.trackerPublicationRange === 'custom') scope.push('发表日期：' + (state.trackerPublicationFrom || '不限') + ' 至 ' + (state.trackerPublicationTo || '不限'));
@@ -7691,6 +7719,7 @@
     $('#trackerCategoryFilter').addEventListener('change', function () { state.trackerJournalCategoryFilter = this.value; state.journalTrackerFilter = 'all'; state.trackerArticlePages = { unread: 1, read: 1 }; saveTrackerDisplayPreferences(); renderJournalTracker(); });
     $('#trackerReadFilter').addEventListener('change', function () { state.journalTrackerReadFilter = this.value; state.trackerArticlePages = { unread: 1, read: 1 }; if (this.value === 'all') { state.trackerCollapsedGroups.unread = false; state.trackerCollapsedGroups.read = false; } else if (this.value === 'read') state.trackerCollapsedGroups.read = false; else state.trackerCollapsedGroups.unread = false; saveTrackerDisplayPreferences(); renderJournalTracker(); });
     $('#trackerPublicationRange').addEventListener('change', function () { state.trackerPublicationRange = ['all', '7days', '30days', 'custom'].indexOf(this.value) >= 0 ? this.value : 'all'; state.trackerArticlePages = { unread: 1, read: 1 }; saveTrackerDisplayPreferences(); renderJournalTracker(); });
+    $('#trackerDiscoveryRange').addEventListener('change', function () { setTrackerDiscoveryRange(this.value); });
     $('#trackerPublicationFrom').addEventListener('change', function () { state.trackerPublicationFrom = this.value; state.trackerArticlePages = { unread: 1, read: 1 }; saveTrackerDisplayPreferences(); renderJournalTracker(); });
     $('#trackerPublicationTo').addEventListener('change', function () { state.trackerPublicationTo = this.value; state.trackerArticlePages = { unread: 1, read: 1 }; saveTrackerDisplayPreferences(); renderJournalTracker(); });
 

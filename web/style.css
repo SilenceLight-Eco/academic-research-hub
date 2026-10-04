@@ -7085,6 +7085,7 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .tracker-filters input { width:min(270px,30vw); }
 .tracker-filters select { max-width:190px; }
 .tracker-filters #trackerCategoryFilter { max-width:230px; }
+.tracker-discovery-hint { margin:4px 0 10px; color:var(--text-muted); font-size:11px; line-height:1.6; }
 .tracker-date-range-controls { display:flex; flex:0 0 auto; align-items:center; flex-wrap:wrap; gap:5px; color:var(--text-muted); font-size:10px; }
 .tracker-date-range-controls[hidden],.tracker-date-range-controls small[hidden] { display:none!important; }
 .tracker-date-range-controls label { display:inline-flex; align-items:center; gap:4px; white-space:nowrap; }
