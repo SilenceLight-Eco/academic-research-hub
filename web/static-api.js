@@ -850,6 +850,43 @@
         initializedReferenceLibrary.trash = Array.isArray(initializedReferenceLibrary.trash) ? initializedReferenceLibrary.trash : [];
         initializedReferenceLibrary.folders = Array.isArray(initializedReferenceLibrary.folders) ? initializedReferenceLibrary.folders : [];
       }
+      if (path === '/api/references' && method === 'POST' && body.action === 'import-tracked') {
+        if (!Array.isArray(body.items) || !body.items.length || body.items.length > 200) return response({ ok: false, error: '请选择 1 至 200 篇文章后再加入文献库' }, 400);
+        var trackedLibrary = data.referenceLibrary;
+        var trackedResults = [], trackedAdditions = [];
+        function trackedDoi(value) { return String(value || '').trim().replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, '').replace(/^doi:\s*/i, '').replace(/[\s?#].*$/, '').toLowerCase(); }
+        function trackedText(value) { return String(value || '').normalize('NFKC').toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, ''); }
+        body.items.forEach(function (source, index) {
+          source = source && typeof source === 'object' ? source : {};
+          var articleId = String(source.trackerArticleId || '').trim().slice(0, 128);
+          var title = String(source.title || '').trim().slice(0, 2000);
+          if (!articleId || !title) { trackedResults.push({ articleId: articleId, title: title, status: 'failed', error: '文章标识或标题缺失' }); return; }
+          var doi = trackedDoi(source.doi).slice(0, 512);
+          var authors = String(source.authors || '').trim().slice(0, 5000);
+          var titleKey = trackedText(title), authorKey = trackedText(authors);
+          var duplicate = trackedLibrary.items.concat(trackedAdditions).find(function (item) {
+            var existingDoi = trackedDoi(item.doi);
+            if (doi && existingDoi) return doi === existingDoi;
+            if (String(item.trackerArticleId || '') === articleId) return true;
+            return titleKey.length >= 16 && authorKey && trackedText(item.title) === titleKey && trackedText(item.authors) === authorKey;
+          });
+          if (duplicate) { trackedResults.push({ articleId: articleId, title: title, status: 'duplicate', referenceId: duplicate.id }); return; }
+          var id = 'ref-' + nowId().toString(36) + '-' + Math.random().toString(36).slice(2, 10) + '-' + index;
+          var reference = { id: id, title: title, authors: authors, year: String(source.year || '').replace(/[^0-9]/g, '').slice(0, 4),
+            type: '期刊论文', source: String(source.source || '').trim().slice(0, 1000), locator: '', doi: doi, url: String(source.url || '').trim().slice(0, 2048),
+            abstract: String(source.abstract || '').slice(0, 20000), abstractSource: String(source.abstractSource || '').slice(0, 120),
+            keywords: String(source.keywords || '').slice(0, 5000), keywordsSource: String(source.keywordsSource || '').slice(0, 120),
+            tags: '', folderId: '', projectId: '', knowledgeDocId: '', notes: '', trackerArticleId: articleId, updated: nowText() };
+          trackedAdditions.push(reference);
+          trackedResults.push({ articleId: articleId, title: title, status: 'added', referenceId: id });
+        });
+        if (trackedAdditions.length) {
+          trackedLibrary.items = trackedAdditions.concat(trackedLibrary.items);
+          // One write: never create placeholder records or claim success before cloud persistence.
+          await saveWorkspace(data, dataRevision);
+        }
+        return response({ ok: true, importVersion: 1, referenceLibrary: trackedLibrary, importResults: trackedResults });
+      }
       if (path === '/api/references' && method === 'POST' && body.action === 'bulk-move') {
         var bulkReferenceLibrary = data.referenceLibrary || (data.referenceLibrary = { items: [], trash: [], folders: [] });
         bulkReferenceLibrary.items = Array.isArray(bulkReferenceLibrary.items) ? bulkReferenceLibrary.items : [];

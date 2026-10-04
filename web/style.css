@@ -7119,6 +7119,17 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .tracker-article-meta { display:flex; flex-wrap:wrap; gap:7px 12px; margin-bottom:8px; color:var(--text-muted); font-size:9px; }
 .tracker-publication-date,.tracker-ingestion-date { white-space:nowrap; }
 .tracker-ingestion-date { color:var(--text-secondary); }
+.tracker-article-selection { display:inline-flex; align-items:center; gap:4px; white-space:nowrap; cursor:pointer; }
+.tracker-article-selection input { margin:0; width:14px; height:14px; accent-color:var(--accent); cursor:pointer; }
+.tracker-bulk-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:7px; margin:0 0 10px; color:var(--text-muted); font-size:11px; }
+.tracker-bulk-toolbar button { padding:6px 9px; border:1px solid var(--hairline); border-radius:7px; background:var(--glass-strong); color:var(--text-secondary); cursor:pointer; font:11px "Noto Sans SC",sans-serif; }
+.tracker-bulk-toolbar #trackerImportSelected { border-color:var(--accent); background:var(--accent); color:var(--btn-text); }
+.tracker-bulk-toolbar button:disabled { opacity:.55; cursor:not-allowed; }
+.tracker-import-result { padding:8px 10px; margin-bottom:10px; border-left:3px solid var(--accent); background:var(--accent-dim); color:var(--text-secondary); font-size:11px; line-height:1.6; }
+.tracker-import-result p { margin:0; }
+.tracker-import-result details { margin-top:6px; }
+.tracker-import-result ul { max-height:150px; overflow:auto; padding-left:18px; }
+.tracker-import-result[hidden] { display:none!important; }
 .tracker-article-journal { color:var(--accent); font-weight:600; }
 .tracker-article-category { display:inline-flex; align-items:center; gap:4px; padding:2px 7px; border:1px solid color-mix(in srgb,var(--tracker-category-color) 38%,transparent); border-radius:999px; background:color-mix(in srgb,var(--tracker-category-color) 11%,transparent); color:var(--tracker-category-color); cursor:pointer; font:inherit; font-size:9px; font-weight:600; line-height:1.3; transition:transform .15s ease,box-shadow .15s ease; }
 .tracker-article-category:hover { transform:translateY(-1px); box-shadow:0 2px 7px color-mix(in srgb,var(--tracker-category-color) 20%,transparent); }

@@ -6,7 +6,8 @@ const vm = require('node:vm');
 
 const staticApiSource = fs.readFileSync(path.join(__dirname, '..', 'web', 'static-api.js'), 'utf8');
 
-function createApiHarness(payload) {
+function createApiHarness(payload, options = {}) {
+  let writes = 0;
   let workspaceRow = {
     payload: structuredClone(payload),
     updated_at: '2026-09-26T10:00:00.000Z'
@@ -22,11 +23,13 @@ function createApiHarness(payload) {
         if (table !== 'user_workspaces') return Promise.resolve({ data: null, error: null });
         if (operation === 'select') return Promise.resolve({ data: structuredClone(workspaceRow), error: null });
         if (operation === 'update') {
+          if (options.failWrites) return Promise.resolve({ data: null, error: { message: 'Cloud write failed', code: '42501' } });
           const expectedRevision = filters.find(([key]) => key === 'updated_at');
           if (expectedRevision && workspaceRow.updated_at !== expectedRevision[1]) {
             return Promise.resolve({ data: null, error: null });
           }
           workspaceRow = Object.assign({}, workspaceRow, structuredClone(values));
+          writes++;
           return Promise.resolve({ data: { updated_at: workspaceRow.updated_at }, error: null });
         }
         return Promise.resolve({ data: null, error: null });
@@ -38,7 +41,7 @@ function createApiHarness(payload) {
 
   const client = {
     auth: {
-      getSession: async () => ({ data: { session: { access_token: 'test-token', user: { id: 'test-user', email: 'test@example.com' } } } }),
+      getSession: async () => ({ data: { session: options.signedOut ? null : { access_token: 'test-token', user: { id: 'test-user', email: 'test@example.com' } } } }),
       onAuthStateChange() {}
     },
     from(table) {
@@ -104,7 +107,8 @@ function createApiHarness(payload) {
       });
     },
     setLocalItem(key, value) { localStorage.setItem(key, value); },
-    readWorkspace() { return structuredClone(workspaceRow.payload); }
+    readWorkspace() { return structuredClone(workspaceRow.payload); },
+    writeCount() { return writes; }
   };
 }
 
@@ -113,6 +117,77 @@ test('browser preference edits are written to the cloud workspace', async () => 
   harness.setLocalItem('academic-workbench-theme', 'dark');
   await new Promise(resolve => setTimeout(resolve, 850));
   assert.equal(harness.readWorkspace().browser['academic-workbench-theme'], 'dark');
+});
+
+const tracked = (id, extras = {}) => ({ trackerArticleId: id, title: 'Research paper with a sufficiently long title ' + id,
+  authors: 'Author A；Author B', doi: '10.test/' + id, year: '2026', source: 'Test Journal',
+  abstract: 'Publisher abstract', abstractSource: 'Publisher', keywords: 'policy，innovation', keywordsSource: 'Publisher author keywords', ...extras });
+
+test('tracked references save complete metadata once and survive a fresh workspace load', async () => {
+  const h = createApiHarness({ referenceLibrary: { items: [], trash: [], folders: [{ id: 'existing-folder', name: 'Keep' }] } });
+  const response = await h.request({ action: 'import-tracked', items: [tracked('one'), tracked('two')] });
+  const result = await response.json();
+  assert.equal(response.status, 200);
+  assert.deepEqual(result.importResults.map(item => item.status), ['added', 'added']);
+  assert.equal(h.writeCount(), 1);
+  assert.equal(new Set(result.referenceLibrary.items.map(item => item.id)).size, 2);
+  const reference = result.referenceLibrary.items[0];
+  for (const key of ['title','authors','year','source','doi','abstract','abstractSource','keywords','keywordsSource']) assert.equal(reference[key], tracked('one')[key]);
+  assert.equal(reference.notes, ''); assert.equal(reference.tags, ''); assert.equal(reference.folderId, '');
+  const reloaded = createApiHarness(h.readWorkspace());
+  const retry = await reloaded.request({ action: 'import-tracked', items: [tracked('one'), tracked('two')] });
+  assert.deepEqual((await retry.json()).importResults.map(item => item.status), ['duplicate', 'duplicate']);
+  assert.equal(reloaded.writeCount(), 0);
+  assert.deepEqual(reloaded.readWorkspace().referenceLibrary, h.readWorkspace().referenceLibrary);
+});
+
+test('dedup normalizes DOI, catches duplicates inside a batch and preserves existing edits', async () => {
+  const original = { id: 'keep', doi: 'https://doi.org/10.TEST/one', title: 'Edited title', notes: 'My note', folderId: 'folder' };
+  const h = createApiHarness({ referenceLibrary: { items: [original], trash: [] } });
+  const result = await (await h.request({ action: 'import-tracked', items: [tracked('one'), tracked('two'), tracked('alias', { doi: 'DOI:10.TEST/two' })] })).json();
+  assert.deepEqual(result.importResults.map(item => item.status), ['duplicate', 'added', 'duplicate']);
+  assert.deepEqual(result.referenceLibrary.items.find(item => item.id === 'keep'), original);
+  assert.equal(result.referenceLibrary.items.length, 2);
+});
+
+test('no-DOI matches require long title and authors; distinct DOIs and trash are not merged', async () => {
+  const h = createApiHarness({ referenceLibrary: { items: [tracked('old', { id: 'reference-old', doi: '', title: 'A long reference title about innovation and policy' })], trash: [{ item: tracked('trashed') }] } });
+  const result = await (await h.request({ action: 'import-tracked', items: [
+    tracked('match', { doi: '', title: 'A LONG reference title about innovation and policy!' }),
+    tracked('different-author', { doi: '', title: 'A long reference title about innovation and policy', authors: 'Someone else' }),
+    tracked('short-a', { doi: '', title: 'Short' }), tracked('short-b', { doi: '', title: 'Short' }),
+    tracked('doi-a', { title: 'The exact same long title with a distinct DOI' }),
+    tracked('doi-b', { title: 'The exact same long title with a distinct DOI' }), tracked('trashed')
+  ] })).json();
+  assert.deepEqual(result.importResults.map(item => item.status), ['duplicate','added','added','added','added','added','added']);
+  assert.equal(result.referenceLibrary.items.length, 7);
+});
+
+test('malformed entries fail individually without placeholders and oversized batches are rejected', async () => {
+  const h = createApiHarness({ referenceLibrary: { items: [], trash: [] } });
+  const result = await (await h.request({ action: 'import-tracked', items: [tracked('good'), tracked('bad', { title: '' })] })).json();
+  assert.deepEqual(result.importResults.map(item => item.status), ['added','failed']);
+  assert.equal(h.readWorkspace().referenceLibrary.items.length, 1);
+  for (const items of [[], Array.from({ length: 201 }, (_,i) => tracked(String(i)))]) assert.equal((await h.request({ action: 'import-tracked', items })).status, 400);
+  assert.equal(h.writeCount(), 1);
+});
+
+test('failed cloud writes never claim success; retry persists once and does not change reading state', async () => {
+  const options = { failWrites: true };
+  const h = createApiHarness({ referenceLibrary: { items: [], trash: [] }, reading: { article: { is_read: false } } }, options);
+  const failed = await h.request({ action: 'import-tracked', items: [tracked('one')] });
+  assert.notEqual(failed.status, 200); assert.notEqual((await failed.json()).ok, true);
+  assert.equal(h.readWorkspace().referenceLibrary.items.length, 0);
+  options.failWrites = false;
+  const retried = await (await h.request({ action: 'import-tracked', items: [tracked('one')] })).json();
+  assert.equal(retried.importResults[0].status, 'added');
+  assert.equal(h.writeCount(), 1); assert.equal(h.readWorkspace().reading.article.is_read, false);
+});
+
+test('signed-out users cannot import into a workspace', async () => {
+  const h = createApiHarness({ referenceLibrary: { items: [], trash: [] } }, { signedOut: true });
+  assert.equal((await h.request({ action: 'import-tracked', items: [tracked('one')] })).status, 401);
+  assert.equal(h.writeCount(), 0);
 });
 
 test('variable library saves, duplicates, and restores linked reference IDs', async () => {
