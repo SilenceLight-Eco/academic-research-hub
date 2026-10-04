@@ -57,6 +57,10 @@ type SyncDetails = {
   discovery_source: "rss" | "atom" | "crossref" | null;
   attempted_source: "rss_atom" | "crossref";
   processed: number;
+  added?: number;
+  enriched?: number;
+  duplicates?: number;
+  read_blocked?: number;
   completed_at: string;
   duration_ms: number;
   warning?: string;
@@ -886,18 +890,24 @@ async function refreshSubscription(subscription: Subscription) {
         updated_at: startedAt.toISOString(),
       };
     });
-    if (rows.length) {
-      await rest("journal_articles?on_conflict=subscription_id,article_key", {
+    const counts = rows.length ? await rest("rpc/ingest_journal_articles", {
         method: "POST",
-        headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-        body: JSON.stringify(rows),
-      });
+        body: JSON.stringify({ p_subscription_id: subscription.id, p_user_id: subscription.user_id, p_articles: rows }),
+      }) : { processed: 0, added: 0, enriched: 0, duplicates: 0, read_blocked: 0 };
+    if (!counts || ![counts.processed, counts.added, counts.enriched, counts.duplicates, counts.read_blocked]
+      .every((value) => Number.isInteger(value) && value >= 0) || counts.processed !== rows.length
+      || counts.added + counts.enriched + counts.duplicates !== counts.processed || counts.read_blocked > counts.duplicates) {
+      throw new Error("数据库未返回有效的更新统计，请重试。");
     }
     const details: SyncDetails = {
       status: fallbackNotice ? "fallback" : "success",
       discovery_source: discoverySource,
       attempted_source: attemptedSource,
       processed: rows.length,
+      added: counts.added,
+      enriched: counts.enriched,
+      duplicates: counts.duplicates,
+      read_blocked: counts.read_blocked,
       completed_at: new Date().toISOString(),
       duration_ms: Date.now() - startedAt.getTime(),
       ...(fallbackNotice ? { warning: fallbackNotice.slice(0, 1000) } : {}),

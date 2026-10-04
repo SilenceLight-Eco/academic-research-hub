@@ -10,14 +10,21 @@ const edgeSource = stripTypeScriptTypes(fs.readFileSync(path.join(root, 'supabas
 const appSource = fs.readFileSync(path.join(root, 'web/app.js'), 'utf8');
 const subscription = { id: 'test-journal', user_id: 'test-user', issn: '1234-5678', journal_title: 'Test Journal', publisher: 'Test Publisher', feed_url: 'https://example.org/rss', enabled: true, last_checked_at: null };
 
-function edgeHarness({ feed = [], feedError, crossrefError } = {}) {
+function edgeHarness({ feed = [], feedError, crossrefError, ingestCounts } = {}) {
   const writes = [];
   let crossrefCalls = 0;
   const context = vm.createContext({
     Deno: { env: { get: () => '' }, serve() {} },
     URL, Response, AbortSignal, TextDecoder, TextEncoder, crypto, console, Error,
     feedValue: feed, feedError, crossrefError,
-    mockRest: async (url, init = {}) => { if (init.body) writes.push({ url, body: JSON.parse(init.body) }); return []; },
+    mockRest: async (url, init = {}) => {
+      const body = init.body ? JSON.parse(init.body) : null;
+      if (body) writes.push({ url, body });
+      if (url === 'rpc/ingest_journal_articles') return ingestCounts === undefined ? {
+        processed: body.p_articles.length, added: body.p_articles.length, enriched: 0, duplicates: 0, read_blocked: 0
+      } : ingestCounts;
+      return [];
+    },
     mockCrossref: async () => { crossrefCalls++; if (crossrefError) throw new Error(crossrefError); return { items: [{ title: ['Fallback article'], abstract: 'Crossref abstract', DOI: '10.1234/test', type: 'journal-article' }] }; }
   });
   vm.runInContext(edgeSource, context);
@@ -41,7 +48,7 @@ for (const kind of ['rss', 'atom']) {
     assert.equal(result.details.discovery_source, kind);
     assert.equal(result.details.status, 'success');
     assert.equal(harness.crossrefCalls(), 0);
-    const article = harness.writes.find(write => write.url.startsWith('journal_articles')).body[0];
+    const article = harness.writes.find(write => write.url === 'rpc/ingest_journal_articles').body.p_articles[0];
     assert.equal(article.abstract_source, kind === 'atom' ? '期刊官网 Atom' : '期刊官网 RSS');
     const stored = harness.writes.find(write => write.url.startsWith('journal_subscriptions')).body;
     assert.equal(stored.last_error, null);
@@ -73,7 +80,7 @@ test('RSS failure followed by Crossref success is a warning, not a failed subscr
   const stored = harness.writes.find(write => write.url.startsWith('journal_subscriptions')).body;
   assert.equal(stored.last_error, null);
   assert.equal(stored.last_sync_details.status, 'fallback');
-  assert.equal(harness.writes.find(write => write.url.startsWith('journal_articles')).body[0].abstract_source, 'Crossref');
+  assert.equal(harness.writes.find(write => write.url === 'rpc/ingest_journal_articles').body.p_articles[0].abstract_source, 'Crossref');
 });
 
 test('complete source failure preserves the previous success timestamp', async () => {
@@ -119,7 +126,7 @@ test('per-journal diagnostics expose retry and escape source errors', () => {
   const html = context.renderTrackerSyncDetails({ id: 'test', last_sync_details: { status: 'fallback', discovery_source: 'crossref', processed: 40, warning: '<script>bad</script> 429' } }, false);
   assert.match(html, /后备更新成功/);
   assert.match(html, /更新来源：Crossref/);
-  assert.match(html, /本次处理 40 篇/);
+  assert.match(html, /处理 40 篇（旧记录未拆分）/);
   assert.match(html, /立即重试/);
   assert.ok(!html.includes('<script>'));
   assert.match(html, /限流/);
@@ -130,4 +137,35 @@ test('unknown historical sources are not inferred from configured URLs', () => {
   const html = context.renderTrackerSyncDetails({ id: 'test', feed_url: 'https://example.org/rss', last_success_at: '2026-09-28T00:00:00Z' }, false);
   assert.match(html, /更新来源：尚未记录/);
   assert.ok(!html.includes('本次处理'));
+});
+
+test('actual database counts are persisted in subscription and refresh log', async () => {
+  const counts = { processed: 3, added: 1, enriched: 1, duplicates: 1, read_blocked: 1 };
+  const harness = edgeHarness({ feed: [{ title: 'A' }, { title: 'B' }, { title: 'C' }], ingestCounts: counts });
+  const result = await harness.context.refreshSubscription(subscription);
+  assert.equal(result.ok, true);
+  for (const key of Object.keys(counts)) assert.equal(result.details[key], counts[key]);
+  await harness.context.recordRefreshLogs([subscription], [result], 'scheduled');
+  const log = harness.writes.find(write => write.url === 'journal_tracker_refresh_logs').body[0];
+  for (const key of Object.keys(counts)) assert.equal(log.details[key], counts[key]);
+  assert.equal(log.source, 'scheduled');
+});
+
+test('invalid or missing database counts do not claim update success', async () => {
+  for (const counts of [null, {}, { processed: 1, added: 2, enriched: 0, duplicates: 0, read_blocked: 0 }]) {
+    const harness = edgeHarness({ feed: [{ title: 'A' }], ingestCounts: counts });
+    const result = await harness.context.refreshSubscription(subscription);
+    assert.equal(result.ok, false);
+    assert.match(result.error, /有效的更新统计/);
+  }
+});
+
+test('new counts display added/enriched/duplicates; old counts are never guessed', () => {
+  const context = appHarness();
+  const counts = { processed: 4, added: 1, enriched: 1, duplicates: 2, read_blocked: 1 };
+  const html = context.renderTrackerSyncDetails({ id: 'new', last_sync_details: { status: 'success', ...counts } }, false);
+  assert.match(html, /新增 1 篇 · 信息补全 1 篇 · 重复拦截 2 篇（其中已读 1 篇）/);
+  assert.equal(context.trackerCountSummary({ processed: 40 }), '处理 40 篇（旧记录未拆分）');
+  assert.equal(context.trackerCountSummary({ ...counts, added: '<script>' }), '处理 4 篇（旧记录未拆分）');
+  assert.equal(context.trackerCountSummary({}), '');
 });

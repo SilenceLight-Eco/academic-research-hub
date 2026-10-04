@@ -6361,6 +6361,18 @@
     return { rss: '官网 RSS', atom: '官网 Atom', rss_atom: '官网 RSS / Atom', crossref: 'Crossref' }[source] || '尚未记录';
   }
 
+  function trackerCountSummary(details, legacyCount) {
+    details = details || {};
+    var counts = [details.added, details.enriched, details.duplicates];
+    if (counts.every(function (value) { return Number.isInteger(value) && value >= 0; }) &&
+      Number.isInteger(details.processed) && counts.reduce(function (sum, value) { return sum + value; }, 0) === details.processed) {
+      return '新增 ' + counts[0] + ' 篇 · 信息补全 ' + counts[1] + ' 篇 · 重复拦截 ' + counts[2] + ' 篇' +
+        (Number.isInteger(details.read_blocked) && details.read_blocked > 0 && details.read_blocked <= counts[2] ? '（其中已读 ' + details.read_blocked + ' 篇）' : '');
+    }
+    var processed = Number.isFinite(details.processed) ? details.processed : legacyCount;
+    return Number.isFinite(processed) ? '处理 ' + Math.max(0, processed) + ' 篇（旧记录未拆分）' : '';
+  }
+
   function trackerSyncState(item) {
     var details = item.last_sync_details || {};
     if (!details.status) {
@@ -6377,6 +6389,7 @@
       attemptedSource: details.attempted_source,
       message: details.error || details.warning || item.last_error || '',
       processed: Number.isFinite(details.processed) ? details.processed : null,
+      countSummary: trackerCountSummary(details),
       duration: Number.isFinite(details.duration_ms) ? details.duration_ms : null,
       completedAt: details.completed_at || ''
     };
@@ -6397,7 +6410,7 @@
     var labels = { success: '更新成功', fallback: '后备更新成功', error: '更新失败', pending: '等待首次检查' };
     var source = sync.source ? trackerSourceLabel(sync.source) : '尚未记录';
     var attempted = sync.status === 'error' && sync.attemptedSource ? '<small>尝试来源：' + trackerSourceLabel(sync.attemptedSource) + '</small>' : '';
-    var counts = sync.status !== 'error' && sync.processed !== null ? '<small>本次处理 ' + sync.processed + ' 篇' + (sync.duration !== null ? ' · 耗时 ' + Math.max(1, Math.round(sync.duration / 1000)) + ' 秒' : '') + '</small>' : '';
+    var counts = sync.status !== 'error' && sync.countSummary ? '<small class="tracker-sync-counts">' + escapeHtml(sync.countSummary) + (sync.duration !== null ? ' · 耗时 ' + Math.max(1, Math.round(sync.duration / 1000)) + ' 秒' : '') + '</small>' : '';
     var message = sync.message ? '<details class="tracker-sync-reason"><summary>' + (sync.status === 'fallback' ? '查看后备更新原因' : '查看失败原因') + '</summary><p>' + escapeHtml(sync.message) + '</p><p>' + escapeHtml(trackerSyncAdvice(sync.message)) + '</p></details>' : '';
     return '<div class="tracker-sync-info"><span class="tracker-sync-badge is-' + sync.status + '" role="status">' + (checking ? '正在检查…' : labels[sync.status] || labels.pending) + '</span>' +
       '<small>更新来源：' + source + '</small>' + attempted +
@@ -6748,7 +6761,7 @@
         var outcomeClass = log.ok ? (log.error ? 'is-warning' : 'is-success') : 'is-error';
         var detail = log.error ? '<small title="' + escapeHtml(log.error) + '">' + escapeHtml(log.error) + '</small>' : '';
         var discoveryLabel = trackerSourceLabel(log.details && log.details.discovery_source);
-        return '<li><time>' + escapeHtml(trackerDateLabel(log.checked_at, true)) + '</time><span class="tracker-run-log-title" title="' + escapeHtml(logTitle) + '">' + escapeHtml(logTitle) + '</span><span class="tracker-run-source">' + escapeHtml(sourceLabels[log.source] || '检查') + '</span><span class="tracker-run-discovery">' + discoveryLabel + '</span><b class="' + outcomeClass + '">' + outcome + '</b><span class="tracker-run-count">处理 ' + Number(log.article_count || 0) + ' 篇</span>' + detail + '</li>';
+        return '<li><time>' + escapeHtml(trackerDateLabel(log.checked_at, true)) + '</time><span class="tracker-run-log-title" title="' + escapeHtml(logTitle) + '">' + escapeHtml(logTitle) + '</span><span class="tracker-run-source">' + escapeHtml(sourceLabels[log.source] || '检查') + '</span><span class="tracker-run-discovery">' + discoveryLabel + '</span><b class="' + outcomeClass + '">' + outcome + '</b><span class="tracker-run-count">' + escapeHtml(trackerCountSummary(log.details, Number(log.article_count || 0))) + '</span>' + detail + '</li>';
       }).join('');
       runHistory.innerHTML = '<div class="tracker-run-banner' + (failingSubscriptions.length ? ' has-failures' : fallbackSubscriptions.length ? ' has-warnings' : '') + '"><div class="tracker-run-banner-title"><span class="tracker-run-indicator"></span><div><b>' + (failingSubscriptions.length ? '期刊更新需要关注' : fallbackSubscriptions.length ? '部分期刊使用后备来源' : '期刊更新检查正常') + '</b><span>' + (failingSubscriptions.length ? failingSubscriptions.length + ' 本期刊更新失败，可在期刊下方立即重试。' : latestLog ? '最近检查：' + escapeHtml(trackerDateLabel(latestLog.checked_at, true)) + '。' : '') + (fallbackSubscriptions.length ? ' ' + fallbackSubscriptions.length + ' 本期刊已通过后备来源完成更新。' : '') + ' 每日北京时间 08:00 自动检查。</span></div></div>' + (recentFailures ? '<ul class="tracker-run-failures">' + recentFailures + '</ul>' : '') + (logRows ? '<details class="tracker-run-details"><summary>最近检查记录（' + refreshLogs.length + '）</summary><ol>' + logRows + '</ol></details>' : '') + '</div>';
     }
@@ -7224,7 +7237,7 @@
         setTrackerStatus(outcome.error || '该期刊暂时无法更新，可查看期刊下方的失败原因。', true);
         toast('该期刊检查失败');
       } else {
-        setTrackerStatus(outcome.warning || '该期刊检查完成，本次处理 ' + Number(outcome.processed || 0) + ' 篇文章。', false);
+        setTrackerStatus('该期刊检查完成：' + trackerCountSummary(outcome.details, Number(outcome.processed || 0)) + '。' + (outcome.warning || ''), false);
         toast(outcome.warning ? '已通过后备来源完成检查' : '该期刊检查完成');
       }
     }).catch(function (error) {
