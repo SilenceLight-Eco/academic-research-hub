@@ -18,19 +18,20 @@ function harness() {
     trackerSelectedArticleIds: [], trackerReferenceImporting: false,
     trackerArticlePages: { unread: 1, read: 1 }, trackerArticleSorts: { unread: 'discovered-newest', read: 'discovered-newest' },
     trackerCollapsedGroups: { unread: false, read: false } };
-  const nodes = Object.fromEntries(['trackerSelectedCount','trackerImportSelected','trackerSelectPage','trackerClearSelection','trackerImportResult'].map(id => [id, { replaceChildren() {} }]));
+  const nodes = Object.fromEntries(['trackerSelectedCount','trackerImportSelected','trackerSelectPage','trackerClearSelection','trackerImportResult','trackerReferenceFolder','trackerReferenceFolderRefresh','trackerReferenceFolderStatus'].map(id => [id, { replaceChildren() {} }]));
   const toasts = [], calls = []; let reply = async () => ({ ok: false, error: 'Permission denied' });
   const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[char]));
   const context = vm.createContext({ state, Date, Set, Promise, Error, escapeHtml,
     document: { querySelectorAll: () => [] }, $: selector => nodes[selector.slice(1)], toast: text => toasts.push(text),
     trackerVisibleArticles: () => state.journalTracker.articles,
     trackerSubscriptionMap: () => Object.fromEntries(state.journalTracker.subscriptions.map(item => [item.id, item])),
-    api: (url, options) => { calls.push({ url, body: JSON.parse(options.body) }); return reply(); }
+    api: (url, options) => { calls.push({ url, body: options ? JSON.parse(options.body) : null }); return reply(); }
   });
   vm.runInContext(block('  function normalizeTrackerArticleSort(', '  function renderJournalTracker()') + '\n' +
-    block('  function renderTrackerBulkSelection()', '  var trackerZoteroImportedKey'), context);
+    block('  function loadTrackerReferenceFolders()', '  var trackerZoteroImportedKey'), context);
   return { state, context, nodes, calls, toasts, reply: next => { reply = next; },
-    result: statuses => ({ ok: true, importVersion: 1, referenceLibrary: { items: [{ id: 'ref' }] },
+    result: (statuses, folderId = '', folderName = '未分类') => ({ ok: true, importVersion: 2, importFolderId: folderId, importFolderName: folderName,
+      referenceLibrary: { items: [{ id: 'ref' }], folders: folderId ? [{ id: folderId, name: folderName }] : [] },
       importResults: statuses.map(([articleId,status]) => ({ articleId, status, title: 'Paper ' + articleId, error: status === 'failed' ? '<unsafe>' : '' })) }) };
 }
 test('select page follows sorted 15-item slices, keeps other pages and avoids duplicate selections', () => {
@@ -107,4 +108,58 @@ test('missing articles, empty selections and over-limit imports do not send a re
   assert.equal(h.calls.length, 0);
   assert.match(source, /visibleIds\.has\(String\(id\)\)/);
   assert.ok(source.includes('selectTrackerArticle(selection.dataset.trackerSelect, selection.checked)'));
+});
+
+test('folder selection travels with single and bulk saves and result labels use confirmed destination', async () => {
+  for (const ids of [['1'], ['1','2']]) {
+    const h = harness(); h.state.trackerReferenceFolderId = 'folder-1';
+    h.reply(async () => h.result(ids.map(id => [id,'added']), 'folder-1', '学术<研究>'));
+    assert.equal(await h.context.importTrackedArticlesToLibrary(ids), true);
+    assert.equal(h.calls[0].body.folderId, 'folder-1');
+    assert.match(h.nodes.trackerImportResult.innerHTML, /新条目保存到“学术&lt;研究&gt;”；已有条目保持原文件夹/);
+    assert.equal(h.nodes.trackerReferenceFolder.value, 'folder-1');
+    assert.match(h.nodes.trackerReferenceFolder.innerHTML, /学术&lt;研究&gt;/);
+  }
+});
+
+test('folder loading uses the lightweight catalog, retains valid choices and makes no article refresh', async () => {
+  const h = harness(); h.state.trackerReferenceFolderId = 'folder-1';
+  h.reply(async () => ({ ok: true, folders: [{ id: 'folder-1', name: 'Renamed' }] }));
+  assert.equal(await h.context.loadTrackerReferenceFolders(), true);
+  assert.equal(h.calls[0].url, '/api/references/folders');
+  assert.equal(h.state.trackerReferenceFolderId, 'folder-1');
+  assert.match(h.nodes.trackerReferenceFolder.innerHTML, /Renamed/);
+  assert.equal(h.state.referenceLibrary, undefined);
+  h.reply(async () => ({ ok: true, folders: [] }));
+  await h.context.loadTrackerReferenceFolders();
+  assert.equal(h.state.trackerReferenceFolderId, '');
+  assert.match(h.toasts.join(' '), /原目标文件夹已不存在/);
+});
+
+test('folder fetch failures block import, preserve selection and recover on explicit refresh', async () => {
+  const h = harness(); h.state.trackerSelectedArticleIds = ['1'];
+  await h.context.loadTrackerReferenceFolders();
+  assert.equal(h.nodes.trackerReferenceFolder.disabled, true);
+  assert.equal(h.nodes.trackerImportSelected.disabled, true);
+  assert.equal(await h.context.importTrackedArticlesToLibrary(['1']), false);
+  assert.equal(h.calls.length, 1); assert.deepEqual(h.state.trackerSelectedArticleIds, ['1']);
+  h.reply(async () => ({ ok: true, folders: [] }));
+  await h.context.loadTrackerReferenceFolders();
+  assert.equal(h.nodes.trackerImportSelected.disabled, false);
+  assert.equal(h.nodes.trackerReferenceFolder.disabled, false);
+});
+
+test('saving freezes destination and rejects an outdated response or a mismatched folder', async () => {
+  const h = harness(); let release; h.state.trackerReferenceFolderId = 'one';
+  h.reply(() => new Promise(resolve => { release = resolve; }));
+  const pending = h.context.importTrackedArticlesToLibrary(['1']);
+  assert.equal(h.nodes.trackerReferenceFolder.disabled, true);
+  assert.equal(h.nodes.trackerReferenceFolderRefresh.disabled, true);
+  h.state.trackerReferenceFolderId = 'two'; // Simulate another UI change: payload and validation use the original choice.
+  assert.equal(h.calls[0].body.folderId, 'one');
+  release(h.result([['1','added']], 'two'));
+  assert.equal(await pending, false);
+  assert.equal(h.state.referenceLibrary, undefined);
+  const old = harness(); old.reply(async () => ({ ...old.result([['1','added']]), importVersion: 1 }));
+  assert.equal(await old.context.importTrackedArticlesToLibrary(['1']), false);
 });

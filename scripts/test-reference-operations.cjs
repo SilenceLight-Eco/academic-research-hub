@@ -106,6 +106,7 @@ function createApiHarness(payload, options = {}) {
         body: JSON.stringify(action)
       });
     },
+    get(endpoint) { return window.fetch(endpoint); },
     setLocalItem(key, value) { localStorage.setItem(key, value); },
     readWorkspace() { return structuredClone(workspaceRow.payload); },
     writeCount() { return writes; }
@@ -188,6 +189,45 @@ test('signed-out users cannot import into a workspace', async () => {
   const h = createApiHarness({ referenceLibrary: { items: [], trash: [] } }, { signedOut: true });
   assert.equal((await h.request({ action: 'import-tracked', items: [tracked('one')] })).status, 401);
   assert.equal(h.writeCount(), 0);
+});
+
+test('tracked imports assign only new references to the selected folder and retain the confirmed name', async () => {
+  const existing = { id: 'kept', doi: '10.test/one', title: 'My edited title', folderId: 'original', notes: 'Keep notes' };
+  const h = createApiHarness({ referenceLibrary: { items: [existing], trash: [], folders: [{ id: 'target', name: '识别策略' }, { id: 'original', name: 'Original' }] } });
+  const result = await (await h.request({ action: 'import-tracked', folderId: 'target', items: [tracked('one'), tracked('two')] })).json();
+  assert.equal(result.importVersion, 2); assert.equal(result.importFolderId, 'target'); assert.equal(result.importFolderName, '识别策略');
+  assert.deepEqual(result.importResults.map(item => item.status), ['duplicate','added']);
+  assert.deepEqual(result.referenceLibrary.items.find(item => item.id === 'kept'), existing);
+  assert.equal(result.referenceLibrary.items.find(item => item.trackerArticleId === 'two').folderId, 'target');
+  assert.equal(h.writeCount(), 1);
+  const reloaded = createApiHarness(h.readWorkspace());
+  assert.equal(reloaded.readWorkspace().referenceLibrary.items.find(item => item.trackerArticleId === 'two').folderId, 'target');
+  const repeated = await (await reloaded.request({ action: 'import-tracked', folderId: '', items: [tracked('two')] })).json();
+  assert.equal(repeated.importResults[0].status, 'duplicate');
+  assert.equal(reloaded.readWorkspace().referenceLibrary.items.find(item => item.trackerArticleId === 'two').folderId, 'target');
+  assert.equal(reloaded.writeCount(), 0);
+});
+
+test('invalid or deleted destination fails before any write; blank destination remains supported', async () => {
+  const h = createApiHarness({ referenceLibrary: { items: [], trash: [], folders: [] } });
+  const failed = await h.request({ action: 'import-tracked', folderId: 'deleted', items: [tracked('one')] });
+  assert.equal(failed.status, 409); assert.match((await failed.json()).error, /目标文件夹已删除或不存在/);
+  assert.equal(h.writeCount(), 0); assert.equal(h.readWorkspace().referenceLibrary.items.length, 0);
+  const result = await (await h.request({ action: 'import-tracked', items: [tracked('one')] })).json();
+  assert.equal(result.importFolderId, ''); assert.equal(result.importFolderName, '未分类');
+  assert.equal(result.referenceLibrary.items[0].folderId, '');
+});
+
+test('folder catalog is authenticated and excludes reference bodies without changing the workspace', async () => {
+  const payload = { referenceLibrary: { folders: [{ id: 123, name: 'Numeric folder' }], items: [{ id: 'private-paper', notes: 'private body' }], trash: [] } };
+  const h = createApiHarness(payload);
+  const response = await h.get('/api/references/folders'); const result = await response.json();
+  assert.equal(response.status, 200); assert.deepEqual(result, { ok: true, folders: payload.referenceLibrary.folders });
+  assert.equal(h.writeCount(), 0);
+  const added = await (await h.request({ action: 'import-tracked', folderId: '123', items: [tracked('one')] })).json();
+  assert.equal(added.referenceLibrary.items[0].folderId, '123');
+  const out = createApiHarness(payload, { signedOut: true });
+  assert.equal((await out.get('/api/references/folders')).status, 401);
 });
 
 test('variable library saves, duplicates, and restores linked reference IDs', async () => {

@@ -7125,6 +7125,10 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .tracker-bulk-toolbar button { padding:6px 9px; border:1px solid var(--hairline); border-radius:7px; background:var(--glass-strong); color:var(--text-secondary); cursor:pointer; font:11px "Noto Sans SC",sans-serif; }
 .tracker-bulk-toolbar #trackerImportSelected { border-color:var(--accent); background:var(--accent); color:var(--btn-text); }
 .tracker-bulk-toolbar button:disabled { opacity:.55; cursor:not-allowed; }
+.tracker-reference-folder { display:inline-flex; align-items:center; gap:6px; min-width:0; }
+.tracker-reference-folder select { box-sizing:border-box; width:145px; max-width:100%; height:30px; min-height:30px; padding:4px 22px 4px 7px; border:1px solid var(--hairline); border-radius:7px; background:var(--glass-strong); color:var(--text-secondary); font:11px "Noto Sans SC",sans-serif; }
+.tracker-folder-status { display:block; margin-bottom:8px; color:var(--text-muted); font-size:11px; }
+.tracker-folder-status[hidden] { display:none!important; }
 .tracker-import-result { padding:8px 10px; margin-bottom:10px; border-left:3px solid var(--accent); background:var(--accent-dim); color:var(--text-secondary); font-size:11px; line-height:1.6; }
 .tracker-import-result p { margin:0; }
 .tracker-import-result details { margin-top:6px; }

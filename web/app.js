@@ -105,6 +105,10 @@
     trackerSelectedArticleIds: [],
     trackerReferenceImporting: false,
     trackerReferenceImportReport: null,
+    trackerReferenceFolders: [],
+    trackerReferenceFolderId: '',
+    trackerReferenceFoldersLoading: false,
+    trackerReferenceFoldersError: '',
     trackerArticleSorts: { unread: 'discovered-newest', read: 'discovered-newest' },
     trackerJournalCategoryCollapsed: {},
     trackerCustomCategories: [],
@@ -1669,7 +1673,7 @@
     if (panel === 'research-projects') loadResearchProjects();
     if (panel === 'variable-library') loadVariableLibrary();
     if (panel === 'references') loadReferenceLibrary();
-    if (panel === 'journal-tracker') { loadJournalTracker(false); startTrackerListPolling(); }
+    if (panel === 'journal-tracker') { loadTrackerReferenceFolders(); loadJournalTracker(false); startTrackerListPolling(); }
     if (panel === 'focus') focusRenderAll();   // 专注面板：进度/统计/记录实时刷新
     refreshUnreadBadges();   // 进入即视为已读，红点立刻消
     positionNavInk(true);
@@ -7332,20 +7336,55 @@
     if (articleList) articleList.scrollTop = 0;
   }
 
+  function loadTrackerReferenceFolders() {
+    if (state.trackerReferenceFoldersLoading || state.trackerReferenceImporting) return Promise.resolve(false);
+    state.trackerReferenceFoldersLoading = true;
+    state.trackerReferenceFoldersError = '';
+    renderTrackerBulkSelection();
+    return api('/api/references/folders').then(function (result) {
+      if (!result.ok || !Array.isArray(result.folders)) throw new Error(result.error || '文件夹加载失败');
+      state.trackerReferenceFolders = result.folders;
+      var selectedId = String(state.trackerReferenceFolderId || '');
+      if (selectedId && !result.folders.some(function (folder) { return String(folder.id) === selectedId; })) {
+        state.trackerReferenceFolderId = '';
+        toast('原目标文件夹已不存在，已切回“未分类”，请确认后再保存');
+      }
+      return true;
+    }).catch(function (error) {
+      state.trackerReferenceFoldersError = (error && error.message) || '文件夹加载失败';
+      return false;
+    }).then(function (result) { state.trackerReferenceFoldersLoading = false; renderTrackerBulkSelection(); return result; });
+  }
+  function renderTrackerReferenceFolders() {
+    var select = $('#trackerReferenceFolder'), status = $('#trackerReferenceFolderStatus');
+    if (!select) return;
+    var folderId = String(state.trackerReferenceFolderId || '');
+    select.innerHTML = '<option value="">未分类</option>' + (state.trackerReferenceFolders || []).map(function (folder) {
+      return '<option value="' + escapeHtml(String(folder.id)) + '"' + (String(folder.id) === folderId ? ' selected' : '') + '>' + escapeHtml(folder.name || '未命名文件夹') + '</option>';
+    }).join('');
+    select.value = folderId;
+    select.disabled = state.trackerReferenceImporting || state.trackerReferenceFoldersLoading || Boolean(state.trackerReferenceFoldersError);
+    $('#trackerReferenceFolderRefresh').disabled = state.trackerReferenceImporting || state.trackerReferenceFoldersLoading;
+    status.textContent = state.trackerReferenceFoldersLoading ? '正在加载文件夹…' : state.trackerReferenceFoldersError ? '文件夹加载失败，请点击刷新文件夹重试。' : '';
+    status.hidden = !status.textContent;
+    status.title = state.trackerReferenceFoldersError || '';
+  }
   function renderTrackerBulkSelection() {
     var selected = state.trackerSelectedArticleIds || [], busy = state.trackerReferenceImporting;
     var count = $('#trackerSelectedCount'), importButton = $('#trackerImportSelected');
     if (!count || !importButton) return;
     count.textContent = '已选 ' + selected.length + ' 篇（可跨页选择）';
     importButton.textContent = busy ? '正在保存…' : '批量加入文献库（' + selected.length + '）';
-    importButton.disabled = busy || !selected.length;
+    var folderUnavailable = state.trackerReferenceFoldersLoading || Boolean(state.trackerReferenceFoldersError);
+    importButton.disabled = busy || folderUnavailable || !selected.length;
+    renderTrackerReferenceFolders();
     $('#trackerSelectPage').disabled = busy || !trackerCurrentPageArticles().length;
     $('#trackerClearSelection').disabled = busy || !selected.length;
     document.querySelectorAll('[data-tracker-select]').forEach(function (checkbox) {
       checkbox.disabled = busy;
       checkbox.checked = selected.indexOf(String(checkbox.dataset.trackerSelect)) >= 0;
     });
-    document.querySelectorAll('[data-tracker-save-ref]').forEach(function (button) { button.disabled = busy; });
+    document.querySelectorAll('[data-tracker-save-ref]').forEach(function (button) { button.disabled = busy || folderUnavailable; });
     var report = state.trackerReferenceImportReport, result = $('#trackerImportResult');
     result.hidden = !report;
     if (!report) { result.replaceChildren(); return; }
@@ -7373,6 +7412,8 @@
   }
   function importTrackedArticlesToLibrary(ids) {
     if (state.trackerReferenceImporting) return Promise.resolve(false);
+    if (state.trackerReferenceFoldersLoading || state.trackerReferenceFoldersError) { toast('请等待文件夹载入，或点击“刷新文件夹”重试'); return Promise.resolve(false); }
+    var folderId = String(state.trackerReferenceFolderId || '');
     ids = Array.from(new Set(ids.map(String)));
     if (!ids.length || ids.length > 200) { toast('请选择 1 至 200 篇文章'); return Promise.resolve(false); }
     var articles = state.journalTracker.articles || [], subscriptions = trackerSubscriptionMap();
@@ -7387,16 +7428,17 @@
     state.trackerReferenceImporting = true;
     state.trackerReferenceImportReport = { message: '正在保存 ' + items.length + ' 篇文章，请稍候…' };
     renderTrackerBulkSelection();
-    return api('/api/references', { method: 'POST', body: JSON.stringify({ action: 'import-tracked', items: items }) }).then(function (saved) {
+    return api('/api/references', { method: 'POST', body: JSON.stringify({ action: 'import-tracked', items: items, folderId: folderId }) }).then(function (saved) {
       if (!saved.ok) throw new Error(saved.error || '保存失败，请重试');
-      if (saved.importVersion !== 1 || !Array.isArray(saved.importResults) || saved.importResults.length !== ids.length || !saved.referenceLibrary || !Array.isArray(saved.referenceLibrary.items) || new Set(saved.importResults.map(function (item) { return String(item && item.articleId); })).size !== ids.length || saved.importResults.some(function (item) { return !item || ids.indexOf(String(item.articleId)) < 0 || ['added', 'duplicate', 'failed'].indexOf(item.status) < 0; })) throw new Error('保存结果不完整，请刷新页面后重试');
+      if (saved.importVersion !== 2 || String(saved.importFolderId || '') !== folderId || !Array.isArray(saved.importResults) || saved.importResults.length !== ids.length || !saved.referenceLibrary || !Array.isArray(saved.referenceLibrary.items) || new Set(saved.importResults.map(function (item) { return String(item && item.articleId); })).size !== ids.length || saved.importResults.some(function (item) { return !item || ids.indexOf(String(item.articleId)) < 0 || ['added', 'duplicate', 'failed'].indexOf(item.status) < 0; })) throw new Error('保存结果不完整，请刷新页面后重试');
       var completed = saved.importResults.filter(function (item) { return item.status === 'added' || item.status === 'duplicate'; }).map(function (item) { return String(item.articleId); });
       var added = saved.importResults.filter(function (item) { return item.status === 'added'; }).length;
       var duplicates = saved.importResults.filter(function (item) { return item.status === 'duplicate'; }).length;
       var failures = saved.importResults.filter(function (item) { return item.status === 'failed'; });
       state.referenceLibrary = saved.referenceLibrary;
+      state.trackerReferenceFolders = saved.referenceLibrary.folders || [];
       state.trackerSelectedArticleIds = (state.trackerSelectedArticleIds || []).filter(function (id) { return completed.indexOf(String(id)) < 0; });
-      var message = '加入文献库完成：新增 ' + added + ' 篇，已存在 ' + duplicates + ' 篇，失败 ' + failures.length + ' 篇。' + (failures.length ? '失败项可再次保存；批量选择中的失败项保留勾选。' : '新加入的条目可在“文献与引用”的未分类文件夹查看。');
+      var message = '加入文献库完成：新增 ' + added + ' 篇，已存在 ' + duplicates + ' 篇，失败 ' + failures.length + ' 篇。新条目保存到“' + (saved.importFolderName || '未分类') + '”；已有条目保持原文件夹。' + (failures.length ? '失败项可再次保存；批量选择中的失败项保留勾选。' : '可在“文献与引用”查看。');
       state.trackerReferenceImportReport = { message: message, failures: failures };
       toast('文献库：新增 ' + added + ' 篇 · 已存在 ' + duplicates + ' 篇 · 失败 ' + failures.length + ' 篇');
       return true;
@@ -7838,6 +7880,8 @@
     $('#trackerSelectPage').addEventListener('click', selectTrackerCurrentPage);
     $('#trackerClearSelection').addEventListener('click', function () { if (state.trackerReferenceImporting) return; state.trackerSelectedArticleIds = []; renderTrackerBulkSelection(); });
     $('#trackerImportSelected').addEventListener('click', function () { importTrackedArticlesToLibrary(state.trackerSelectedArticleIds || []); });
+    $('#trackerReferenceFolder').addEventListener('change', function () { if (!state.trackerReferenceImporting && !state.trackerReferenceFoldersLoading && !state.trackerReferenceFoldersError) state.trackerReferenceFolderId = this.value; });
+    $('#trackerReferenceFolderRefresh').addEventListener('click', loadTrackerReferenceFolders);
     $('#trackerPublicationRange').addEventListener('change', function () { state.trackerPublicationRange = ['all', '7days', '30days', 'custom'].indexOf(this.value) >= 0 ? this.value : 'all'; state.trackerArticlePages = { unread: 1, read: 1 }; saveTrackerDisplayPreferences(); renderJournalTracker(); });
     $('#trackerDiscoveryRange').addEventListener('change', function () { setTrackerDiscoveryRange(this.value); });
     $('#trackerPublicationFrom').addEventListener('change', function () { state.trackerPublicationFrom = this.value; state.trackerArticlePages = { unread: 1, read: 1 }; saveTrackerDisplayPreferences(); renderJournalTracker(); });

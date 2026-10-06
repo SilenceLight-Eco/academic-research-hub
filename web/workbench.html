@@ -8,7 +8,7 @@
   <link rel="apple-touch-icon" href="icon-180.png">
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#174e4a">
-  <link rel="stylesheet" href="style.css?v=20261004-05">
+  <link rel="stylesheet" href="style.css?v=20261006-01">
   <style>.sidebar-nav .retired-content{display:none!important}</style>
 </head>
 <body>
@@ -480,11 +480,14 @@
               </div>
             </div>
             <div class="tracker-bulk-toolbar" aria-label="批量加入文献库">
+              <label class="tracker-reference-folder">保存到<select id="trackerReferenceFolder" aria-label="加入文献库的目标文件夹"><option value="">未分类</option></select></label>
+              <button id="trackerReferenceFolderRefresh" type="button">刷新文件夹</button>
               <span id="trackerSelectedCount" aria-live="polite">已选 0 篇（可跨页选择）</span>
               <button id="trackerSelectPage" type="button">全选本页</button>
               <button id="trackerClearSelection" type="button" disabled>清空选择</button>
               <button id="trackerImportSelected" type="button" disabled>批量加入文献库（0）</button>
             </div>
+            <span id="trackerReferenceFolderStatus" class="tracker-folder-status" role="status" hidden></span>
             <div id="trackerImportResult" class="tracker-import-result" role="status" aria-live="polite" hidden></div>
             <p id="trackerDiscoveryRangeHint" class="tracker-discovery-hint" hidden>按首次收录时间筛选（当前设备时区）；信息补全和重复检查不会计为新增。</p>
             <div class="tracker-source-note"><span>数据说明</span>官网 RSS / Atom 优先发现新文章；Semantic Scholar 和 OpenAlex 补充摘要与作者；Crossref 用于 RSS 不可用时发现文章，并作为 DOI 等元数据后备。各字段会标注实际来源。期刊分区由 EasyScholar Open API 查询并标注数据来源。已读文章保留 3 天后自动清理。</div>
@@ -1529,9 +1532,9 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-<script src="static-api.js?v=20261004-05"></script>
+<script src="static-api.js?v=20261006-01"></script>
 <script src="reference-export.js?v=20260927-01"></script>
-  <script src="app.js?v=20261004-05"></script>
+  <script src="app.js?v=20261006-01"></script>
   <script src="attachments.js?v=20260925-1"></script>
 </body>
 </html>

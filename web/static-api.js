@@ -613,6 +613,7 @@
         await saveWorkspace(workspace, syncRevision);
         return response({ ok: true });
       }
+      if (path === '/api/references/folders' && !await getUser()) return response({ error: '请先登录后选择文献文件夹' }, 401);
       var data = await loadWorkspace();
       if (!data && method === 'GET') data = currentPayload();
       if (!data) return response({ error: '请先登录后使用浏览器版工作台' }, 401);
@@ -844,6 +845,7 @@
         await saveWorkspace(data, dataRevision);
         return response({ ok: true, variableLibrary: variableLibrary, duplicateId: duplicateId, importedIds: importedIds, undone: undoneCounts || null });
       }
+      if (path === '/api/references/folders' && method === 'GET') return response({ ok: true, folders: data.referenceLibrary && Array.isArray(data.referenceLibrary.folders) ? data.referenceLibrary.folders : [] });
       if (path === '/api/references') {
         var initializedReferenceLibrary = data.referenceLibrary || (data.referenceLibrary = { items: [], trash: [], folders: [] });
         initializedReferenceLibrary.items = Array.isArray(initializedReferenceLibrary.items) ? initializedReferenceLibrary.items : [];
@@ -853,6 +855,9 @@
       if (path === '/api/references' && method === 'POST' && body.action === 'import-tracked') {
         if (!Array.isArray(body.items) || !body.items.length || body.items.length > 200) return response({ ok: false, error: '请选择 1 至 200 篇文章后再加入文献库' }, 400);
         var trackedLibrary = data.referenceLibrary;
+        var trackedFolderId = String(body.folderId || '');
+        var trackedFolder = trackedLibrary.folders.find(function (folder) { return String(folder.id) === trackedFolderId; });
+        if (trackedFolderId && !trackedFolder) return response({ ok: false, error: '目标文件夹已删除或不存在，请刷新文件夹后重新选择' }, 409);
         var trackedResults = [], trackedAdditions = [];
         function trackedDoi(value) { return String(value || '').trim().replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, '').replace(/^doi:\s*/i, '').replace(/[\s?#].*$/, '').toLowerCase(); }
         function trackedText(value) { return String(value || '').normalize('NFKC').toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, ''); }
@@ -876,7 +881,7 @@
             type: '期刊论文', source: String(source.source || '').trim().slice(0, 1000), locator: '', doi: doi, url: String(source.url || '').trim().slice(0, 2048),
             abstract: String(source.abstract || '').slice(0, 20000), abstractSource: String(source.abstractSource || '').slice(0, 120),
             keywords: String(source.keywords || '').slice(0, 5000), keywordsSource: String(source.keywordsSource || '').slice(0, 120),
-            tags: '', folderId: '', projectId: '', knowledgeDocId: '', notes: '', trackerArticleId: articleId, updated: nowText() };
+            tags: '', folderId: trackedFolderId, projectId: '', knowledgeDocId: '', notes: '', trackerArticleId: articleId, updated: nowText() };
           trackedAdditions.push(reference);
           trackedResults.push({ articleId: articleId, title: title, status: 'added', referenceId: id });
         });
@@ -885,7 +890,7 @@
           // One write: never create placeholder records or claim success before cloud persistence.
           await saveWorkspace(data, dataRevision);
         }
-        return response({ ok: true, importVersion: 1, referenceLibrary: trackedLibrary, importResults: trackedResults });
+        return response({ ok: true, importVersion: 2, importFolderId: trackedFolderId, importFolderName: trackedFolder ? trackedFolder.name || '未命名文件夹' : '未分类', referenceLibrary: trackedLibrary, importResults: trackedResults });
       }
       if (path === '/api/references' && method === 'POST' && body.action === 'bulk-move') {
         var bulkReferenceLibrary = data.referenceLibrary || (data.referenceLibrary = { items: [], trash: [], folders: [] });
