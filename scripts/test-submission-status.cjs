@@ -164,7 +164,109 @@ test('legacy status values remain selected without silently rewriting them', () 
 test('new cache version reaches both outer pages and embedded paper pipeline', () => {
   const repo = path.join(__dirname, '..');
   for (const file of ['index.html', 'web/index.html', 'web/workbench.html']) {
-    assert.match(fs.readFileSync(path.join(repo, file), 'utf8'), /20261007-07/);
+    assert.match(fs.readFileSync(path.join(repo, file), 'utf8'), /20261007-08/);
   }
-  assert.match(fs.readFileSync(path.join(repo, 'web/workbench.html'), 'utf8'), /paper-pipeline-v2\.html\?v=20261007-07/);
+  assert.match(fs.readFileSync(path.join(repo, 'web/workbench.html'), 'utf8'), /paper-pipeline-v2\.html\?v=20261007-08/);
+});
+
+test('submission count derives from history, ignores legacy manual numbers and updates on add/delete', () => {
+  const h = harness(); h.seed({ submissionCount: 9 });
+  assert.equal(h.field('submissionCount'), 0);
+  h.context.addHistory('paper1');
+  assert.equal(h.field('submissionCount'), 1);
+  h.context.addHistory('paper1');
+  assert.equal(h.field('submissionCount'), 2);
+  h.context.deleteHistory('paper1', 1);
+  assert.equal(h.field('submissionCount'), 1);
+  assert.equal(JSON.parse(h.stored.get('research-hub-fields-v1')).paper1.submissionCount, 1);
+  const refreshed = harness(h.stored);
+  assert.equal(refreshed.field('submissionCount'), 1);
+  assert.match(refreshed.run('renderSubmitted()'), /1 次/);
+  assert.doesNotMatch(refreshed.run('renderSubmitted()'), /data-edit-field="submissionCount"/);
+});
+
+test('state changes within a round never count as another submission', () => {
+  const h = harness(); h.seed(); h.context.addHistory('paper1');
+  for (const state of ['with_editor', 'under_review', 'major_revision', 'rejected', 'resubmitted']) {
+    h.context.setHistoryStatus('paper1', 0, state);
+    assert.equal(h.field('submissionCount'), 1);
+  }
+});
+
+test('every state has its own date picker and history is created inline without prompts', () => {
+  const h = harness(); h.seed(); h.context.addHistory('paper1');
+  const page = h.run('renderSubmitted()');
+  for (const label of ['已投稿', '初审中', '外审中', '小修改', '大修改', '已录用', '已拒稿', '已重投', '已撤稿']) {
+    assert.ok(page.includes(`aria-label="第 1 次投稿${label}日期"`));
+  }
+  assert.match(page, /type="date" aria-label="投稿日期"/);
+  assert.match(page, /type="date" aria-label="当前状态日期"/);
+});
+
+test('all independently chosen status dates survive switching states and reloading', () => {
+  const h = harness(); h.seed({ history: [{ journal: 'Journal B', date: '2026-10-01', status: 'under_review' }] });
+  const states = ['submitted', 'with_editor', 'under_review', 'minor_revision', 'major_revision', 'accepted', 'rejected', 'resubmitted', 'withdrawn'];
+  for (let i = 0; i < states.length; i++) {
+    h.context.setHistoryStatusDate('paper1', 0, states[i], `2026-10-${String(i + 1).padStart(2, '0')}`);
+  }
+  for (let i = 0; i < states.length; i++) {
+    h.context.setSubmissionStatus('paper1', states[i]);
+    const refreshed = harness(h.stored);
+    assert.equal(refreshed.run('getSubmissionStatusDate(DATA.submitted[0])'), `2026-10-${String(i + 1).padStart(2, '0')}`);
+  }
+  assert.equal(Object.keys(h.field('history')[0].statusDates).length, 9);
+});
+
+test('top status date syncs only the matching current round; clearing stays cleared after reload', () => {
+  const h = harness(); h.seed({ history: [
+    { journal: 'Journal A', date: '2026-09-01', status: 'rejected', statusDates: { rejected: '2026-09-20' } },
+    { journal: 'Journal B', date: '2026-10-01', status: 'under_review' }
+  ] });
+  h.context.setSubmissionStatusDate('paper1', '2026-10-06');
+  assert.equal(h.field('history')[1].statusDates.under_review, '2026-10-06');
+  assert.equal(h.field('history')[0].statusDates.rejected, '2026-09-20');
+  h.context.setSubmissionStatusDate('paper1', '');
+  assert.equal(harness(h.stored).run('getSubmissionStatusDate(DATA.submitted[0])'), '');
+});
+
+test('top date still works without any history and does not invent a submission count', () => {
+  const h = harness(); h.seed();
+  h.context.setSubmissionStatusDate('paper1', '2026-10-06');
+  assert.equal(harness(h.stored).run('getSubmissionStatusDate(DATA.submitted[0])'), '2026-10-06');
+  assert.equal(h.field('submissionCount'), 0);
+});
+
+test('editing submission date preserves current-round linkage in both directions', () => {
+  const h = harness(); h.seed({ history: [{ journal: 'Journal B', date: '2026-10-01', status: 'under_review' }] });
+  h.context.setHistoryDate('paper1', 0, '2026-10-02');
+  assert.equal(h.field('submissionDate'), '2026-10-02');
+  h.context.setSubmissionDate('paper1', '2026-10-03');
+  assert.equal(h.field('history')[0].date, '2026-10-03');
+  h.context.setHistoryStatus('paper1', 0, 'rejected');
+  assert.equal(h.field('status'), 'rejected');
+});
+
+test('legacy submission date is not mislabelled as rejection or resubmission date', () => {
+  const h = harness(); h.seed({ history: [{ journal: 'Journal B', date: '2026-10-01', status: 'under_review' }] });
+  h.context.setSubmissionStatus('paper1', 'rejected');
+  assert.equal(h.run('getSubmissionStatusDate(DATA.submitted[0])'), '');
+  h.context.setSubmissionStatus('paper1', 'resubmitted');
+  assert.equal(h.run('getSubmissionStatusDate(DATA.submitted[0])'), '');
+  assert.equal(h.run('submissionHistoryStatusDate(getPaperField(DATA.submitted[0], "history")[0], "submitted")'), '2026-10-01');
+});
+
+test('invalid calendar dates are rejected; leap days and clearing are allowed', () => {
+  const h = harness(); h.seed(); h.context.addHistory('paper1');
+  const before = JSON.stringify([...h.stored]);
+  for (const date of ['2026-02-30', '2026-02-29', 'not-a-date', '2026-13-01']) {
+    h.context.setHistoryStatusDate('paper1', 0, 'rejected', date);
+    h.context.setHistoryDate('paper1', 0, date);
+    h.context.setSubmissionDate('paper1', date);
+    h.context.setSubmissionStatusDate('paper1', date);
+  }
+  assert.equal(JSON.stringify([...h.stored]), before);
+  h.context.setHistoryStatusDate('paper1', 0, 'rejected', '2024-02-29');
+  assert.equal(h.field('history')[0].statusDates.rejected, '2024-02-29');
+  h.context.setHistoryDate('paper1', 0, '');
+  assert.equal(h.field('history')[0].date, '');
 });

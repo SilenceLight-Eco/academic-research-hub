@@ -104,6 +104,14 @@ h1 { margin: 8px 0 8px; font-size: 31px; letter-spacing: -.8px; }
 .badge.red { background: var(--red-soft); color: var(--red); }
 .badge.blue { background: var(--accent-soft); color: var(--accent); }
 .submission-status-select { max-width: 140px; border: 1px solid currentColor; font: inherit; cursor: pointer; }
+.submission-date { min-width: 0; max-width: 100%; padding: 5px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text); font: inherit; }
+.submission-status-dates { margin-top: 8px; font-size: 12px; }
+.submission-status-dates summary { cursor: pointer; color: var(--muted); }
+.submission-date-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 8px; margin-top: 10px; }
+.submission-date-grid label { display: grid; gap: 4px; }
+.submission-history-item { grid-template-columns: minmax(140px, 155px) minmax(0, 1fr); }
+.submission-history-item .timeline-date label { display: grid; gap: 4px; }
+@media (max-width: 720px) { .submission-history-item { grid-template-columns: 1fr; } }
 .muted { color: var(--muted); font-size: 12px; }
 .card-line { display: flex; justify-content: space-between; gap: 15px; font-size: 13px; }
 .card-line strong { font-weight: 600; text-align: right; }
@@ -800,11 +808,12 @@ function renderSubmittedCard(p) {
     ${renderPaperProjectLinks(p)}
     ${renderChipEditor(p, "authors", "作者")}
     <div class="card-line"><span class="muted">当前期刊</span><strong>${editableText(p, "currentJournal")}</strong></div>
-    <div class="card-line"><span class="muted">投稿日期</span><strong>${editableText(p, "submissionDate")}</strong></div>
+    <div class="card-line"><span class="muted">投稿日期</span><input class="submission-date" type="date" aria-label="投稿日期" value="${submissionDateValue(getPaperField(p, "submissionDate"))}" onchange="setSubmissionDate('${p._key}', this.value)"></div>
+    <div class="card-line"><span class="muted">当前状态日期</span><input class="submission-date" type="date" aria-label="当前状态日期" value="${submissionDateValue(getSubmissionStatusDate(p))}" onchange="setSubmissionStatusDate('${p._key}', this.value)"></div>
     <div class="card-line"><span class="muted">稿件编号</span><strong>${editableText(p, "manuscriptId")}</strong></div>
-    <div class="card-line"><span class="muted">投稿次数</span><strong>${editableText(p, "submissionCount")}</strong></div>
+    <div class="card-line"><span class="muted">投稿次数</span><strong title="按投稿历史记录数自动计算，状态变化不会增加次数">${getPaperField(p, "submissionCount")} 次</strong></div>
     <div class="next-action"><b>NEXT ACTION</b>${editableText(p, "nextAction")}</div>
-    <div><div class="hist-head"><span class="muted">投稿历史</span><button class="stage-tool" title="添加投稿记录" onclick="addHistory('${p._key}')">＋</button></div><div class="timeline">${history.map((h, i) => `<div class="timeline-item"><div class="timeline-date">${editableHist(p, i, "date")}</div><div class="timeline-content"><strong>${editableHist(p, i, "journal")}</strong><select class="select hist-status" onchange="setHistoryStatus('${p._key}', ${i}, this.value)">${SUBMITTED_STATUS_OPTIONS.map(([v, l]) => `<option value="${v}" ${h.status === v ? "selected" : ""}>${l}</option>`).join("")}</select><button class="stage-tool" title="删除该记录" onclick="deleteHistory('${p._key}', ${i})">✕</button></div></div>`).join("") || "<div class='muted'>（暂无投稿历史）</div>"}</div></div>
+    <div><div class="hist-head"><span class="muted">投稿历史</span><button class="stage-tool" title="添加投稿记录" onclick="addHistory('${p._key}')">＋</button></div><div class="timeline">${history.map((h, i) => renderSubmissionHistory(p, h, i)).join("") || "<div class='muted'>（暂无投稿历史，点击 ＋ 新建）</div>"}</div></div>
     <div class="file-path-row"><span class="muted">文件夹</span>${editableText(p, "filePath", "path-text")}<button class="btn" onclick="copyPath('${encodeURIComponent(getPaperField(p, "filePath") || "")}')">复制路径</button></div>
     <div class="file-path-row"><span class="muted">投稿附件</span><button class="btn" type="button" onclick="openPaperFiles('${p._key}')">上传与查看文件</button></div>
     <button class="btn flow-btn" title="录用后流转到已发表论文（继承标题、作者、当前期刊、文件夹路径与附件）" onclick="moveToPublished('${p._key}')">转移到已发表 ➜</button>
@@ -1258,6 +1267,7 @@ function getFieldStore() {
 }
 
 function getPaperField(p, field) {
+  if (field === "submissionCount") return (getPaperField(p, "history") || []).length;
   const store = getFieldStore();
   if (store[pkey(p)] && store[pkey(p)][field] != null) return store[pkey(p)][field];
   return p[field];
@@ -1267,6 +1277,10 @@ function setPaperField(p, field, value) {
   const store = getFieldStore();
   store[pkey(p)] = store[pkey(p)] || {};
   store[pkey(p)][field] = value;
+  if (field === "history" && Array.isArray(value)) {
+    store[pkey(p)].submissionCount = value.length;
+    p.submissionCount = value.length;
+  }
   try { localStorage.setItem(FIELD_STORE_KEY, JSON.stringify(store)); } catch (e) {}
   p[field] = value;
   touchPaper(p);
@@ -1382,6 +1396,102 @@ const CARD_STORE_KEY = "research-hub-cards-v1";
 const CARD_PREFIX = { research: "R", submitted: "S", published: "P" };
 const SUBMITTED_STATUS_OPTIONS = [["submitted","已投稿"],["with_editor","初审中"],["under_review","外审中"],["minor_revision","小修改"],["major_revision","大修改"],["accepted","已录用"],["rejected","已拒稿"],["resubmitted","已重投"],["withdrawn","已撤稿"]];
 
+function submissionDateValue(value) {
+  const date = String(value || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date.slice(0, 4) === "0000") return "";
+  const parsed = new Date(date + "T00:00:00Z");
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date ? date : "";
+}
+
+function submissionHistoryStatusDate(history, status) {
+  const dates = history.statusDates || {};
+  if (Object.prototype.hasOwnProperty.call(dates, status)) return dates[status] || "";
+  return status === "submitted" ? history.date || "" : "";
+}
+
+function getSubmissionStatusDate(p) {
+  const status = getPaperField(p, "status") || "submitted";
+  const history = getPaperField(p, "history") || [];
+  const index = history.length - 1;
+  if (isCurrentSubmissionHistory(p, history, index)) return submissionHistoryStatusDate(history[index], status);
+  const dates = getPaperField(p, "statusDates") || {};
+  if (Object.prototype.hasOwnProperty.call(dates, status)) return dates[status] || "";
+  return status === "submitted" ? getPaperField(p, "submissionDate") || "" : "";
+}
+
+function renderSubmissionHistory(p, history, index) {
+  return `<div class="timeline-item submission-history-item">
+    <div class="timeline-date"><label>投稿日期<input class="submission-date" type="date" aria-label="第 ${index + 1} 次投稿日期" value="${submissionDateValue(history.date)}" onchange="setHistoryDate('${p._key}', ${index}, this.value)"></label></div>
+    <div class="timeline-content">
+      <strong>${editableHist(p, index, "journal")}</strong>
+      <select class="select hist-status" aria-label="第 ${index + 1} 次投稿状态" onchange="setHistoryStatus('${p._key}', ${index}, this.value)">${SUBMITTED_STATUS_OPTIONS.map(([value, label]) => `<option value="${value}" ${history.status === value ? "selected" : ""}>${label}</option>`).join("")}</select>
+      <input class="submission-date" type="date" aria-label="第 ${index + 1} 次投稿当前状态日期" data-status="${escapeHtml(history.status || "submitted")}" value="${submissionDateValue(submissionHistoryStatusDate(history, history.status))}" onchange="setHistoryStatusDate('${p._key}', ${index}, this.dataset.status, this.value)">
+      <button class="stage-tool" title="删除该记录" onclick="deleteHistory('${p._key}', ${index})">✕</button>
+      <details class="submission-status-dates" data-submission-times="${escapeHtml(p._key)}:${index}">
+        <summary>各状态时间</summary>
+        <div class="submission-date-grid">${SUBMITTED_STATUS_OPTIONS.map(([status, label]) => `<label>${label}<input class="submission-date" type="date" aria-label="第 ${index + 1} 次投稿${label}日期" value="${submissionDateValue(submissionHistoryStatusDate(history, status))}" onchange="setHistoryStatusDate('${p._key}', ${index}, '${status}', this.value)"></label>`).join("")}</div>
+      </details>
+    </div>
+  </div>`;
+}
+
+function setSubmissionDate(key, value) {
+  const p = (DATA.submitted || []).find(paper => paper._key === key);
+  if (!p || (value && !submissionDateValue(value))) return;
+  const history = JSON.parse(JSON.stringify(getPaperField(p, "history") || []));
+  const index = history.length - 1;
+  const current = isCurrentSubmissionHistory(p, history, index);
+  setPaperField(p, "submissionDate", value);
+  if (current) {
+    history[index].date = value;
+    setPaperField(p, "history", history);
+  }
+  setPaperField(p, "lastUpdate", nowMinute());
+  refreshSubmissionStatus();
+}
+
+function setHistoryDate(key, index, value) {
+  const p = (DATA.submitted || []).find(paper => paper._key === key);
+  if (!p || (value && !submissionDateValue(value))) return;
+  const history = JSON.parse(JSON.stringify(getPaperField(p, "history") || []));
+  if (!history[index]) return;
+  const current = isCurrentSubmissionHistory(p, history, index);
+  history[index].date = value;
+  setPaperField(p, "history", history);
+  if (current) setPaperField(p, "submissionDate", value);
+  setPaperField(p, "lastUpdate", nowMinute());
+  refreshSubmissionStatus();
+}
+
+function setHistoryStatusDate(key, index, status, value) {
+  const p = (DATA.submitted || []).find(paper => paper._key === key);
+  if (!p || !SUBMITTED_STATUS_OPTIONS.some(([option]) => option === status) || (value && !submissionDateValue(value))) return;
+  const history = JSON.parse(JSON.stringify(getPaperField(p, "history") || []));
+  if (!history[index]) return;
+  history[index].statusDates = Object.assign({}, history[index].statusDates || {}, { [status]: value });
+  setPaperField(p, "history", history);
+  if (isCurrentSubmissionHistory(p, history, index)) {
+    setPaperField(p, "statusDates", Object.assign({}, getPaperField(p, "statusDates") || {}, { [status]: value }));
+  }
+  setPaperField(p, "lastUpdate", nowMinute());
+  refreshSubmissionStatus();
+}
+
+function setSubmissionStatusDate(key, value) {
+  const p = (DATA.submitted || []).find(paper => paper._key === key);
+  if (!p || (value && !submissionDateValue(value))) return;
+  const status = getPaperField(p, "status") || "submitted";
+  const history = getPaperField(p, "history") || [];
+  const index = history.length - 1;
+  if (isCurrentSubmissionHistory(p, history, index)) {
+    setHistoryStatusDate(key, index, status, value);
+    return;
+  }
+  setPaperField(p, "statusDates", Object.assign({}, getPaperField(p, "statusDates") || {}, { [status]: value }));
+  setPaperField(p, "lastUpdate", nowMinute());
+  refreshSubmissionStatus();
+}
+
 function submissionStatusTone(status) {
   return ["accepted", "minor_revision"].includes(status) ? "green" : ["rejected", "withdrawn"].includes(status) ? "red" : ["under_review", "with_editor", "resubmitted"].includes(status) ? "orange" : "blue";
 }
@@ -1405,6 +1515,7 @@ function isCurrentSubmissionHistory(p, history, index) {
 function refreshSubmissionStatus() {
   const search = document.getElementById("searchInput")?.value || "";
   const status = document.getElementById("statusFilter")?.value || "";
+  const openDates = new Set([...document.querySelectorAll("[data-submission-times][open]")].map(el => el.dataset.submissionTimes));
   render();
   if (currentPage === "submitted") {
     const searchInput = document.getElementById("searchInput");
@@ -1412,6 +1523,7 @@ function refreshSubmissionStatus() {
     if (searchInput) searchInput.value = search;
     if (statusFilter) statusFilter.value = status;
     if (searchInput) searchInput.dispatchEvent(new Event("input"));
+    document.querySelectorAll("[data-submission-times]").forEach(el => { el.open = openDates.has(el.dataset.submissionTimes); });
   }
   updateStatusBar();
 }
@@ -1474,7 +1586,7 @@ function syncLists() {
 
 const NEW_CARD_TEMPLATES = {
   research: () => ({ title: "", authors: [], researchArea: "未分类", status: "writing", progress: 0, priority: "Medium", lastUpdated: nowMinute(), targetJournal: "", filePath: "", nextAction: "", notes: "", keywords: [], knowledgeLink: "" }),
-  submitted: () => ({ title: "", authors: [], currentJournal: "", status: "submitted", submissionDate: "", lastUpdate: nowMinute(), manuscriptId: "", submissionCount: 1, targetLevel: "SSCI / SCIE", filePath: "", editor: "—", nextAction: "", notes: "", history: [] }),
+  submitted: () => ({ title: "", authors: [], currentJournal: "", status: "submitted", submissionDate: "", statusDates: {}, lastUpdate: nowMinute(), manuscriptId: "", submissionCount: 0, targetLevel: "SSCI / SCIE", filePath: "", editor: "—", nextAction: "", notes: "", history: [] }),
   published: () => ({ title: "", authors: [], abstract: "", journal: "", language: "en", year: new Date().getFullYear(), volume: "", issue: "", pages: "", doi: "", citations: 0, citationSource: "手工录入", filePath: "", keywords: [] })
 };
 
@@ -1822,16 +1934,13 @@ function moveToSubmitted(key) {
 
 // ---------- V1.7 投稿历史增删 ----------
 function addHistory(key) {
-  const p = findPaperByKey(key);
+  const p = (DATA.submitted || []).find(paper => paper._key === key);
   if (!p) return;
-  const journal = prompt("请输入期刊名称：");
-  if (!journal || !journal.trim()) return;
-  const date = prompt("请输入投稿日期（如 2026-09-17）：", nowMinute().slice(0, 10));
   const hist = JSON.parse(JSON.stringify(getPaperField(p, "history") || []));
-  hist.push({ journal: journal.trim(), date: (date || "").trim() || nowMinute().slice(0, 10), status: "submitted" });
+  hist.push({ journal: hist.length ? "" : getPaperField(p, "currentJournal") || "", date: hist.length ? "" : getPaperField(p, "submissionDate") || "", status: hist.length ? "submitted" : getPaperField(p, "status") || "submitted", statusDates: hist.length ? {} : getPaperField(p, "statusDates") || {} });
   setPaperField(p, "history", hist);
-  render();
-  updateStatusBar();
+  setPaperField(p, "lastUpdate", nowMinute());
+  refreshSubmissionStatus();
 }
 
 function deleteHistory(key, index) {
@@ -1842,8 +1951,8 @@ function deleteHistory(key, index) {
   if (!confirm(`确定删除投稿记录“${hist[index].journal}（${hist[index].date}）”吗？`)) return;
   hist.splice(index, 1);
   setPaperField(p, "history", hist);
-  render();
-  updateStatusBar();
+  setPaperField(p, "lastUpdate", nowMinute());
+  refreshSubmissionStatus();
 }
 
 // ================================================================
