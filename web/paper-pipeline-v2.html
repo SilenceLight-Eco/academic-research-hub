@@ -103,6 +103,7 @@ h1 { margin: 8px 0 8px; font-size: 31px; letter-spacing: -.8px; }
 .badge.orange { background: var(--orange-soft); color: var(--orange); }
 .badge.red { background: var(--red-soft); color: var(--red); }
 .badge.blue { background: var(--accent-soft); color: var(--accent); }
+.submission-status-select { max-width: 140px; border: 1px solid currentColor; font: inherit; cursor: pointer; }
 .muted { color: var(--muted); font-size: 12px; }
 .card-line { display: flex; justify-content: space-between; gap: 15px; font-size: 13px; }
 .card-line strong { font-weight: 600; text-align: right; }
@@ -785,7 +786,7 @@ function renderSubmitted() {
   return `
     <div class="toolbar">
       <input class="search" id="searchInput" placeholder="搜索标题、作者、当前期刊或稿件编号……" />
-      <select class="select" id="statusFilter"><option value="">全部状态</option><option value="submitted">已投稿</option><option value="with_editor">初审中</option><option value="under_review">外审中</option><option value="major_revision">大修改</option><option value="minor_revision">小修改</option><option value="accepted">已录用</option><option value="rejected">已拒稿</option></select>
+      <select class="select" id="statusFilter" aria-label="筛选投稿状态"><option value="">全部状态</option>${SUBMITTED_STATUS_OPTIONS.map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}</select>
       <button class="btn primary" onclick="addPaperCard('submitted')">＋ 新增投稿</button>
     </div>
     <div class="cards-grid" id="results">${DATA.submitted.map(renderSubmittedCard).join("")}</div>
@@ -795,7 +796,7 @@ function renderSubmitted() {
 function renderSubmittedCard(p) {
   const history = getPaperField(p, "history") || [];
   return `<article class="paper-card" data-paper-key="${escapeHtml(p._key)}" draggable="true" ondragstart="cardDragStart(event,'submitted','${p._key}')" ondragover="cardDragOver(event,'submitted')" ondragleave="cardDragLeave(event)" ondrop="cardDrop(event,'submitted','${p._key}')" ondragend="cardDragEnd(event)">
-    <div class="card-top"><div><div class="paper-id">${p.id} · SUBMISSION</div><div class="paper-title">${editableText(p, "title", "editable-title")}</div></div><div style="display:flex;gap:6px;align-items:flex-start">${statusBadge(p.status)}<button class="stage-tool" title="删除该卡片" onclick="deletePaperCard('submitted','${p._key}')">✕</button></div></div>
+    <div class="card-top"><div><div class="paper-id">${p.id} · SUBMISSION</div><div class="paper-title">${editableText(p, "title", "editable-title")}</div></div><div style="display:flex;gap:6px;align-items:flex-start">${submissionStatusSelect(p)}<button class="stage-tool" title="删除该卡片" onclick="deletePaperCard('submitted','${p._key}')">✕</button></div></div>
     ${renderPaperProjectLinks(p)}
     ${renderChipEditor(p, "authors", "作者")}
     <div class="card-line"><span class="muted">当前期刊</span><strong>${editableText(p, "currentJournal")}</strong></div>
@@ -1005,7 +1006,7 @@ function bindFilters() {
     let list = currentPage === "research" ? DATA.research : currentPage === "submitted" ? DATA.submitted : DATA.published;
     if (q) list = list.filter(p => JSON.stringify(p).toLowerCase().includes(q));
     if (priority) list = list.filter(p => !priority.value || getPaperField(p, "priority") === priority.value);
-    if (status) list = list.filter(p => !status.value || p.status === status.value);
+    if (status) list = list.filter(p => !status.value || getPaperField(p, "status") === status.value);
     document.getElementById("results").innerHTML = currentPage === "research"
       ? list.map(renderResearchCard).join("") : currentPage === "submitted"
       ? list.map(renderSubmittedCard).join("") : list.map(renderPublishedCard).join("");
@@ -1379,7 +1380,55 @@ function commitEditField(span, input, p, field) {
 // ================================================================
 const CARD_STORE_KEY = "research-hub-cards-v1";
 const CARD_PREFIX = { research: "R", submitted: "S", published: "P" };
-const SUBMITTED_STATUS_OPTIONS = [["submitted","已投稿"],["with_editor","初审中"],["under_review","外审中"],["minor_revision","小修改"],["major_revision","大修改"],["accepted","已录用"],["rejected","已拒稿"]];
+const SUBMITTED_STATUS_OPTIONS = [["submitted","已投稿"],["with_editor","初审中"],["under_review","外审中"],["minor_revision","小修改"],["major_revision","大修改"],["accepted","已录用"],["rejected","已拒稿"],["resubmitted","已重投"],["withdrawn","已撤稿"]];
+
+function submissionStatusTone(status) {
+  return ["accepted", "minor_revision"].includes(status) ? "green" : ["rejected", "withdrawn"].includes(status) ? "red" : ["under_review", "with_editor", "resubmitted"].includes(status) ? "orange" : "blue";
+}
+
+function submissionStatusSelect(p) {
+  const current = getPaperField(p, "status") || "submitted";
+  const options = SUBMITTED_STATUS_OPTIONS.some(([value]) => value === current)
+    ? SUBMITTED_STATUS_OPTIONS : SUBMITTED_STATUS_OPTIONS.concat([[current, current]]);
+  return `<select class="badge submission-status-select ${submissionStatusTone(current)}" aria-label="当前投稿状态" title="修改当前投稿状态，自动保存" onchange="setSubmissionStatus('${p._key}', this.value)">${options.map(([value, label]) => `<option value="${escapeHtml(value)}" ${value === current ? "selected" : ""}>${escapeHtml(label)}</option>`).join("")}</select>`;
+}
+
+// 只联动最新且属于当前期刊/日期的记录，不能用旧期刊的拒稿覆盖新一轮投稿。
+function isCurrentSubmissionHistory(p, history, index) {
+  if (index !== history.length - 1 || !history[index]) return false;
+  const journal = String(getPaperField(p, "currentJournal") || "").trim();
+  const date = String(getPaperField(p, "submissionDate") || "").trim();
+  return (!journal || journal === String(history[index].journal || "").trim())
+    && (!date || date === String(history[index].date || "").trim());
+}
+
+function refreshSubmissionStatus() {
+  const search = document.getElementById("searchInput")?.value || "";
+  const status = document.getElementById("statusFilter")?.value || "";
+  render();
+  if (currentPage === "submitted") {
+    const searchInput = document.getElementById("searchInput");
+    const statusFilter = document.getElementById("statusFilter");
+    if (searchInput) searchInput.value = search;
+    if (statusFilter) statusFilter.value = status;
+    if (searchInput) searchInput.dispatchEvent(new Event("input"));
+  }
+  updateStatusBar();
+}
+
+function setSubmissionStatus(key, value) {
+  const p = (DATA.submitted || []).find(paper => paper._key === key);
+  if (!p || !SUBMITTED_STATUS_OPTIONS.some(([status]) => status === value)) return;
+  setPaperField(p, "status", value);
+  const history = JSON.parse(JSON.stringify(getPaperField(p, "history") || []));
+  const index = history.length - 1;
+  if (isCurrentSubmissionHistory(p, history, index)) {
+    history[index].status = value;
+    setPaperField(p, "history", history);
+  }
+  setPaperField(p, "lastUpdate", nowMinute());
+  refreshSubmissionStatus();
+}
 
 function getCardStore() {
   try { return JSON.parse(localStorage.getItem(CARD_STORE_KEY) || "{}"); } catch (e) { return {}; }
@@ -1707,14 +1756,15 @@ function editableHist(p, index, field) {
 }
 
 function setHistoryStatus(key, index, value) {
-  const p = findPaperByKey(key);
-  if (!p) return;
+  const p = (DATA.submitted || []).find(paper => paper._key === key);
+  if (!p || !SUBMITTED_STATUS_OPTIONS.some(([status]) => status === value)) return;
   const hist = JSON.parse(JSON.stringify(getPaperField(p, "history") || []));
   if (!hist[index]) return;
   hist[index].status = value;
   setPaperField(p, "history", hist);
-  render();
-  updateStatusBar();
+  if (isCurrentSubmissionHistory(p, hist, index)) setPaperField(p, "status", value);
+  setPaperField(p, "lastUpdate", nowMinute());
+  refreshSubmissionStatus();
 }
 
 // ---------- V1.7 优先级下拉 ----------
@@ -2067,9 +2117,8 @@ function statCard(label, number, foot, tone) {
 }
 function priorityBadge(p) { return `<span class="badge ${p === "High" ? "red" : p === "Medium" ? "orange" : "green"}">${p || "未设置"}</span>`; }
 function statusBadge(s) {
-  const labels = {submitted:"已投稿",with_editor:"初审中",under_review:"外审中",major_revision:"大修改",minor_revision:"小修改",accepted:"已录用",rejected:"已拒稿",withdrawn:"已撤稿"};
-  const cls = ["accepted","minor_revision"].includes(s) ? "green" : ["rejected","withdrawn"].includes(s) ? "red" : ["under_review","with_editor"].includes(s) ? "orange" : "blue";
-  return `<span class="badge ${cls}">${labels[s] || s || "—"}</span>`;
+  const label = SUBMITTED_STATUS_OPTIONS.find(([value]) => value === s)?.[1] || s || "—";
+  return `<span class="badge ${submissionStatusTone(s)}">${escapeHtml(label)}</span>`;
 }
 function empty(text) { return `<div class="empty">${text}</div>`; }
 function escapeHtml(value) { return String(value ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
