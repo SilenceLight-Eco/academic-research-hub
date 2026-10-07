@@ -165,9 +165,9 @@ test('legacy status values remain selected without silently rewriting them', () 
 test('new cache version reaches both outer pages and embedded paper pipeline', () => {
   const repo = path.join(__dirname, '..');
   for (const file of ['index.html', 'web/index.html', 'web/workbench.html']) {
-    assert.match(fs.readFileSync(path.join(repo, file), 'utf8'), /20261007-09/);
+    assert.match(fs.readFileSync(path.join(repo, file), 'utf8'), /20261007-10/);
   }
-  assert.match(fs.readFileSync(path.join(repo, 'web/workbench.html'), 'utf8'), /paper-pipeline-v2\.html\?v=20261007-09/);
+  assert.match(fs.readFileSync(path.join(repo, 'web/workbench.html'), 'utf8'), /paper-pipeline-v2\.html\?v=20261007-10/);
 });
 
 test('submission count derives from history, ignores legacy manual numbers and updates on add/delete', () => {
@@ -382,4 +382,15 @@ test('changing journal after manually adding a blank attempt does not double cou
   assert.equal(h.field('submissionCount'), 2);
   assert.equal(h.field('history')[0].journal, 'Journal B');
   assert.equal(h.field('history')[1].journal, 'Journal C');
+});
+
+test('submission-history layout outranks generic timeline rules and gives dates a full row', () => {
+  const css = html.match(/<style>([\s\S]*?)<\/style>/)[1];
+  const rule = css.match(/\.timeline-item\.submission-history-item\s*\{([^}]+)\}/);
+  assert.ok(rule, 'two class selectors must outrank the later single-class timeline rule');
+  assert.match(rule[1], /grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+  const date = css.match(/\.submission-history-item\s+\.submission-date\s*\{([^}]+)\}/);
+  assert.ok(date);
+  assert.match(date[1], /width:\s*180px/);
+  assert.match(date[1], /min-width:\s*160px/);
 });

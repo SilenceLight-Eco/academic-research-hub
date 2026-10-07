@@ -107,11 +107,12 @@ h1 { margin: 8px 0 8px; font-size: 31px; letter-spacing: -.8px; }
 .submission-date { min-width: 0; max-width: 100%; padding: 5px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text); font: inherit; }
 .submission-status-dates { margin-top: 8px; font-size: 12px; }
 .submission-status-dates summary { cursor: pointer; color: var(--muted); }
-.submission-date-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 8px; margin-top: 10px; }
+.submission-date-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; margin-top: 10px; }
 .submission-date-grid label { display: grid; gap: 4px; }
-.submission-history-item { grid-template-columns: minmax(140px, 155px) minmax(0, 1fr); }
+.timeline-item.submission-history-item { grid-template-columns: minmax(0, 1fr); gap: 10px; }
 .submission-history-item .timeline-date label { display: grid; gap: 4px; }
-@media (max-width: 720px) { .submission-history-item { grid-template-columns: 1fr; } }
+.submission-history-item .submission-date { width: 180px; min-width: 160px; font-size: 13px; padding: 7px 8px; }
+.submission-history-item .timeline-content { min-width: 0; }
 .muted { color: var(--muted); font-size: 12px; }
 .card-line { display: flex; justify-content: space-between; gap: 15px; font-size: 13px; }
 .card-line strong { font-weight: 600; text-align: right; }
