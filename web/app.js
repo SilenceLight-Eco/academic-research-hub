@@ -10365,6 +10365,7 @@
     });
     $('#peerReviewEditor').hidden = !item; $('#peerReviewEmpty').hidden = Boolean(item);
     $('#peerReviewSave').disabled = !item || state.peerReviewBusy || state.peerReviewLoading; $('#peerReviewDelete').disabled = !item || state.peerReviewBusy || state.peerReviewLoading;
+    ['peerReviewExportAuthor', 'peerReviewExportEditor'].forEach(function (id) { $('#' + id).disabled = !item || state.peerReviewBusy || state.peerReviewLoading; });
     ['peerReviewNew', 'peerReviewTrash', 'peerReviewSearch', 'peerReviewFilter'].forEach(function (id) { $('#' + id).disabled = state.peerReviewBusy || state.peerReviewLoading; });
     renderPeerReviewSaveStatus();
   }
@@ -10434,9 +10435,41 @@
       if (action === 'create' && activePeerReview()) $('#peerReviewTitle').focus();
     });
   }
+  function buildPeerReviewExport(item, audience) {
+    if (audience !== 'author' && audience !== 'editor') throw new Error('未知的导出对象');
+    // Explicit allowlists: never serialize the task wholesale or export personal notes.
+    function inline(value) { return String(value == null ? '' : value).replace(/[\r\n\t]+/g, ' ').trim(); }
+    function body(value) { return String(value == null ? '' : value); }
+    var title = inline(item.title) || '未命名审稿任务';
+    var round = Number(item.round);
+    if (!Number.isInteger(round) || round < 1 || round > 20) round = 1;
+    var lines = ['# 审稿意见 · ' + (audience === 'author' ? '给作者' : '仅供编辑（保密）'), '', '稿件：' + title];
+    if (inline(item.journal)) lines.push('期刊：' + inline(item.journal));
+    if (inline(item.manuscriptCode)) lines.push('稿件编号：' + inline(item.manuscriptCode));
+    lines.push('轮次：第 ' + round + ' 轮', '');
+    var sections = audience === 'author' ? [['总体评价', 'summary'], ['主要意见', 'majorComments'], ['次要意见', 'minorComments']] : [['审稿建议', 'recommendation'], ['仅供编辑的保密意见', 'editorComments']];
+    sections.forEach(function (section) { lines.push('## ' + section[0], '', body(item[section[1]]) || '（尚未填写）', ''); });
+    var safeTitle = title.replace(/[<>:"/\\|?*\x00-\x1f\x7f]/g, '_').slice(0, 80).replace(/[. ]+$/g, '') || '未命名审稿任务';
+    return { text: lines.join('\n'), filename: '审稿-' + safeTitle + '-第' + round + '轮-' + (audience === 'author' ? '作者版' : '编辑保密版') + '.md' };
+  }
+  function exportPeerReview(audience) {
+    if (!activePeerReview() || state.peerReviewTrashOpen || state.peerReviewBusy || state.peerReviewLoading || ['author', 'editor'].indexOf(audience) < 0) return false;
+    // Read the current form, including edits not yet synced; export does not submit or change status.
+    var payload = readPeerReviewPayload();
+    var hasContent = audience === 'author' ? [payload.summary, payload.majorComments, payload.minorComments].some(function (value) { return String(value || '').trim(); }) : String(payload.editorComments || '').trim() || ['接收', '小修', '大修', '拒稿'].indexOf(payload.recommendation) >= 0;
+    if (!hasContent) { toast(audience === 'author' ? '请先填写总体评价、主要意见或次要意见' : '请先填写编辑保密意见或选择审稿建议'); return false; }
+    try {
+      var exported = buildPeerReviewExport(payload, audience);
+      downloadBlob(new Blob([exported.text], { type: 'text/markdown;charset=utf-8' }), exported.filename);
+      toast((audience === 'author' ? '作者版' : '编辑保密版') + '已生成，正在下载；请核对内容后再提交');
+      return true;
+    } catch (error) { toast('导出失败：' + (error.message || '请重试')); return false; }
+  }
   function bindPeerReviewEvents() {
     $('#peerReviewNew').addEventListener('click', function () { mutatePeerReview('create'); });
     $('#peerReviewSave').addEventListener('click', savePeerReview);
+    $('#peerReviewExportAuthor').addEventListener('click', function () { exportPeerReview('author'); });
+    $('#peerReviewExportEditor').addEventListener('click', function () { exportPeerReview('editor'); });
     $('#peerReviewDelete').addEventListener('click', function () { mutatePeerReview('trash', state.peerReviewId); });
     $('#peerReviewTrash').addEventListener('click', function () {
       if (state.peerReviewBusy || state.peerReviewLoading) return;

@@ -11,9 +11,10 @@ const start = source.indexOf('  var peerReviewFieldMap =');
 const end = source.indexOf('  // ===== 变量库：', start);
 function harness(options = {}) {
   const state = { panel: 'peer-reviews', peerReviews: { items: [], trash: [] }, peerReviewId: null, peerReviewTrashOpen: false, peerReviewFilter: 'all', peerReviewQuery: '', peerReviewBusy: false, peerReviewLoading: false };
-  const nodes = new Map(), slots = {}, toasts = [], calls = []; let flushes = 0;
+  const nodes = new Map(), slots = {}, toasts = [], calls = [], downloads = []; let flushes = 0;
   function node(id) { if (!nodes.has(id)) nodes.set(id, { value: '', textContent: '', innerHTML: '', disabled: false, hidden: false, handlers: {}, focus() {}, addEventListener(type, handler) { this.handlers[type] = handler; } }); return nodes.get(id); }
-  const context = vm.createContext({ state, autoSaveSlots: slots, Date, console,
+  const context = vm.createContext({ state, autoSaveSlots: slots, Date, console, Blob,
+    downloadBlob: (blob, filename) => { if (options.downloadFails) throw new Error('Download blocked'); downloads.push({ blob, filename }); },
     $: selector => node(selector.slice(1)), escapeHtml: text => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'),
     toast: message => toasts.push(message), confirm: () => true,
     api: async (endpoint, init) => { calls.push({ endpoint, body: init ? JSON.parse(init.body) : undefined }); return options.api ? options.api(endpoint, init) : { ok: true, peerReviews: structuredClone(state.peerReviews) }; },
@@ -25,12 +26,72 @@ function harness(options = {}) {
     }
   });
   vm.runInContext(source.slice(start, end), context);
-  return { context, state, slots, node, calls, toasts, flushes: () => flushes };
+  return { context, state, slots, node, calls, toasts, downloads, flushes: () => flushes };
 }
 function addTask(h, extras = {}) {
   const item = { id: 'one', title: 'Review one', journal: 'JEEM', round: 1, status: '审稿中', recommendation: '尚未决定', dueAt: '', ...extras };
   h.state.peerReviews.items.push(item); h.state.peerReviewId = item.id; h.context.renderPeerReviews(); return item;
 }
+
+test('author export has a strict allowlist and excludes recommendation, confidential comments, notes and private links', () => {
+  const h = harness();
+  const task = Object.freeze({ title: 'Synthetic paper', journal: 'Synthetic journal', manuscriptCode: 'CODE-1', round: 2, summary: 'Overall text', majorComments: 'Major text\n\nSecond paragraph\n\n', minorComments: 'Minor text', recommendation: '拒稿', editorComments: 'EDITOR_SECRET', notes: 'PERSONAL_SECRET', manuscriptUrl: 'https://private.invalid/token', dueAt: '2040-01-01', unknownSecret: 'UNKNOWN_SECRET' });
+  const output = h.context.buildPeerReviewExport(task, 'author');
+  for (const value of ['Overall text', 'Major text\n\nSecond paragraph\n\n', 'Minor text', 'CODE-1', '第 2 轮']) assert.ok(output.text.includes(value));
+  for (const value of ['拒稿', 'EDITOR_SECRET', 'PERSONAL_SECRET', 'private.invalid', '2040-01-01', 'UNKNOWN_SECRET']) assert.ok(!output.text.includes(value), value);
+  assert.ok(output.filename.endsWith('-作者版.md')); assert.equal(task.majorComments, 'Major text\n\nSecond paragraph\n\n');
+});
+
+test('editor export includes only decision and confidential comments, never author comments or personal notes', () => {
+  const h = harness(); const output = h.context.buildPeerReviewExport({ title: 'Paper', summary: 'AUTHOR_SUMMARY', majorComments: 'AUTHOR_MAJOR', minorComments: 'AUTHOR_MINOR', recommendation: '小修', editorComments: 'EDITOR_ONLY', notes: 'PERSONAL_ONLY' }, 'editor');
+  for (const value of ['仅供编辑（保密）', '小修', 'EDITOR_ONLY']) assert.ok(output.text.includes(value));
+  for (const value of ['AUTHOR_SUMMARY', 'AUTHOR_MAJOR', 'AUTHOR_MINOR', 'PERSONAL_ONLY']) assert.ok(!output.text.includes(value));
+  assert.ok(output.filename.endsWith('-编辑保密版.md'));
+});
+
+test('export filenames are safe on Windows and header fields cannot inject additional lines', () => {
+  const h = harness(); const output = h.context.buildPeerReviewExport({ title: 'CON:<bad>/\\*?"|\n# Injected\t标题', journal: 'Journal\n## Not a section', manuscriptCode: 'Code\r\nOther', round: 99, summary: '中文意见' }, 'author');
+  assert.ok(!/[<>:"/\\|?*\x00-\x1f]/.test(output.filename)); assert.ok(output.filename.startsWith('审稿-'));
+  assert.ok(output.filename.includes('第1轮')); assert.ok(!output.text.includes('\n## Not a section')); assert.ok(output.text.includes('中文意见'));
+  assert.throws(() => h.context.buildPeerReviewExport({}, 'other'), /未知/);
+  assert.ok(h.context.buildPeerReviewExport({ title: 'a'.repeat(200), summary: 'x' }, 'author').filename.length < 110);
+});
+
+test('export reads the latest unsaved form without network calls, cloud saves or changing task status', async () => {
+  const h = harness(); const task = addTask(h, { summary: 'Old cloud value', editorComments: 'EDITOR_SECRET', notes: 'PERSONAL_SECRET' });
+  h.node('peerReviewSummary').value = '最新意见\n\n保留正文空行\n\n';
+  assert.equal(h.context.exportPeerReview('author'), true);
+  assert.equal(h.downloads.length, 1); assert.equal(h.downloads[0].blob.type, 'text/markdown;charset=utf-8');
+  const text = await h.downloads[0].blob.text(); assert.ok(text.includes('最新意见\n\n保留正文空行\n\n'));
+  for (const value of ['Old cloud value', 'EDITOR_SECRET', 'PERSONAL_SECRET']) assert.ok(!text.includes(value));
+  assert.equal(h.calls.length, 0); assert.equal(h.flushes(), 0); assert.equal(Object.keys(h.slots).length, 0); assert.equal(task.status, '审稿中');
+});
+
+test('empty author/editor exports do not download; a chosen decision is sufficient for editor export', () => {
+  const h = harness(); addTask(h, { summary: '   ', editorComments: '\n' });
+  assert.equal(h.context.exportPeerReview('author'), false); assert.equal(h.context.exportPeerReview('editor'), false); assert.equal(h.downloads.length, 0);
+  h.node('peerReviewRecommendation').value = '大修'; assert.equal(h.context.exportPeerReview('editor'), true); assert.equal(h.downloads.length, 1);
+});
+
+test('export buttons and handlers respect empty selection, trash, loading and busy states', () => {
+  const h = harness(); h.context.bindPeerReviewEvents(); h.context.renderPeerReviews();
+  for (const id of ['peerReviewExportAuthor', 'peerReviewExportEditor']) { assert.ok(html.includes('id="' + id + '"')); assert.equal(h.node(id).disabled, true); assert.ok(h.node(id).handlers.click); }
+  assert.equal(h.context.exportPeerReview('author'), false);
+  addTask(h, { summary: 'Author text', editorComments: 'Editor text' });
+  h.node('peerReviewExportAuthor').handlers.click(); h.node('peerReviewExportEditor').handlers.click(); assert.equal(h.downloads.length, 2);
+  for (const flag of ['peerReviewTrashOpen', 'peerReviewLoading', 'peerReviewBusy']) {
+    h.state[flag] = true; h.context.renderPeerReviews();
+    for (const id of ['peerReviewExportAuthor', 'peerReviewExportEditor']) assert.equal(h.node(id).disabled, true);
+    assert.equal(h.context.exportPeerReview('author'), false); h.state[flag] = false;
+  }
+  assert.equal(h.context.exportPeerReview('other'), false); assert.equal(h.downloads.length, 2);
+});
+
+test('failed local downloads show failure and never claim success', () => {
+  const h = harness({ downloadFails: true }); addTask(h, { summary: 'Test opinion' });
+  assert.equal(h.context.exportPeerReview('author'), false); assert.equal(h.downloads.length, 0);
+  assert.ok(h.toasts.some(text => text.includes('导出失败'))); assert.ok(h.toasts.every(text => !text.includes('已生成')));
+});
 
 test('all editor fields and event targets exist once; module, save, backup and search hooks are wired', () => {
   const h = harness(); h.context.bindPeerReviewEvents();

@@ -8,7 +8,7 @@
   <link rel="apple-touch-icon" href="icon-180.png">
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#174e4a">
-  <link rel="stylesheet" href="style.css?v=20261007-02">
+  <link rel="stylesheet" href="style.css?v=20261007-03">
   <style>.sidebar-nav .retired-content{display:none!important}</style>
 </head>
 <body>
@@ -378,7 +378,7 @@
       </section>
 
       <section class="panel" id="panel-peer-reviews">
-        <div class="peer-review-head"><div><h2><span class="peer-review-dot" aria-hidden="true"></span>我的审稿任务</h2><p>记录你作为审稿人的任务，与自己的在投论文分开管理。</p></div><div class="peer-review-actions"><button type="button" id="peerReviewTrash">回收站</button><button type="button" id="peerReviewNew">+ 新建审稿</button><button type="button" id="peerReviewSave" disabled>立即保存</button></div></div>
+        <div class="peer-review-head"><div><h2><span class="peer-review-dot" aria-hidden="true"></span>我的审稿任务</h2><p>记录你作为审稿人的任务，与自己的在投论文分开管理。</p></div><div class="peer-review-actions"><button type="button" id="peerReviewTrash">回收站</button><button type="button" id="peerReviewNew">+ 新建审稿</button><button type="button" id="peerReviewExportAuthor" title="仅导出总体评价、主要意见和次要意见" disabled>导出给作者</button><button type="button" id="peerReviewExportEditor" title="仅导出审稿建议和编辑保密意见，不包含个人备注" disabled>导出给编辑</button><button type="button" id="peerReviewSave" disabled>立即保存</button></div></div>
         <div class="peer-review-stats" id="peerReviewStats" aria-live="polite">待处理 0 · 7 天内截止 0 · 已逾期 0</div>
         <div class="peer-review-workspace">
           <aside class="peer-review-sidebar"><label>检索任务<input id="peerReviewSearch" type="search" placeholder="稿件名称、期刊、编号或意见"></label><label>任务状态<select id="peerReviewFilter"><option value="all">全部任务</option><option>待决定</option><option>审稿中</option><option>已提交</option><option>已拒绝</option><option>即将截止</option><option>已逾期</option></select></label><div id="peerReviewList" class="peer-review-list"></div></aside>
@@ -1568,9 +1568,9 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-<script src="static-api.js?v=20261007-02"></script>
+<script src="static-api.js?v=20261007-03"></script>
 <script src="reference-export.js?v=20260927-01"></script>
-  <script src="app.js?v=20261007-02"></script>
+  <script src="app.js?v=20261007-03"></script>
   <script src="attachments.js?v=20260925-1"></script>
 </body>
 </html>
