@@ -81,16 +81,17 @@ test('filter reads persisted status rather than stale card defaults after refres
   assert.match(refreshed.node('results').innerHTML, /没有找到匹配的论文/);
 });
 
-test('changing current status updates only the matching current history and retains old rejection', () => {
+test('resubmission appends a new round and retains all older statuses', () => {
   const h = harness(); h.seed({ history: [
     { journal: 'Journal A', date: '2026-09-01', status: 'rejected' },
     { journal: 'Journal B', date: '2026-10-01', status: 'under_review' }
   ] });
   h.context.setSubmissionStatus('paper1', 'resubmitted');
   const history = h.field('history');
-  assert.equal(history.length, 2);
+  assert.equal(history.length, 3);
   assert.equal(history[0].status, 'rejected');
-  assert.equal(history[1].status, 'resubmitted');
+  assert.equal(history[1].status, 'under_review');
+  assert.equal(history[2].status, 'resubmitted');
 });
 
 test('current history rejection updates top status and remains visible after reload', () => {
@@ -164,13 +165,13 @@ test('legacy status values remain selected without silently rewriting them', () 
 test('new cache version reaches both outer pages and embedded paper pipeline', () => {
   const repo = path.join(__dirname, '..');
   for (const file of ['index.html', 'web/index.html', 'web/workbench.html']) {
-    assert.match(fs.readFileSync(path.join(repo, file), 'utf8'), /20261007-08/);
+    assert.match(fs.readFileSync(path.join(repo, file), 'utf8'), /20261007-09/);
   }
-  assert.match(fs.readFileSync(path.join(repo, 'web/workbench.html'), 'utf8'), /paper-pipeline-v2\.html\?v=20261007-08/);
+  assert.match(fs.readFileSync(path.join(repo, 'web/workbench.html'), 'utf8'), /paper-pipeline-v2\.html\?v=20261007-09/);
 });
 
 test('submission count derives from history, ignores legacy manual numbers and updates on add/delete', () => {
-  const h = harness(); h.seed({ submissionCount: 9 });
+  const h = harness(); h.seed({ submissionCount: 9, currentJournal: '', submissionDate: '' });
   assert.equal(h.field('submissionCount'), 0);
   h.context.addHistory('paper1');
   assert.equal(h.field('submissionCount'), 1);
@@ -186,8 +187,8 @@ test('submission count derives from history, ignores legacy manual numbers and u
 });
 
 test('state changes within a round never count as another submission', () => {
-  const h = harness(); h.seed(); h.context.addHistory('paper1');
-  for (const state of ['with_editor', 'under_review', 'major_revision', 'rejected', 'resubmitted']) {
+  const h = harness(); h.seed({ currentJournal: '', submissionDate: '' }); h.context.addHistory('paper1');
+  for (const state of ['with_editor', 'under_review', 'major_revision', 'rejected']) {
     h.context.setHistoryStatus('paper1', 0, state);
     assert.equal(h.field('submissionCount'), 1);
   }
@@ -209,12 +210,17 @@ test('all independently chosen status dates survive switching states and reloadi
   for (let i = 0; i < states.length; i++) {
     h.context.setHistoryStatusDate('paper1', 0, states[i], `2026-10-${String(i + 1).padStart(2, '0')}`);
   }
-  for (let i = 0; i < states.length; i++) {
+  for (let i = 0; i < 7; i++) {
     h.context.setSubmissionStatus('paper1', states[i]);
     const refreshed = harness(h.stored);
     assert.equal(refreshed.run('getSubmissionStatusDate(DATA.submitted[0])'), `2026-10-${String(i + 1).padStart(2, '0')}`);
   }
   assert.equal(Object.keys(h.field('history')[0].statusDates).length, 9);
+  h.context.setSubmissionStatus('paper1', 'resubmitted');
+  assert.equal(h.run('getSubmissionStatusDate(DATA.submitted[0])'), '');
+  assert.equal(h.field('history')[0].statusDates.resubmitted, '2026-10-08');
+  h.context.setSubmissionStatusDate('paper1', '2026-10-10');
+  assert.equal(harness(h.stored).run('getSubmissionStatusDate(DATA.submitted[0])'), '2026-10-10');
 });
 
 test('top status date syncs only the matching current round; clearing stays cleared after reload', () => {
@@ -230,7 +236,7 @@ test('top status date syncs only the matching current round; clearing stays clea
 });
 
 test('top date still works without any history and does not invent a submission count', () => {
-  const h = harness(); h.seed();
+  const h = harness(); h.seed({ currentJournal: '', submissionDate: '' });
   h.context.setSubmissionStatusDate('paper1', '2026-10-06');
   assert.equal(harness(h.stored).run('getSubmissionStatusDate(DATA.submitted[0])'), '2026-10-06');
   assert.equal(h.field('submissionCount'), 0);
@@ -269,4 +275,111 @@ test('invalid calendar dates are rejected; leap days and clearing are allowed', 
   assert.equal(h.field('history')[0].statusDates.rejected, '2024-02-29');
   h.context.setHistoryDate('paper1', 0, '');
   assert.equal(h.field('history')[0].date, '');
+});
+
+test('rejecting then resubmitting from the card creates a second attempt without overwriting rejection', () => {
+  const h = harness(); h.seed({ history: [{ journal: 'Journal B', date: '2026-10-01', status: 'under_review', statusDates: { under_review: '2026-10-03' } }] });
+  h.context.setSubmissionStatus('paper1', 'rejected');
+  h.context.setSubmissionStatusDate('paper1', '2026-10-05');
+  assert.equal(h.field('submissionCount'), 1);
+  h.context.setSubmissionStatus('paper1', 'resubmitted');
+  assert.equal(h.field('submissionCount'), 2);
+  assert.equal(h.field('history')[0].status, 'rejected');
+  assert.equal(h.field('history')[0].statusDates.rejected, '2026-10-05');
+  assert.equal(h.field('history')[1].status, 'resubmitted');
+  assert.equal(h.field('submissionDate'), '');
+  assert.equal(h.run('getSubmissionStatusDate(DATA.submitted[0])'), '');
+  h.context.setSubmissionStatus('paper1', 'resubmitted');
+  assert.equal(h.field('submissionCount'), 2);
+  assert.equal(harness(h.stored).field('submissionCount'), 2);
+});
+
+test('selecting resubmitted in the current history also creates a new attempt', () => {
+  const h = harness(); h.seed({ status: 'rejected', history: [{ journal: 'Journal B', date: '2026-10-01', status: 'rejected' }] });
+  h.context.setHistoryStatus('paper1', 0, 'resubmitted');
+  assert.equal(h.field('submissionCount'), 2);
+  assert.equal(h.field('history')[0].status, 'rejected');
+  assert.equal(h.field('history')[1].status, 'resubmitted');
+  assert.equal(h.field('status'), 'resubmitted');
+});
+
+test('legacy current submissions without history are preserved before a new resubmission', () => {
+  const h = harness(); h.seed({ status: 'rejected', statusDates: { rejected: '2026-10-05' } });
+  h.context.setSubmissionStatus('paper1', 'resubmitted');
+  assert.equal(h.field('submissionCount'), 2);
+  assert.equal(h.field('history')[0].date, '2026-10-01');
+  assert.equal(h.field('history')[0].status, 'rejected');
+  assert.equal(h.field('history')[0].statusDates.rejected, '2026-10-05');
+});
+
+test('recording the current journal persists a real history record without duplicates', () => {
+  const h = harness(); h.seed({ status: 'rejected', statusDates: { rejected: '2026-10-05' } });
+  assert.match(h.run('renderSubmitted()'), /记录当前投稿到历史/);
+  h.context.recordCurrentSubmission('paper1');
+  assert.equal(h.field('submissionCount'), 1);
+  assert.equal(JSON.parse(h.stored.get('research-hub-fields-v1')).paper1.history[0].journal, 'Journal B');
+  h.context.recordCurrentSubmission('paper1');
+  assert.equal(h.field('submissionCount'), 1);
+});
+
+test('filling the first current journal automatically creates history; corrections sync without increasing count', () => {
+  const h = harness(); h.seed({ status: 'submitted', currentJournal: '', submissionDate: '' });
+  h.context.setCurrentSubmissionJournal('paper1', 'First journal');
+  assert.equal(h.field('history')[0].journal, 'First journal');
+  assert.equal(h.field('submissionCount'), 1);
+  h.context.setCurrentSubmissionJournal('paper1', 'First Journal');
+  assert.equal(h.field('history')[0].journal, 'First Journal');
+  assert.equal(h.field('submissionCount'), 1);
+});
+
+test('changing journal after rejection archives old journal and starts another counted attempt', () => {
+  const h = harness(); h.seed({ status: 'rejected', history: [{ journal: 'Journal B', date: '2026-10-01', status: 'rejected', statusDates: { rejected: '2026-10-05' } }] });
+  h.context.setCurrentSubmissionJournal('paper1', 'Journal C');
+  assert.equal(h.field('submissionCount'), 2);
+  assert.equal(h.field('history')[0].journal, 'Journal B');
+  assert.equal(h.field('history')[0].statusDates.rejected, '2026-10-05');
+  assert.equal(h.field('history')[1].journal, 'Journal C');
+  assert.equal(h.field('status'), 'resubmitted');
+  assert.equal(h.field('submissionDate'), '');
+  h.context.recordCurrentSubmission('paper1');
+  assert.equal(h.field('submissionCount'), 2);
+  h.context.setCurrentSubmissionJournal('paper1', 'Journal C corrected');
+  assert.equal(h.field('submissionCount'), 2);
+  assert.equal(harness(h.stored).field('history')[1].journal, 'Journal C corrected');
+});
+
+test('inline editing current journal routes to history and editing current history journal syncs back', () => {
+  const h = harness(); h.seed({ history: [{ journal: 'Journal B', date: '2026-10-01', status: 'under_review' }] });
+  h.context.commitEditField({ dataset: { editId: 'paper1' } }, { dataset: {}, value: 'Journal B edited' }, h.run('DATA.submitted[0]'), 'currentJournal');
+  assert.equal(h.field('history')[0].journal, 'Journal B edited');
+  h.context.commitEditField({ dataset: { editId: 'paper1', editHist: '0' } }, { dataset: {}, value: 'Journal B second edit' }, h.run('DATA.submitted[0]'), 'journal');
+  assert.equal(h.field('currentJournal'), 'Journal B second edit');
+  assert.equal(h.field('submissionCount'), 1);
+});
+
+test('reuse manually added blank round during resubmission without double counting', () => {
+  const h = harness(); h.seed({ status: 'rejected', history: [{ journal: 'Journal B', date: '2026-10-01', status: 'rejected' }] });
+  h.context.addHistory('paper1');
+  h.context.setSubmissionStatus('paper1', 'resubmitted');
+  assert.equal(h.field('submissionCount'), 2);
+  assert.equal(h.field('history')[0].status, 'rejected');
+  assert.equal(h.field('history')[1].status, 'resubmitted');
+});
+
+test('deleting all history does not recreate an implicit legacy round', () => {
+  const h = harness(); h.seed({ history: [{ journal: 'Journal B', date: '2026-10-01', status: 'under_review' }] });
+  h.context.deleteHistory('paper1', 0);
+  assert.equal(h.field('submissionCount'), 0);
+  assert.equal(harness(h.stored).field('submissionCount'), 0);
+});
+
+test('changing journal after manually adding a blank attempt does not double count', () => {
+  const h = harness(); h.seed({ status: 'rejected', history: [{ journal: 'Journal B', date: '2026-10-01', status: 'rejected' }] });
+  h.context.addHistory('paper1');
+  h.context.recordCurrentSubmission('paper1');
+  assert.equal(h.field('submissionCount'), 2);
+  h.context.setCurrentSubmissionJournal('paper1', 'Journal C');
+  assert.equal(h.field('submissionCount'), 2);
+  assert.equal(h.field('history')[0].journal, 'Journal B');
+  assert.equal(h.field('history')[1].journal, 'Journal C');
 });

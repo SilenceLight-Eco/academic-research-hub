@@ -808,6 +808,7 @@ function renderSubmittedCard(p) {
     ${renderPaperProjectLinks(p)}
     ${renderChipEditor(p, "authors", "作者")}
     <div class="card-line"><span class="muted">当前期刊</span><strong>${editableText(p, "currentJournal")}</strong></div>
+    <button class="btn" type="button" onmousedown="event.preventDefault()" onclick="recordCurrentSubmission('${p._key}')">记录当前投稿到历史</button>
     <div class="card-line"><span class="muted">投稿日期</span><input class="submission-date" type="date" aria-label="投稿日期" value="${submissionDateValue(getPaperField(p, "submissionDate"))}" onchange="setSubmissionDate('${p._key}', this.value)"></div>
     <div class="card-line"><span class="muted">当前状态日期</span><input class="submission-date" type="date" aria-label="当前状态日期" value="${submissionDateValue(getSubmissionStatusDate(p))}" onchange="setSubmissionStatusDate('${p._key}', this.value)"></div>
     <div class="card-line"><span class="muted">稿件编号</span><strong>${editableText(p, "manuscriptId")}</strong></div>
@@ -1269,6 +1270,14 @@ function getFieldStore() {
 function getPaperField(p, field) {
   if (field === "submissionCount") return (getPaperField(p, "history") || []).length;
   const store = getFieldStore();
+  // 旧卡片仅填写了当前投稿信息时，将它视为第一轮；明确删除全部历史后不重建。
+  if (field === "history" && !Object.prototype.hasOwnProperty.call(store[pkey(p)] || {}, "history") && !(p.history || []).length) {
+    const fields = store[pkey(p)] || {};
+    const current = name => fields[name] != null ? fields[name] : p[name];
+    if (current("currentJournal") || current("submissionDate")) {
+      return [{ journal: current("currentJournal") || "", date: current("submissionDate") || "", status: current("status") || "submitted", statusDates: current("statusDates") || {} }];
+    }
+  }
   if (store[pkey(p)] && store[pkey(p)][field] != null) return store[pkey(p)][field];
   return p[field];
 }
@@ -1373,9 +1382,19 @@ function commitEditField(span, input, p, field) {
         updateStatusBar();
         return;
       }
+      if (field === "currentJournal" && span.dataset.editHist === undefined) {
+        setCurrentSubmissionJournal(pkey(p), v);
+        return;
+      }
       if (span.dataset.editHist !== undefined) {
         const hist = JSON.parse(JSON.stringify(getPaperField(p, "history") || []));
-        if (hist[+span.dataset.editHist]) { hist[+span.dataset.editHist][field] = v; setPaperField(p, "history", hist); }
+        const index = +span.dataset.editHist;
+        if (hist[index]) {
+          const current = isCurrentSubmissionHistory(p, hist, index);
+          hist[index][field] = v;
+          setPaperField(p, "history", hist);
+          if (current && field === "journal") setPaperField(p, "currentJournal", v);
+        }
       } else {
         setPaperField(p, field, v);
       }
@@ -1445,6 +1464,8 @@ function setSubmissionDate(key, value) {
   if (current) {
     history[index].date = value;
     setPaperField(p, "history", history);
+  } else if (!history.length && value) {
+    setPaperField(p, "history", [currentSubmissionRecord(p)]);
   }
   setPaperField(p, "lastUpdate", nowMinute());
   refreshSubmissionStatus();
@@ -1531,13 +1552,87 @@ function refreshSubmissionStatus() {
 function setSubmissionStatus(key, value) {
   const p = (DATA.submitted || []).find(paper => paper._key === key);
   if (!p || !SUBMITTED_STATUS_OPTIONS.some(([status]) => status === value)) return;
-  setPaperField(p, "status", value);
   const history = JSON.parse(JSON.stringify(getPaperField(p, "history") || []));
+  if (value === "resubmitted" && getPaperField(p, "status") !== "resubmitted") {
+    beginResubmission(p, history);
+    return;
+  }
+  setPaperField(p, "status", value);
   const index = history.length - 1;
   if (isCurrentSubmissionHistory(p, history, index)) {
     history[index].status = value;
     setPaperField(p, "history", history);
+  } else if (!history.length) {
+    setPaperField(p, "history", [currentSubmissionRecord(p)]);
   }
+  setPaperField(p, "lastUpdate", nowMinute());
+  refreshSubmissionStatus();
+}
+
+function currentSubmissionRecord(p) {
+  return {
+    journal: getPaperField(p, "currentJournal") || "",
+    date: getPaperField(p, "submissionDate") || "",
+    status: getPaperField(p, "status") || "submitted",
+    statusDates: Object.assign({}, getPaperField(p, "statusDates") || {})
+  };
+}
+
+function recordCurrentSubmission(key) {
+  const p = (DATA.submitted || []).find(paper => paper._key === key);
+  if (!p) return;
+  document.querySelectorAll(".editable .edit-input").forEach(input => {
+    const span = input.closest(".editable");
+    if (span && span.dataset.editId === key) commitEditField(span, input, p, span.dataset.editField);
+  });
+  const record = currentSubmissionRecord(p);
+  if (!record.journal.trim()) { alert("请先填写当前期刊，再记录投稿历史。"); return; }
+  const history = JSON.parse(JSON.stringify(getPaperField(p, "history") || []));
+  const index = history.length - 1;
+  if (isCurrentSubmissionHistory(p, history, index)) {
+    history[index] = Object.assign({}, history[index], record, { statusDates: Object.assign({}, history[index].statusDates || {}, record.statusDates) });
+  } else if (!history.some(entry => entry.journal === record.journal && entry.date === record.date && entry.status === record.status)) history.push(record);
+  setPaperField(p, "history", history);
+  setPaperField(p, "lastUpdate", nowMinute());
+  refreshSubmissionStatus();
+}
+
+function setCurrentSubmissionJournal(key, value) {
+  const p = (DATA.submitted || []).find(paper => paper._key === key);
+  const journal = String(value || "").trim();
+  if (!p || !journal) return;
+  const previous = currentSubmissionRecord(p);
+  const history = JSON.parse(JSON.stringify(getPaperField(p, "history") || []));
+  const index = history.length - 1;
+  const current = isCurrentSubmissionHistory(p, history, index);
+  // 拒稿/撤稿后换期刊属于新一轮；活跃一轮内修改名称则只修正对应记录。
+  if (previous.journal && previous.journal !== journal && ["rejected", "withdrawn"].includes(previous.status)) {
+    beginResubmission(p, history, journal);
+    return;
+  } else if (current) history[index].journal = journal;
+  else if (!history.length) history.push(Object.assign({}, previous, { journal }));
+  setPaperField(p, "currentJournal", journal);
+  setPaperField(p, "history", history);
+  setPaperField(p, "lastUpdate", nowMinute());
+  refreshSubmissionStatus();
+}
+
+function beginResubmission(p, history, nextJournal) {
+  const previous = currentSubmissionRecord(p);
+  const index = history.length - 1;
+  // 手动 ＋ 刚新建的空白一轮可直接用于重投，不再重复增加一条。
+  const draft = index >= 0 && history[index].status === "submitted" && !history[index].journal && !history[index].date && !Object.values(history[index].statusDates || {}).some(Boolean);
+  if (!history.length || (!draft && !isCurrentSubmissionHistory(p, history, index) && (previous.journal || previous.date))) {
+    history.push(previous);
+  }
+  const next = { journal: nextJournal === undefined ? previous.journal : nextJournal, date: "", status: "resubmitted", statusDates: {} };
+  if (draft) history[index] = next;
+  else history.push(next);
+  setPaperField(p, "history", history);
+  setPaperField(p, "currentJournal", next.journal);
+  setPaperField(p, "status", "resubmitted");
+  setPaperField(p, "submissionDate", "");
+  setPaperField(p, "statusDates", {});
   setPaperField(p, "lastUpdate", nowMinute());
   refreshSubmissionStatus();
 }
@@ -1872,6 +1967,10 @@ function setHistoryStatus(key, index, value) {
   if (!p || !SUBMITTED_STATUS_OPTIONS.some(([status]) => status === value)) return;
   const hist = JSON.parse(JSON.stringify(getPaperField(p, "history") || []));
   if (!hist[index]) return;
+  if (value === "resubmitted" && hist[index].status !== "resubmitted" && isCurrentSubmissionHistory(p, hist, index)) {
+    beginResubmission(p, hist);
+    return;
+  }
   hist[index].status = value;
   setPaperField(p, "history", hist);
   if (isCurrentSubmissionHistory(p, hist, index)) setPaperField(p, "status", value);
