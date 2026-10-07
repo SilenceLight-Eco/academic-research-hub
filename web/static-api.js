@@ -613,13 +613,68 @@
         await saveWorkspace(workspace, syncRevision);
         return response({ ok: true });
       }
-      if (path === '/api/references/folders' && !await getUser()) return response({ error: '请先登录后选择文献文件夹' }, 401);
+      if ((path === '/api/references/folders' || path === '/api/peer-reviews') && !await getUser()) return response({ error: '请先登录后使用此功能' }, 401);
       var data = await loadWorkspace();
       if (!data && method === 'GET') data = currentPayload();
       if (!data) return response({ error: '请先登录后使用浏览器版工作台' }, 401);
       var dataRevision = workspaceRevision;
       activeWritePayload = data;
       activeWriteRevision = dataRevision;
+      if (path === '/api/peer-reviews') {
+        var reviewData = copyPayload(data);
+        var reviews = reviewData.peerReviews || { items: [], trash: [] };
+        reviews.items = Array.isArray(reviews.items) ? reviews.items : [];
+        reviews.trash = Array.isArray(reviews.trash) ? reviews.trash : [];
+        reviewData.peerReviews = reviews;
+        if (method === 'GET') return response({ ok: true, peerReviews: reviews });
+        if (method !== 'POST') return response({ error: '不支持此请求方法' }, 405);
+        if (['create', 'save', 'trash', 'restore', 'purge'].indexOf(body.action) < 0) return response({ error: '未知审稿操作' }, 400);
+        var reviewItem = reviews.items.find(function (item) { return String(item.id) === String(body.id); });
+        var reviewTrash = reviews.trash.find(function (entry) { return String(entry.id) === String(body.id); });
+        if ((body.action === 'save' || body.action === 'trash') && !reviewItem) return response({ error: '审稿任务已删除或不存在，请重新载入' }, 404);
+        if ((body.action === 'restore' || body.action === 'purge') && !reviewTrash) return response({ error: '回收站任务已不存在' }, 404);
+        if (body.action === 'create') {
+          var reviewId = 'review-' + nowId() + '-' + Math.random().toString(36).slice(2, 10);
+          reviews.items.push({ id: reviewId, title: '未命名审稿任务', journal: '', manuscriptCode: '', round: 1,
+            status: '待决定', invitedAt: '', dueAt: '', submittedAt: '', recommendation: '尚未决定', manuscriptUrl: '',
+            summary: '', majorComments: '', minorComments: '', editorComments: '', notes: '', created: nowText(), updated: nowText() });
+        }
+        if (body.action === 'save') {
+          var reviewStatuses = ['待决定', '审稿中', '已提交', '已拒绝'];
+          var reviewRecommendations = ['尚未决定', '接收', '小修', '大修', '拒稿'];
+          if (body.status !== undefined && reviewStatuses.indexOf(body.status) < 0) return response({ error: '请选择有效的审稿状态' }, 422);
+          if (body.recommendation !== undefined && reviewRecommendations.indexOf(body.recommendation) < 0) return response({ error: '请选择有效的审稿建议' }, 422);
+          if (body.round !== undefined && (!Number.isInteger(Number(body.round)) || Number(body.round) < 1 || Number(body.round) > 20)) return response({ error: '审稿轮次须为 1 至 20 的整数' }, 422);
+          var invalidReviewDate = ['invitedAt', 'dueAt', 'submittedAt'].find(function (field) {
+            if (body[field] === undefined || body[field] === '') return false;
+            var value = String(body[field]);
+            var parsed = new Date(value + 'T00:00:00Z');
+            return !/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value;
+          });
+          if (invalidReviewDate) return response({ error: '请填写有效的日期' }, 422);
+          if (body.manuscriptUrl && !/^https?:\/\//i.test(String(body.manuscriptUrl).trim())) return response({ error: '稿件链接须以 http:// 或 https:// 开头' }, 422);
+          var reviewLimits = { title: 1000, journal: 300, manuscriptCode: 200, manuscriptUrl: 2000, summary: 100000, majorComments: 100000, minorComments: 100000, editorComments: 100000, notes: 100000 };
+          var oversizedReviewField = Object.keys(reviewLimits).find(function (field) { return body[field] !== undefined && String(body[field]).length > reviewLimits[field]; });
+          if (oversizedReviewField) return response({ error: '输入内容过长，请缩短后重试' }, 422);
+          Object.keys(reviewLimits).forEach(function (field) { if (body[field] !== undefined) reviewItem[field] = String(body[field] || ''); });
+          reviewItem.title = String(reviewItem.title || '').trim() || '未命名审稿任务';
+          reviewItem.manuscriptUrl = String(reviewItem.manuscriptUrl || '').trim();
+          ['status', 'recommendation', 'invitedAt', 'dueAt', 'submittedAt'].forEach(function (field) { if (body[field] !== undefined) reviewItem[field] = String(body[field]); });
+          if (body.round !== undefined) reviewItem.round = Number(body.round);
+          reviewItem.updated = nowText();
+        }
+        if (body.action === 'trash') {
+          reviews.trash.unshift({ id: 'review-trash-' + nowId() + '-' + Math.random().toString(36).slice(2, 10), item: reviewItem, deletedAt: nowText() });
+          reviews.items = reviews.items.filter(function (item) { return String(item.id) !== String(body.id); });
+        }
+        if (body.action === 'restore') {
+          if (!reviewTrash.item || reviews.items.some(function (item) { return String(item.id) === String(reviewTrash.item.id); })) return response({ error: '无法恢复此任务，请重新载入' }, 409);
+          reviews.items.push(reviewTrash.item);
+        }
+        if (body.action === 'restore' || body.action === 'purge') reviews.trash = reviews.trash.filter(function (entry) { return String(entry.id) !== String(body.id); });
+        await saveWorkspace(reviewData, dataRevision);
+        return response({ ok: true, peerReviews: reviews, createdId: body.action === 'create' ? reviewId : undefined });
+      }
       if (path === '/api/prompt-library' && body.action === 'reorder') {
         var orderedLibrary = data.promptLibrary || (data.promptLibrary = { prompts: [], trash: [], categories: ['通用'] });
         orderedLibrary.prompts = Array.isArray(orderedLibrary.prompts) ? orderedLibrary.prompts : [];

@@ -7448,3 +7448,46 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .project-backlinks button { max-width:100%; overflow:hidden; padding:5px 8px; border:1px solid var(--accent); border-radius:6px; background:var(--accent-dim); color:var(--accent); cursor:pointer; font:inherit; text-overflow:ellipsis; white-space:nowrap; }
 .project-report-year { display:inline-flex; align-items:center; gap:5px; padding:0 4px; color:var(--text-muted); font-size:11px; }
 .project-report-year input { width:62px; padding:6px 5px; border:1px solid var(--hairline); border-radius:6px; outline:0; background:var(--glass-strong); color:var(--text); font:12px "Noto Sans SC",sans-serif; }
+
+/* 我的审稿任务：沿用现有主题，列表和表单分别滚动。 */
+.peer-review-head { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:14px; margin-bottom:12px; }
+.peer-review-head h2 { display:flex; align-items:center; gap:9px; margin:0; color:var(--text); font:600 20px/1.5 "Noto Sans SC",sans-serif; }
+.peer-review-dot { flex:none; width:7px; height:7px; border-radius:50%; background:var(--accent); }
+.peer-review-head p,.peer-review-stats { color:var(--text-muted); font-size:12px; line-height:1.7; }
+.peer-review-head p { margin:6px 0 0; }
+.peer-review-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.peer-review-actions button,.peer-review-title-row button,.peer-review-trash-row button { padding:7px 12px; border:1px solid var(--hairline); border-radius:7px; background:var(--glass-strong); color:var(--text-secondary); cursor:pointer; font:12px "Noto Sans SC",sans-serif; }
+.peer-review-actions button:hover:not(:disabled),.peer-review-trash-row button:hover:not(:disabled) { color:var(--accent); border-color:var(--accent); }
+.peer-review-actions #peerReviewNew,.peer-review-actions #peerReviewSave { color:var(--accent); border-color:var(--accent); background:var(--accent-dim); }
+.peer-review-actions button:disabled { opacity:.45; cursor:not-allowed; }
+.peer-review-stats { margin:0 0 12px; }
+.peer-review-workspace { display:grid; grid-template-columns:260px minmax(0,1fr); height:min(72vh,850px); min-height:460px; overflow:hidden; border:1px solid var(--hairline); border-radius:12px; background:var(--glass); }
+.peer-review-sidebar { display:flex; flex-direction:column; min-height:0; padding:16px 12px; gap:12px; border-right:1px solid var(--hairline); }
+.peer-review-sidebar label,.peer-review-editor label { display:grid; gap:6px; color:var(--text-secondary); font-size:12px; line-height:1.7; }
+.peer-review-sidebar input,.peer-review-sidebar select,.peer-review-editor input,.peer-review-editor select,.peer-review-editor textarea { width:100%; min-width:0; box-sizing:border-box; padding:8px 10px; border:1px solid var(--hairline); border-radius:7px; outline:0; background:var(--glass-strong); color:var(--text); font:13px/1.7 "Noto Sans SC",sans-serif; }
+.peer-review-sidebar input:focus-visible,.peer-review-sidebar select:focus-visible,.peer-review-editor input:focus-visible,.peer-review-editor select:focus-visible,.peer-review-editor textarea:focus-visible { border-color:var(--accent); outline:2px solid var(--accent-dim); }
+.peer-review-list { overflow:auto; min-height:0; flex:1; }
+.peer-review-task { display:grid; width:100%; gap:7px; box-sizing:border-box; padding:12px 10px; margin:0 0 8px; border:1px solid var(--hairline-soft); border-radius:8px; text-align:left; background:transparent; color:var(--text); cursor:pointer; font:12px/1.6 "Noto Sans SC",sans-serif; }
+.peer-review-task.is-active { border-color:var(--accent); background:var(--accent-dim); }
+.peer-review-task strong { font-size:13px; overflow-wrap:anywhere; }
+.peer-review-task small { color:var(--text-muted); overflow-wrap:anywhere; }
+.peer-review-task > span { display:flex; flex-wrap:wrap; justify-content:space-between; gap:6px; color:var(--text-secondary); font-size:11px; }
+.peer-review-deadline { font-style:normal; color:var(--text-muted); }
+.peer-review-deadline.overdue { color:#c64444; }
+.peer-review-deadline.soon { color:#b87b15; }
+.peer-review-content { padding:18px 22px; overflow:auto; min-width:0; }
+.peer-review-notice { margin:0 0 16px; padding:10px 12px; border-left:3px solid var(--accent); border-radius:4px; background:var(--accent-dim); color:var(--text-muted); font-size:11px; line-height:1.8; }
+.peer-review-editor { display:grid; gap:16px; }
+.peer-review-editor[hidden],.peer-review-empty[hidden] { display:none; }
+.peer-review-title-row { display:flex; align-items:flex-end; gap:12px; }
+.peer-review-title-row > label { flex:1; min-width:0; }
+.peer-review-title-row button { flex:none; color:#c64444; }
+.peer-review-meta { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px 16px; }
+.peer-review-editor textarea { min-height:105px; resize:vertical; }
+.peer-review-empty { padding:35px 12px; color:var(--text-muted); font-size:12px; text-align:center; }
+.peer-review-save-status { margin-top:16px; color:var(--text-muted); font-size:11px; line-height:1.8; }
+.peer-review-trash-row { display:grid; gap:6px; margin-bottom:10px; padding:10px; border:1px solid var(--hairline-soft); border-radius:8px; overflow-wrap:anywhere; font-size:12px; }
+.peer-review-trash-row small { color:var(--text-muted); }
+.peer-review-trash-row div { display:flex; flex-wrap:wrap; gap:6px; }
+@media (max-width:800px) { .peer-review-workspace { grid-template-columns:210px minmax(0,1fr); }.peer-review-content { padding:16px; }.peer-review-meta { grid-template-columns:minmax(0,1fr); } }
+@media (max-width:580px) { .peer-review-workspace { display:flex; flex-direction:column; height:78vh; }.peer-review-sidebar { flex:none; height:210px; border-right:0; border-bottom:1px solid var(--hairline); }.peer-review-content { flex:1; min-height:0; }.peer-review-title-row { align-items:stretch; flex-direction:column; } }
