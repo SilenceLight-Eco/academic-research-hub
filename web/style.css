@@ -7512,7 +7512,10 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .peer-review-folder-empty { font-size:11px; color:var(--text-muted); }
 .peer-review-folder-form[hidden] { display:none; }
 .peer-review-folder-form > div { display:flex; flex-wrap:wrap; gap:5px; margin-top:6px; }
-.today-grid-reminders { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.today-grid-reminders { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.revision-deadline { font-size:12px; font-weight:600; color:var(--text-muted); }
+.revision-deadline.overdue { color:#c64444; }
+.revision-deadline.soon { color:#b87b15; }
 .today-review-task { display:grid; width:100%; gap:4px; margin:6px 0; padding:9px 11px; border:1px solid var(--hairline); border-radius:8px; background:var(--glass-strong); color:var(--text); text-align:left; cursor:pointer; font:13px/1.7 "Noto Sans SC",sans-serif; }
 .today-review-task:hover,.today-review-task:focus-visible { border-color:var(--accent); outline:2px solid var(--accent-dim); }
 .today-review-task-title { font-weight:500; overflow-wrap:anywhere; }

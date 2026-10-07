@@ -33,7 +33,8 @@ function harness(stored = new Map()) {
       getElementById: id => id === 'priorityFilter' ? null : node(id)
     },
     window: {}, Event: class { constructor(type) { this.type = type; } },
-    console, Date, alert() {}, confirm: () => true
+    console, Date, alert() {}, confirm: () => true,
+    SubmissionDeadlines: require('../web/submission-deadlines.js')
   });
   vm.runInContext(source, context);
   vm.runInContext('DATA = Object.assign({}, DATA_EMBEDDED); currentPage = "submitted"; syncLists();', context);
@@ -165,9 +166,9 @@ test('legacy status values remain selected without silently rewriting them', () 
 test('new cache version reaches both outer pages and embedded paper pipeline', () => {
   const repo = path.join(__dirname, '..');
   for (const file of ['index.html', 'web/index.html', 'web/workbench.html']) {
-    assert.match(fs.readFileSync(path.join(repo, file), 'utf8'), /20261007-11/);
+    assert.match(fs.readFileSync(path.join(repo, file), 'utf8'), /20261007-12/);
   }
-  assert.match(fs.readFileSync(path.join(repo, 'web/workbench.html'), 'utf8'), /paper-pipeline-v2\.html\?v=20261007-11/);
+  assert.match(fs.readFileSync(path.join(repo, 'web/workbench.html'), 'utf8'), /paper-pipeline-v2\.html\?v=20261007-12/);
 });
 
 test('submission count derives from history, ignores legacy manual numbers and updates on add/delete', () => {
@@ -447,4 +448,88 @@ test('filling the first journal does not erase a manuscript number already enter
   assert.equal(h.field('manuscriptId'), 'FIRST-100');
   assert.equal(h.field('history')[0].manuscriptId, 'FIRST-100');
   assert.equal(h.field('submissionCount'), 1);
+});
+
+test('major and minor revision show the deadline picker; other statuses do not', () => {
+  const h = harness(); h.seed();
+  for (const status of ['major_revision', 'minor_revision']) {
+    h.context.setSubmissionStatus('paper1', status);
+    assert.match(h.run('renderSubmitted()'), /aria-label="返修截止日期"/);
+  }
+  for (const status of ['accepted', 'rejected', 'withdrawn', 'under_review']) {
+    h.context.setSubmissionStatus('paper1', status);
+    assert.doesNotMatch(h.run('renderSubmittedCard(DATA.submitted[0])'), /aria-label="返修截止日期"/);
+  }
+});
+
+test('revision deadline automatically persists, mirrors current round and survives refresh', () => {
+  const h = harness(); h.seed({ status: 'major_revision' });
+  h.context.setRevisionDueAt('paper1', '2026-10-20');
+  assert.equal(h.field('revisionDueAt'), '2026-10-20');
+  assert.equal(h.field('history')[0].revisionDueAt, '2026-10-20');
+  const fresh = harness(h.stored);
+  assert.equal(fresh.field('revisionDueAt'), '2026-10-20');
+  assert.match(fresh.run('renderSubmitted()'), /aria-label="返修截止日期" value="2026-10-20"/);
+  assert.ok(fresh.field('lastUpdated'));
+});
+
+test('invalid deadlines are rejected; clearing a deadline persists an explicit blank', () => {
+  const h = harness(); h.seed({ status: 'minor_revision' });
+  h.context.setRevisionDueAt('paper1', '2026-10-20');
+  for (const invalid of ['2026-02-30', 'not-date', '0000-01-01']) h.context.setRevisionDueAt('paper1', invalid);
+  assert.equal(h.field('revisionDueAt'), '2026-10-20');
+  h.context.setRevisionDueAt('paper1', '');
+  assert.equal(harness(h.stored).run('submissionRevisionDueAt(DATA.submitted[0])'), '');
+  assert.equal(h.field('history')[0].revisionDueAt, '');
+});
+
+test('resubmission preserves the old deadline and new revision does not resurrect it', () => {
+  const h = harness(); h.seed({ status: 'major_revision', revisionDueAt: '2026-10-20', history: [{ journal: 'Journal B', date: '2026-10-01', status: 'major_revision' }] });
+  h.context.setSubmissionStatus('paper1', 'resubmitted');
+  assert.equal(h.field('history')[0].revisionDueAt, '2026-10-20');
+  assert.equal(h.field('history')[1].revisionDueAt, '');
+  assert.equal(h.field('revisionDueAt'), '');
+  h.context.setSubmissionStatus('paper1', 'minor_revision');
+  assert.equal(h.run('submissionRevisionDueAt(DATA.submitted[0])'), '');
+  assert.equal(h.field('submissionCount'), 2);
+});
+
+test('switching journals archives the deadline and clears it for the new attempt', () => {
+  const h = harness(); h.seed({ status: 'minor_revision', revisionDueAt: '2026-10-20' });
+  h.context.setCurrentSubmissionJournal('paper1', 'Journal C');
+  assert.equal(h.field('history')[0].revisionDueAt, '2026-10-20');
+  assert.equal(h.field('history')[1].revisionDueAt, '');
+  assert.equal(h.field('revisionDueAt'), '');
+  assert.match(h.run('renderSubmissionHistory(DATA.submitted[0], getPaperField(DATA.submitted[0], "history")[0], 0)'), /本轮返修截止/);
+});
+
+test('editing an old deadline cannot change the current reminder; current history editing stays linked', () => {
+  const h = harness(); h.seed({ status: 'major_revision' });
+  h.context.setRevisionDueAt('paper1', '2026-10-20');
+  h.context.setSubmissionStatus('paper1', 'resubmitted');
+  h.context.setSubmissionStatus('paper1', 'minor_revision');
+  h.context.setRevisionDueAt('paper1', '2026-11-10');
+  h.context.setHistoryRevisionDueAt('paper1', 0, '2026-10-25');
+  assert.equal(h.field('revisionDueAt'), '2026-11-10');
+  h.context.setHistoryRevisionDueAt('paper1', 1, '2026-11-15');
+  assert.equal(h.field('revisionDueAt'), '2026-11-15');
+  assert.equal(h.field('history')[0].revisionDueAt, '2026-10-25');
+});
+
+test('current deadline can be restored from matching history but not from an old journal', () => {
+  const h = harness(); h.seed({ status: 'major_revision', history: [{ journal: 'Journal B', date: '2026-10-01', status: 'major_revision', revisionDueAt: '2026-10-20' }] });
+  assert.equal(h.run('submissionRevisionDueAt(DATA.submitted[0])'), '2026-10-20');
+  h.context.setPaperField(h.run('DATA.submitted[0]'), 'currentJournal', 'Another Journal');
+  assert.equal(h.run('submissionRevisionDueAt(DATA.submitted[0])'), '');
+});
+
+test('deadline changes notify the same-origin parent without a page reload', () => {
+  const h = harness(); h.seed({ status: 'major_revision' });
+  const messages = [];
+  h.context.location = { origin: 'https://example.test' };
+  h.context.window.parent = { postMessage: (data, origin) => messages.push({ data, origin }) };
+  h.context.setRevisionDueAt('paper1', '2026-10-20');
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].data.type, 'academic-research-hub-submissions-changed');
+  assert.equal(messages[0].origin, 'https://example.test');
 });

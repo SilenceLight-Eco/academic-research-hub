@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Research Hub · Academic Dashboard</title><style>@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;600;700;800&display=swap');
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Research Hub · Academic Dashboard</title><script src="submission-deadlines.js?v=20261007-12"></script><style>@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;600;700;800&display=swap');
 
 :root {
   --bg: #f5f7fb;
@@ -258,6 +258,12 @@ h1 { margin: 8px 0 8px; font-size: 31px; letter-spacing: -.8px; }
 .email-input { flex: 1; min-width: 240px; max-width: 460px; border: 1px solid var(--line); background: var(--field-bg); color: var(--text); border-radius: 9px; padding: 8px 11px; outline: none; font-size: 12px; }
 .email-input:focus { border-color: var(--accent); }
 .email-status { font-size: 11px; }
+
+.revision-deadline-row { display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:10px 12px; border:1px solid var(--line); border-radius:9px; background:var(--panel); font-size:12px; }
+.revision-deadline-row label { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.revision-deadline { display:inline-block; padding:3px 8px; border-radius:6px; color:var(--muted); font-size:12px; font-weight:600; }
+.revision-deadline.soon { color:var(--orange); background:var(--orange-soft); }
+.revision-deadline.overdue { color:var(--red); background:var(--red-soft); }
 
 /* ===== V2.1 引用次数操作 ===== */
 .citation-actions { margin-top: 10px; }
@@ -812,6 +818,7 @@ function renderSubmittedCard(p) {
     <button class="btn" type="button" onmousedown="event.preventDefault()" onclick="recordCurrentSubmission('${p._key}')">记录当前投稿到历史</button>
     <div class="card-line"><span class="muted">投稿日期</span><input class="submission-date" type="date" aria-label="投稿日期" value="${submissionDateValue(getPaperField(p, "submissionDate"))}" onchange="setSubmissionDate('${p._key}', this.value)"></div>
     <div class="card-line"><span class="muted">当前状态日期</span><input class="submission-date" type="date" aria-label="当前状态日期" value="${submissionDateValue(getSubmissionStatusDate(p))}" onchange="setSubmissionStatusDate('${p._key}', this.value)"></div>
+    ${renderRevisionDeadline(p)}
     <div class="card-line"><span class="muted">稿件编号</span><strong>${editableText(p, "manuscriptId")}</strong></div>
     <div class="card-line"><span class="muted">投稿次数</span><strong title="按投稿历史记录数自动计算，状态变化不会增加次数">${getPaperField(p, "submissionCount")} 次</strong></div>
     <div class="next-action"><b>NEXT ACTION</b>${editableText(p, "nextAction")}</div>
@@ -1276,7 +1283,7 @@ function getPaperField(p, field) {
     const fields = store[pkey(p)] || {};
     const current = name => fields[name] != null ? fields[name] : p[name];
     if (current("currentJournal") || current("submissionDate")) {
-      return [{ journal: current("currentJournal") || "", date: current("submissionDate") || "", manuscriptId: current("manuscriptId") || "", status: current("status") || "submitted", statusDates: current("statusDates") || {} }];
+      return [{ journal: current("currentJournal") || "", date: current("submissionDate") || "", manuscriptId: current("manuscriptId") || "", status: current("status") || "submitted", statusDates: current("statusDates") || {}, revisionDueAt: current("revisionDueAt") || "" }];
     }
   }
   if (store[pkey(p)] && store[pkey(p)][field] != null) return store[pkey(p)][field];
@@ -1428,6 +1435,47 @@ function submissionDateValue(value) {
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date ? date : "";
 }
 
+function submissionRevisionDueAt(p) {
+  return SubmissionDeadlines.dueAtForPaper({
+    revisionDueAt: getPaperField(p, "revisionDueAt"), history: getPaperField(p, "history"),
+    currentJournal: getPaperField(p, "currentJournal"), submissionDate: getPaperField(p, "submissionDate")
+  });
+}
+
+function renderRevisionDeadline(p) {
+  const status = getPaperField(p, "status");
+  if (!SubmissionDeadlines.isRevision(status)) return "";
+  const dueAt = submissionRevisionDueAt(p);
+  const deadline = SubmissionDeadlines.evaluate(status, dueAt);
+  return `<div class="revision-deadline-row"><label>返修截止日期<input class="submission-date" type="date" aria-label="返修截止日期" value="${dueAt}" onchange="setRevisionDueAt('${p._key}', this.value)"></label>${deadline ? `<span class="revision-deadline ${deadline.kind}">${escapeHtml(deadline.label)}</span>` : '<span class="muted">选择日期后自动提醒</span>'}</div>`;
+}
+
+function setRevisionDueAt(key, value) {
+  const p = (DATA.submitted || []).find(paper => paper._key === key);
+  if (!p || (value && !SubmissionDeadlines.dateOnly(value))) return;
+  const history = JSON.parse(JSON.stringify(getPaperField(p, "history") || []));
+  const index = history.length - 1;
+  const current = isCurrentSubmissionHistory(p, history, index);
+  setPaperField(p, "revisionDueAt", value);
+  if (current) {
+    history[index].revisionDueAt = value;
+    setPaperField(p, "history", history);
+  } else if (!history.length) setPaperField(p, "history", [currentSubmissionRecord(p)]);
+  refreshSubmissionStatus();
+}
+
+function setHistoryRevisionDueAt(key, index, value) {
+  const p = (DATA.submitted || []).find(paper => paper._key === key);
+  if (!p || (value && !SubmissionDeadlines.dateOnly(value))) return;
+  const history = JSON.parse(JSON.stringify(getPaperField(p, "history") || []));
+  if (!history[index]) return;
+  const current = isCurrentSubmissionHistory(p, history, index);
+  history[index].revisionDueAt = value;
+  setPaperField(p, "history", history);
+  if (current) setPaperField(p, "revisionDueAt", value);
+  refreshSubmissionStatus();
+}
+
 function submissionHistoryStatusDate(history, status) {
   const dates = history.statusDates || {};
   if (Object.prototype.hasOwnProperty.call(dates, status)) return dates[status] || "";
@@ -1453,6 +1501,7 @@ function renderSubmissionHistory(p, history, index) {
       <select class="select hist-status" aria-label="第 ${index + 1} 次投稿状态" onchange="setHistoryStatus('${p._key}', ${index}, this.value)">${SUBMITTED_STATUS_OPTIONS.map(([value, label]) => `<option value="${value}" ${history.status === value ? "selected" : ""}>${label}</option>`).join("")}</select>
       <input class="submission-date" type="date" aria-label="第 ${index + 1} 次投稿当前状态日期" data-status="${escapeHtml(history.status || "submitted")}" value="${submissionDateValue(submissionHistoryStatusDate(history, history.status))}" onchange="setHistoryStatusDate('${p._key}', ${index}, this.dataset.status, this.value)">
       <button class="stage-tool" title="删除该记录" onclick="deleteHistory('${p._key}', ${index})">✕</button>
+      ${history.revisionDueAt || SubmissionDeadlines.isRevision(history.status) ? `<div class="card-line"><label>本轮返修截止<input class="submission-date" type="date" aria-label="第 ${index + 1} 次投稿返修截止日期" value="${SubmissionDeadlines.dateOnly(history.revisionDueAt)}" onchange="setHistoryRevisionDueAt('${p._key}', ${index}, this.value)"></label></div>` : ""}
       <details class="submission-status-dates" data-submission-times="${escapeHtml(p._key)}:${index}">
         <summary>各状态时间</summary>
         <div class="submission-date-grid">${SUBMITTED_STATUS_OPTIONS.map(([status, label]) => `<label>${label}<input class="submission-date" type="date" aria-label="第 ${index + 1} 次投稿${label}日期" value="${submissionDateValue(submissionHistoryStatusDate(history, status))}" onchange="setHistoryStatusDate('${p._key}', ${index}, '${status}', this.value)"></label>`).join("")}</div>
@@ -1554,6 +1603,7 @@ function refreshSubmissionStatus() {
     document.querySelectorAll("[data-submission-times]").forEach(el => { el.open = openDates.has(el.dataset.submissionTimes); });
   }
   updateStatusBar();
+  if (window.parent && window.parent !== window) window.parent.postMessage({ type: "academic-research-hub-submissions-changed" }, location.origin);
 }
 
 function setSubmissionStatus(key, value) {
@@ -1582,7 +1632,8 @@ function currentSubmissionRecord(p) {
     date: getPaperField(p, "submissionDate") || "",
     manuscriptId: getPaperField(p, "manuscriptId") || "",
     status: getPaperField(p, "status") || "submitted",
-    statusDates: Object.assign({}, getPaperField(p, "statusDates") || {})
+    statusDates: Object.assign({}, getPaperField(p, "statusDates") || {}),
+    revisionDueAt: submissionRevisionDueAt(p)
   };
 }
 
@@ -1646,12 +1697,13 @@ function beginResubmission(p, history, nextJournal) {
   const previous = currentSubmissionRecord(p);
   const index = history.length - 1;
   if (isCurrentSubmissionHistory(p, history, index) && previous.manuscriptId) history[index].manuscriptId = previous.manuscriptId;
+  if (isCurrentSubmissionHistory(p, history, index)) history[index].revisionDueAt = previous.revisionDueAt;
   // 手动 ＋ 刚新建的空白一轮可直接用于重投，不再重复增加一条。
-  const draft = index >= 0 && history[index].status === "submitted" && !history[index].journal && !history[index].date && !history[index].manuscriptId && !Object.values(history[index].statusDates || {}).some(Boolean);
+  const draft = index >= 0 && history[index].status === "submitted" && !history[index].journal && !history[index].date && !history[index].manuscriptId && !history[index].revisionDueAt && !Object.values(history[index].statusDates || {}).some(Boolean);
   if (!history.length || (!draft && !isCurrentSubmissionHistory(p, history, index) && (previous.journal || previous.date))) {
     history.push(previous);
   }
-  const next = { journal: nextJournal === undefined ? previous.journal : nextJournal, date: "", manuscriptId: "", status: "resubmitted", statusDates: {} };
+  const next = { journal: nextJournal === undefined ? previous.journal : nextJournal, date: "", manuscriptId: "", status: "resubmitted", statusDates: {}, revisionDueAt: "" };
   if (draft) history[index] = next;
   else history.push(next);
   setPaperField(p, "history", history);
@@ -1660,6 +1712,7 @@ function beginResubmission(p, history, nextJournal) {
   setPaperField(p, "submissionDate", "");
   setPaperField(p, "manuscriptId", "");
   setPaperField(p, "statusDates", {});
+  setPaperField(p, "revisionDueAt", "");
   setPaperField(p, "lastUpdate", nowMinute());
   refreshSubmissionStatus();
 }
@@ -1708,7 +1761,7 @@ function syncLists() {
 
 const NEW_CARD_TEMPLATES = {
   research: () => ({ title: "", authors: [], researchArea: "未分类", status: "writing", progress: 0, priority: "Medium", lastUpdated: nowMinute(), targetJournal: "", filePath: "", nextAction: "", notes: "", keywords: [], knowledgeLink: "" }),
-  submitted: () => ({ title: "", authors: [], currentJournal: "", status: "submitted", submissionDate: "", statusDates: {}, lastUpdate: nowMinute(), manuscriptId: "", submissionCount: 0, targetLevel: "SSCI / SCIE", filePath: "", editor: "—", nextAction: "", notes: "", history: [] }),
+  submitted: () => ({ title: "", authors: [], currentJournal: "", status: "submitted", submissionDate: "", statusDates: {}, revisionDueAt: "", lastUpdate: nowMinute(), manuscriptId: "", submissionCount: 0, targetLevel: "SSCI / SCIE", filePath: "", editor: "—", nextAction: "", notes: "", history: [] }),
   published: () => ({ title: "", authors: [], abstract: "", journal: "", language: "en", year: new Date().getFullYear(), volume: "", issue: "", pages: "", doi: "", citations: 0, citationSource: "手工录入", filePath: "", keywords: [] })
 };
 
@@ -2063,7 +2116,7 @@ function addHistory(key) {
   const p = (DATA.submitted || []).find(paper => paper._key === key);
   if (!p) return;
   const hist = JSON.parse(JSON.stringify(getPaperField(p, "history") || []));
-  hist.push({ journal: hist.length ? "" : getPaperField(p, "currentJournal") || "", date: hist.length ? "" : getPaperField(p, "submissionDate") || "", manuscriptId: hist.length ? "" : getPaperField(p, "manuscriptId") || "", status: hist.length ? "submitted" : getPaperField(p, "status") || "submitted", statusDates: hist.length ? {} : getPaperField(p, "statusDates") || {} });
+  hist.push({ journal: hist.length ? "" : getPaperField(p, "currentJournal") || "", date: hist.length ? "" : getPaperField(p, "submissionDate") || "", manuscriptId: hist.length ? "" : getPaperField(p, "manuscriptId") || "", status: hist.length ? "submitted" : getPaperField(p, "status") || "submitted", statusDates: hist.length ? {} : getPaperField(p, "statusDates") || {}, revisionDueAt: hist.length ? "" : submissionRevisionDueAt(p) });
   setPaperField(p, "history", hist);
   setPaperField(p, "lastUpdate", nowMinute());
   refreshSubmissionStatus();

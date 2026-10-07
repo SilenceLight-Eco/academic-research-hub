@@ -903,6 +903,7 @@
     }
     var frame = $('.research-hub-frame');
     if (changed && frame) frame.src = frame.src;
+    if (changed && state.panel === 'dashboard') renderTodayBoard();
   }
 
   var syncDataInFlight = false;
@@ -2347,7 +2348,8 @@
 
     var pending = (state.todos || []).filter(function (t) { return !t.done; });
     var reviewReminders = account ? peerReviewDeadlineReminders() : [];
-    var todoHtml = '<div class="today-head"><div><div class="today-title">今日 · ' + todayStr() + ' ' + todayWeek() + '</div><div class="today-sub">待办 ' + pending.length + ' 项 · 审稿提醒 ' + reviewReminders.length + ' 项</div></div><button class="btn-goto" data-goto="todos">查看全部待办</button></div>' +
+    var revisionReminders = account ? submissionDeadlineReminders() : [];
+    var todoHtml = '<div class="today-head"><div><div class="today-title">今日 · ' + todayStr() + ' ' + todayWeek() + '</div><div class="today-sub">待办 ' + pending.length + ' 项 · 审稿提醒 ' + reviewReminders.length + ' 项 · 返修提醒 ' + revisionReminders.length + ' 项</div></div><button class="btn-goto" data-goto="todos">查看全部待办</button></div>' +
       '<div class="today-grid today-grid-reminders"><div class="today-col"><div class="today-col-head">今日待办<span class="today-count">' + pending.length + '</span></div>';
     if (!pending.length) {
       todoHtml += '<div class="today-empty">没有未完成的待办</div>';
@@ -2357,7 +2359,7 @@
       }).join('');
       if (pending.length > 4) todoHtml += '<div class="today-more" data-goto="todos">还有 ' + (pending.length - 4) + ' 项…</div>';
     }
-    board.innerHTML = todoHtml + '</div>' + peerReviewReminderHtml(reviewReminders) + '</div>';
+    board.innerHTML = todoHtml + '</div>' + peerReviewReminderHtml(reviewReminders) + submissionReminderHtml(revisionReminders) + '</div>';
     return;
 
     var fr = (state.frontier && state.frontier.items) || [];
@@ -7933,6 +7935,7 @@
     if (todayBoardEl) {
       todayBoardEl.addEventListener('click', function (e) {
         if (handlePeerReviewReminderClick(e)) return;
+        if (handleSubmissionReminderClick(e)) return;
         var el = e.target.closest('[data-goto]');
         if (!el) return;
         switchPanel(el.dataset.goto);
@@ -8470,6 +8473,10 @@
     $('#kbEditor').addEventListener('change', function (e) { if (e.target.closest('#kbDocFolder')) queueKnowledgeAutoSave(); });
     window.addEventListener('message', function (event) {
       if (event.origin !== location.origin || !event.data) return;
+      if (event.data.type === 'academic-research-hub-submissions-changed' && event.source === $('.research-hub-frame').contentWindow) {
+        if (state.panel === 'dashboard') renderTodayBoard();
+        return;
+      }
       if (event.data.type === 'academic-research-hub-open-knowledge-base') { switchPanel('knowledge-base'); return; }
       if (event.data.type === 'academic-research-hub-request-data-code-migration' && event.source) {
         api('/api/data-code-library').then(function (res) {
@@ -8487,6 +8494,9 @@
       if (event.data.type === 'academic-research-hub-open-project' && event.source === $('.research-hub-frame').contentWindow) {
         if (((state.researchProjects || {}).projects || []).some(function (project) { return String(project.id) === String(event.data.id); })) openLinkedProject(event.data.id);
       }
+    });
+    window.addEventListener('storage', function (event) {
+      if (state.panel === 'dashboard' && (event.key === 'research-hub-fields-v1' || event.key === 'research-hub-cards-v1')) renderTodayBoard();
     });
     window.addEventListener('pagehide', flushAutoSavesOnPageHide);
 
@@ -10287,6 +10297,33 @@
   function trashResearchProject() { if (!state.projectId || !confirm('确定将此项目移入回收站吗？')) return; api('/api/research-projects', { method: 'POST', body: JSON.stringify({ action: 'trash', id: state.projectId }) }).then(function (res) { if (!res.ok) { toast(res.error || '移入回收站失败'); return; } state.researchProjects = res.researchProjects; state.projectId = null; renderResearchProjects(); publishPaperProjectLinks(); toast('项目已移入回收站'); }); }
   function restoreResearchProject(id) { api('/api/research-projects', { method: 'POST', body: JSON.stringify({ action: 'restore', id: id }) }).then(function (res) { if (!res.ok) { toast(res.error || '恢复失败'); return; } state.researchProjects = res.researchProjects; renderResearchProjects(); publishPaperProjectLinks(); toast('项目已恢复'); }); }
   function purgeResearchProject(id) { if (!confirm('确定彻底删除项目吗？此操作无法恢复。')) return; api('/api/research-projects', { method: 'POST', body: JSON.stringify({ action: 'purge', id: id }) }).then(function (res) { if (!res.ok) { toast(res.error || '彻底删除失败'); return; } state.researchProjects = res.researchProjects; renderResearchProjects(); publishPaperProjectLinks(); toast('已彻底删除'); }); }
+
+  // ===== 在投论文返修提醒：与作为审稿人的任务分开 =====
+  function submissionDeadlineReminders(now) {
+    if (!account) return [];
+    return projectPaperTargets().filter(function (entry) { return entry.kind === 'submitted'; }).map(function (entry) {
+      return { id: entry.id, item: entry.item, deadline: SubmissionDeadlines.evaluate(entry.item.status, SubmissionDeadlines.dueAtForPaper(entry.item), now) };
+    }).filter(function (entry) { return entry.deadline && entry.deadline.kind !== 'later'; }).sort(function (a, b) { return a.deadline.days - b.deadline.days; });
+  }
+  function submissionReminderHtml(reminders) {
+    var html = '<div class="today-col today-revision-reminders"><div class="today-col-head">返修截止提醒<span class="today-count">' + reminders.length + '</span></div>';
+    if (!account) return html + '<div class="today-empty">登录后查看返修截止提醒</div></div>';
+    if (!reminders.length) html += '<div class="today-empty">没有逾期或未来 7 天内截止的返修论文</div>';
+    html += reminders.slice(0, 6).map(function (entry) {
+      return '<button type="button" class="today-review-task" data-submission-reminder-open="' + escapeAttribute(entry.id) + '"><span class="today-review-task-title">' + escapeHtml(entry.item.title || '未命名论文') + '</span><small>' + escapeHtml(entry.item.currentJournal || '尚未填写期刊') + ' · 截止 ' + escapeHtml(entry.deadline.dueAt) + '</small><span class="revision-deadline ' + entry.deadline.kind + '">' + escapeHtml(entry.deadline.label) + '</span></button>';
+    }).join('');
+    return html + '<button type="button" class="today-review-link" data-goto="research-hub">' + (reminders.length > 6 ? '另有 ' + (reminders.length - 6) + ' 项提醒 · ' : '') + '查看论文管线</button></div>';
+  }
+  function handleSubmissionReminderClick(event) {
+    var open = event.target.closest('[data-submission-reminder-open]');
+    if (!open) return false;
+    var key = open.dataset.submissionReminderOpen;
+    afterCurrentEditorSaved(state.panel, function () {
+      if (!account || !projectPaperTargets().some(function (paper) { return paper.kind === 'submitted' && paper.id === key; })) { toast('论文已删除或尚未加载'); return; }
+      openPipelinePaper('submitted', key);
+    });
+    return true;
+  }
 
   // ===== 我的审稿任务：独立于自己的在投论文 =====
   var peerReviewFieldMap = {

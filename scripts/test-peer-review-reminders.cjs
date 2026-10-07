@@ -18,6 +18,7 @@ function harness(options = {}) {
   h.context.switchPanel = panel => { navigation.push(panel); h.state.panel = panel; };
   h.context.openAuth = () => authOpens++;
   h.context.todayStr = () => '2026-10-07'; h.context.todayWeek = () => '星期三';
+  h.context.submissionDeadlineReminders = () => []; h.context.submissionReminderHtml = () => '';
   const boardStart = source.indexOf('  function renderTodayBoard()');
   const boardEnd = source.indexOf('    return;', boardStart);
   vm.runInContext(source.slice(boardStart, boardEnd) + '\n  }', h.context);
