@@ -298,10 +298,7 @@
       if (typeof saved.journalFilter === 'string') state.journalTrackerFilter = saved.journalFilter;
       if (typeof saved.categoryFilter === 'string') state.trackerJournalCategoryFilter = saved.categoryFilter;
       if (['all', 'read', 'unread'].indexOf(saved.readFilter) >= 0) state.journalTrackerReadFilter = saved.readFilter;
-      if (saved.pages && typeof saved.pages === 'object') {
-        state.trackerArticlePages.unread = Math.max(1, Math.floor(Number(saved.pages.unread) || 1));
-        state.trackerArticlePages.read = Math.max(1, Math.floor(Number(saved.pages.read) || 1));
-      }
+      // 页码只用于本次浏览，不恢复旧版保存的末页或云端页码。
       if (saved.sorts && typeof saved.sorts === 'object') {
         state.trackerArticleSorts.unread = normalizeTrackerArticleSort(saved.sorts.unread);
         state.trackerArticleSorts.read = normalizeTrackerArticleSort(saved.sorts.read);
@@ -316,7 +313,7 @@
   function saveTrackerDisplayPreferences() {
     try {
       localStorage.setItem(trackerDisplayPreferencesKey, JSON.stringify({
-        version: 2,
+        version: 3,
         publicationRange: state.trackerPublicationRange,
         discoveryRange: state.trackerDiscoveryRange,
         publicationFrom: state.trackerPublicationFrom,
@@ -324,7 +321,6 @@
         journalFilter: state.journalTrackerFilter,
         categoryFilter: state.trackerJournalCategoryFilter,
         readFilter: state.journalTrackerReadFilter,
-        pages: state.trackerArticlePages,
         sorts: state.trackerArticleSorts,
         collapsed: state.trackerCollapsedGroups,
       }));
@@ -1673,7 +1669,10 @@
     if (panel === 'research-projects') loadResearchProjects();
     if (panel === 'variable-library') loadVariableLibrary();
     if (panel === 'references') loadReferenceLibrary();
-    if (panel === 'journal-tracker') { loadTrackerReferenceFolders(); loadJournalTracker(false); startTrackerListPolling(); }
+    if (panel === 'journal-tracker') {
+      if (prev !== panel) resetTrackerPagination();
+      loadTrackerReferenceFolders(); loadJournalTracker(false); startTrackerListPolling();
+    }
     if (panel === 'focus') focusRenderAll();   // 专注面板：进度/统计/记录实时刷新
     refreshUnreadBadges();   // 进入即视为已读，红点立刻消
     positionNavInk(true);
@@ -6996,7 +6995,7 @@
       state.trackerArticlePages[key] = currentPage;
       var startIndex = (currentPage - 1) * pageSize;
       var pageItems = sortedItems.slice(startIndex, startIndex + pageSize);
-      var pager = pageCount > 1 ? '<nav class="tracker-article-pager" aria-label="' + label + '分页"><button type="button" data-tracker-page="' + key + '" data-tracker-page-delta="-1"' + (currentPage <= 1 ? ' disabled' : '') + '>上一页</button><span>第 ' + currentPage + ' / ' + pageCount + ' 页 · ' + (startIndex + 1) + '–' + Math.min(startIndex + pageSize, sortedItems.length) + ' / ' + sortedItems.length + ' 篇</span><label>跳至 <input type="number" data-tracker-page-input="' + key + '" min="1" max="' + pageCount + '" step="1" value="' + currentPage + '" aria-label="跳转到' + label + '页码，最大 ' + pageCount + ' 页"> 页</label><button type="button" data-tracker-page-jump="' + key + '">跳转</button><button type="button" data-tracker-page="' + key + '" data-tracker-page-delta="1"' + (currentPage >= pageCount ? ' disabled' : '') + '>下一页</button></nav>' : '';
+      var pager = pageCount > 1 ? '<nav class="tracker-article-pager" aria-label="' + label + '分页"><button type="button" data-tracker-page="' + key + '" data-tracker-page-target="first"' + (currentPage <= 1 ? ' disabled' : '') + '>首页</button><button type="button" data-tracker-page="' + key + '" data-tracker-page-delta="-1"' + (currentPage <= 1 ? ' disabled' : '') + '>上一页</button><span>第 ' + currentPage + ' / ' + pageCount + ' 页 · ' + (startIndex + 1) + '–' + Math.min(startIndex + pageSize, sortedItems.length) + ' / ' + sortedItems.length + ' 篇</span><label>跳至 <input type="number" data-tracker-page-input="' + key + '" min="1" max="' + pageCount + '" step="1" value="' + currentPage + '" aria-label="跳转到' + label + '页码，最大 ' + pageCount + ' 页"> 页</label><button type="button" data-tracker-page-jump="' + key + '">跳转</button><button type="button" data-tracker-page="' + key + '" data-tracker-page-delta="1"' + (currentPage >= pageCount ? ' disabled' : '') + '>下一页</button><button type="button" data-tracker-page="' + key + '" data-tracker-page-target="last"' + (currentPage >= pageCount ? ' disabled' : '') + '>尾页</button></nav>' : '';
       var sortOptions = [['discovered-newest', '收录时间：最新优先'], ['discovered-oldest', '收录时间：最早优先'], ['newest', '发表时间：最新优先'], ['oldest', '发表时间：最早优先']].map(function (option) {
         return '<option value="' + option[0] + '"' + (sortMode === option[0] ? ' selected' : '') + '>' + option[1] + '</option>';
       }).join('');
@@ -7316,6 +7315,24 @@
       state.journalTrackerRefreshingId = '';
       renderJournalTracker();
     });
+  }
+
+  function resetTrackerPagination() {
+    state.trackerArticlePages = { unread: 1, read: 1 };
+    var articleList = $('#trackerArticles');
+    if (articleList) articleList.scrollTop = 0;
+  }
+
+  function setTrackerArticlePage(group, value) {
+    if (group !== 'unread' && group !== 'read') return;
+    var matchedArticles = trackerVisibleArticles().filter(function (article) {
+      return group === 'read' ? article.is_read === true : article.is_read !== true;
+    });
+    var maximumPage = Math.max(1, Math.ceil(matchedArticles.length / 15));
+    var requestedPage = value === 'first' ? 1 : value === 'last' ? maximumPage : Number(value);
+    state.trackerArticlePages[group] = Math.max(1, Math.min(maximumPage, Number.isFinite(requestedPage) ? Math.floor(requestedPage) : 1));
+    renderJournalTracker();
+    scrollTrackerArticleGroupToTop(group);
   }
 
   function setTrackerArticleSort(group, value) {
@@ -7811,12 +7828,7 @@
         if (jumpGroup === 'unread' || jumpGroup === 'read') {
           var pageInput = jumpButton.closest('.tracker-article-pager').querySelector('[data-tracker-page-input]');
           var requestedPage = pageInput ? Number(pageInput.value) : 1;
-          var matchedArticles = trackerVisibleArticles().filter(function (article) { return jumpGroup === 'read' ? article.is_read === true : article.is_read !== true; });
-          var maximumPage = Math.max(1, Math.ceil(matchedArticles.length / 15));
-          state.trackerArticlePages[jumpGroup] = Math.max(1, Math.min(maximumPage, Number.isFinite(requestedPage) ? Math.floor(requestedPage) : 1));
-          saveTrackerDisplayPreferences();
-          renderJournalTracker();
-          scrollTrackerArticleGroupToTop(jumpGroup);
+          setTrackerArticlePage(jumpGroup, requestedPage);
         }
         return;
       }
@@ -7824,10 +7836,7 @@
       if (pageButton) {
         var pageGroup = pageButton.dataset.trackerPage;
         if (pageGroup === 'unread' || pageGroup === 'read') {
-          state.trackerArticlePages[pageGroup] = Math.max(1, (Number(state.trackerArticlePages[pageGroup]) || 1) + Number(pageButton.dataset.trackerPageDelta || 0));
-          saveTrackerDisplayPreferences();
-          renderJournalTracker();
-          scrollTrackerArticleGroupToTop(pageGroup);
+          setTrackerArticlePage(pageGroup, pageButton.dataset.trackerPageTarget || (Number(state.trackerArticlePages[pageGroup]) || 1) + Number(pageButton.dataset.trackerPageDelta || 0));
         }
         return;
       }
