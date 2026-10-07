@@ -7502,6 +7502,24 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .peer-review-check-head strong { font-size:13px; color:var(--text); }
 .peer-review-check-head button { margin-left:auto; padding:5px 10px; border:1px solid var(--hairline); border-radius:6px; color:#c64444; background:var(--glass-strong); cursor:pointer; font:inherit; }
 .peer-review-check-row textarea { min-height:85px; }
+.peer-review-folder { border:1px solid var(--hairline); border-radius:7px; margin:0 0 8px; }
+.peer-review-folder summary { display:flex; align-items:center; flex-wrap:wrap; gap:6px; padding:8px; color:var(--text); cursor:pointer; font-size:12px; }
+.peer-review-folder summary::before { content:'▸'; flex:none; color:var(--accent); }
+.peer-review-folder[open] summary::before { content:'▾'; }
+.peer-review-folder summary span { flex:1; min-width:60px; overflow-wrap:anywhere; }
+.peer-review-folder summary button,.peer-review-folder-form button,#peerReviewFolderNew { padding:4px 6px; border:1px solid var(--hairline); border-radius:5px; background:var(--glass-strong); color:var(--text-secondary); cursor:pointer; font:11px/1.6 "Noto Sans SC",sans-serif; }
+.peer-review-folder > div { padding:0 7px; }
+.peer-review-folder-empty { font-size:11px; color:var(--text-muted); }
+.peer-review-folder-form[hidden] { display:none; }
+.peer-review-folder-form > div { display:flex; flex-wrap:wrap; gap:5px; margin-top:6px; }
+.today-grid-reminders { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.today-review-task { display:grid; width:100%; gap:4px; margin:6px 0; padding:9px 11px; border:1px solid var(--hairline); border-radius:8px; background:var(--glass-strong); color:var(--text); text-align:left; cursor:pointer; font:13px/1.7 "Noto Sans SC",sans-serif; }
+.today-review-task:hover,.today-review-task:focus-visible { border-color:var(--accent); outline:2px solid var(--accent-dim); }
+.today-review-task-title { font-weight:500; overflow-wrap:anywhere; }
+.today-review-task small { color:var(--text-muted); font-size:11px; overflow-wrap:anywhere; }
+.today-review-task .peer-review-deadline { font-size:12px; }
+.today-review-link { padding:5px 0; border:0; background:transparent; color:var(--accent); cursor:pointer; font:12px/1.7 "Noto Sans SC",sans-serif; }
+@media (max-width:1080px) { .today-grid-reminders { grid-template-columns:minmax(0,1fr); } }
 .peer-review-meta { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px 16px; }
 .peer-review-editor textarea { min-height:105px; resize:vertical; }
 .peer-review-empty { padding:35px 12px; color:var(--text-muted); font-size:12px; text-align:center; }

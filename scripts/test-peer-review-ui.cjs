@@ -13,9 +13,9 @@ function harness(options = {}) {
   const state = { panel: 'peer-reviews', peerReviews: { items: [], trash: [] }, peerReviewId: null, peerReviewTrashOpen: false, peerReviewFilter: 'all', peerReviewQuery: '', peerReviewBusy: false, peerReviewLoading: false };
   const nodes = new Map(), slots = {}, toasts = [], calls = [], downloads = []; let flushes = 0;
   function node(id) { if (!nodes.has(id)) nodes.set(id, { value: '', textContent: '', innerHTML: '', disabled: false, hidden: false, handlers: {}, focus() {}, addEventListener(type, handler) { this.handlers[type] = handler; } }); return nodes.get(id); }
-  const context = vm.createContext({ state, autoSaveSlots: slots, Date, console, Blob,
+  const context = vm.createContext({ state, autoSaveSlots: slots, Date, console, Blob, account: { id: 'test-user' }, renderTodayBoard() {},
     downloadBlob: (blob, filename) => { if (options.downloadFails) throw new Error('Download blocked'); downloads.push({ blob, filename }); },
-    $: selector => node(selector.slice(1)), escapeHtml: text => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'),
+    $: selector => node(selector.slice(1)), escapeHtml: text => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'), escapeAttribute: text => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'),
     toast: message => toasts.push(message), confirm: () => options.confirm !== false,
     api: async (endpoint, init) => { calls.push({ endpoint, body: init ? JSON.parse(init.body) : undefined }); return options.api ? options.api(endpoint, init) : { ok: true, peerReviews: structuredClone(state.peerReviews) }; },
     afterCurrentEditorSaved: async (panel, callback) => { flushes++; if (options.flushFails) return; try { const slot = slots['peer-review:' + state.peerReviewId]; if (slot && slot.dirty) { await slot.persist(slot.payload); slot.dirty = false; } return await callback(); } catch (e) { toasts.push(e.message); } },
@@ -204,6 +204,35 @@ test('checklist controls respect loading, busy, trash, absent history and limits
   for (const flag of ['peerReviewLoading', 'peerReviewBusy', 'peerReviewTrashOpen']) { h.state[flag] = true; assert.equal(h.context.addPeerReviewCheck(), false); assert.equal(h.context.importPreviousPeerReviewChecks(), false); h.state[flag] = false; }
   h.state.peerReviews.items[0].history = [{ id: 'r1', round: 1, majorComments: 'a'.repeat(10001) }]; assert.equal(h.context.importPreviousPeerReviewChecks(), false); assert.equal(h.state.peerReviews.items[0].checklist.length, 0);
   h.state.peerReviews.items[0].checklist = Array.from({ length: 100 }, (_, i) => ({ id: String(i), status: '待核对' })); h.context.renderPeerReviewChecklist(); assert.equal(h.node('peerReviewChecklistAdd').disabled, true); assert.equal(h.context.addPeerReviewCheck(), false);
+});
+
+test('folder trees include empty folders, group each task exactly once, filter unfiled and escape folder names', () => {
+  const h = harness(); h.state.peerReviews.folders = [{ id: 'f1', name: '<Private folder>' }, { id: 'empty', name: 'Empty folder' }]; addTask(h, { folderId: 'f1' });
+  h.state.peerReviews.items.push({ id: 'other', title: 'Unfiled task' }); h.context.renderPeerReviews();
+  const markup = h.node('peerReviewList').innerHTML; assert.ok(markup.includes('&lt;Private folder>')); assert.ok(markup.includes('Empty folder (0)')); assert.equal((markup.match(/data-review-open="one"/g) || []).length, 1);
+  h.state.peerReviewFolderFilter = ''; assert.deepEqual(Array.from(h.context.visiblePeerReviews(), item => item.id), ['other']);
+  h.state.peerReviewFolderFilter = 'f1'; assert.deepEqual(Array.from(h.context.visiblePeerReviews(), item => item.id), ['one']);
+});
+
+test('native folder folding persists through subsequent editor renders and new/rename folder forms are inline', () => {
+  const h = harness(); h.state.peerReviews.folders = [{ id: 'f1', name: 'Journal group' }]; addTask(h, { folderId: 'f1' }); h.context.bindPeerReviewEvents();
+  h.node('peerReviewList').handlers.toggle({ target: { matches: () => true, isConnected: true, dataset: { reviewFolder: 'f1' }, open: false } });
+  h.context.renderPeerReviewList(); assert.ok(!h.node('peerReviewList').innerHTML.includes('data-review-folder="f1" open'));
+  h.context.editPeerReviewFolder('f1'); assert.equal(h.node('peerReviewFolderForm').hidden, false); assert.equal(h.node('peerReviewFolderName').value, 'Journal group');
+  h.context.editPeerReviewFolder(''); assert.equal(h.node('peerReviewFolderName').value, ''); assert.equal(h.node('peerReviewFolderSubmit').textContent, '创建文件夹');
+});
+
+test('moving a task queues its chosen folder with the ordinary autosave payload', () => {
+  const h = harness(); h.state.peerReviews.folders = [{ id: 'f1', name: 'Target' }]; addTask(h); h.node('peerReviewFolder').value = 'f1'; h.context.queuePeerReviewAutoSave();
+  assert.equal(h.slots['peer-review:one'].payload.folderId, 'f1'); assert.equal(h.state.peerReviews.items[0].folderId, 'f1');
+});
+
+test('folder saves flush current edits, retain form on failure and reject cancelled deletion', async () => {
+  const h = harness({ api: async () => ({ ok: true, createdFolderId: 'f1', peerReviews: { items: [{ id: 'one', title: 'Keep', round: 1 }], trash: [], folders: [{ id: 'f1', name: 'New' }] } }) }); addTask(h); h.context.editPeerReviewFolder('');
+  assert.equal(await h.context.savePeerReviewFolder('create-folder', '', 'New'), true); assert.equal(h.flushes(), 1); assert.equal(h.node('peerReviewFolderForm').hidden, true); assert.equal(h.state.peerReviewFolderFilter, 'f1');
+  const failed = harness({ api: async () => ({ ok: false, error: 'Cloud failed' }) }); addTask(failed); failed.context.editPeerReviewFolder(''); failed.node('peerReviewFolderName').value = 'Unlost name';
+  assert.equal(await failed.context.savePeerReviewFolder('create-folder', '', 'Unlost name'), false); assert.equal(failed.node('peerReviewFolderForm').hidden, false); assert.equal(failed.node('peerReviewFolderName').value, 'Unlost name'); assert.equal(failed.state.peerReviewBusy, false);
+  const cancelled = harness({ confirm: false }); addTask(cancelled); assert.equal(await cancelled.context.savePeerReviewFolder('delete-folder', 'f1'), false); assert.equal(cancelled.calls.length, 0);
 });
 
 test('all editor fields and event targets exist once; module, save, backup and search hooks are wired', () => {

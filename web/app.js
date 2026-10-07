@@ -58,11 +58,13 @@
     projectId: null,
     projectTrashOpen: false,
     projectCategoryFilter: 'all',
-    peerReviews: { items: [], trash: [] },
+    peerReviews: { items: [], trash: [], folders: [] },
     peerReviewId: null,
     peerReviewTrashOpen: false,
     peerReviewFilter: 'all',
     peerReviewQuery: '',
+    peerReviewFolderFilter: 'all',
+    peerReviewFolderCollapsed: {},
     peerReviewBusy: false,
     peerReviewLoading: false,
     variableLibrary: { items: [], trash: [] },
@@ -946,7 +948,18 @@
 
   function setAccount(user) {
     var previousDraftAccount = autoSaveDraftAccountKey();
+    var previousReviewAccount = account && account.id;
     account = user || null;
+    if (previousReviewAccount !== (account && account.id)) {
+      peerReviewLoadRequest++; peerReviewReminderRequest++;
+      state.peerReviews = { items: [], trash: [], folders: [] }; state.peerReviewId = null;
+      state.peerReviewTrashOpen = false; state.peerReviewFilter = 'all'; state.peerReviewQuery = '';
+      state.peerReviewLoading = false; state.peerReviewFolderFilter = 'all'; state.peerReviewFolderCollapsed = {}; peerReviewReminderStatus = account ? 'idle' : 'signed-out';
+      peerReviewFolderEditingId = ''; $('#peerReviewFolderForm').hidden = true; $('#peerReviewFolderName').value = '';
+      if (state.panel === 'peer-reviews') { renderPeerReviews(); if (account) loadPeerReviews(); }
+    }
+    renderTodayBoard();
+    if (account && state.panel === 'dashboard' && peerReviewReminderStatus !== 'ready') loadPeerReviewReminders();
     if (previousDraftAccount !== autoSaveDraftAccountKey()) autoSaveDraftRestoreAccount = '';
     var button = $('#accountButton');
     if (button) button.textContent = account ? account.email : '登录同步';
@@ -1667,6 +1680,7 @@
     $('#panelTitle').textContent = PANEL_TITLES[panel] || '';
     staggerCards(panel);
     // 面板切换时懒加载数据
+    if (panel === 'dashboard' && prev !== panel) { renderTodayBoard(); loadPeerReviewReminders(); }
     if (panel === 'literature') loadLiteratureAll();
     if (panel === 'frontier') loadFrontier();
     if (panel === 'hotspots') loadHotspots();
@@ -1782,7 +1796,7 @@
   }
 
   function loadAll() {
-    return Promise.all([loadOverview(), loadNews(), loadTodos(), loadJournal()]);
+    return Promise.all([loadOverview(), loadNews(), loadTodos(), loadJournal(), loadPeerReviewReminders()]);
   }
 
   // ===== 渲染：概览 =====
@@ -2332,8 +2346,9 @@
     if (!board) return;
 
     var pending = (state.todos || []).filter(function (t) { return !t.done; });
-    var todoHtml = '<div class="today-head"><div><div class="today-title">今日 · ' + todayStr() + ' ' + todayWeek() + '</div><div class="today-sub">待办 ' + pending.length + ' 项</div></div><button class="btn-goto" data-goto="todos">查看全部待办</button></div>' +
-      '<div class="today-grid"><div class="today-col"><div class="today-col-head">今日待办<span class="today-count">' + pending.length + '</span></div>';
+    var reviewReminders = account ? peerReviewDeadlineReminders() : [];
+    var todoHtml = '<div class="today-head"><div><div class="today-title">今日 · ' + todayStr() + ' ' + todayWeek() + '</div><div class="today-sub">待办 ' + pending.length + ' 项 · 审稿提醒 ' + reviewReminders.length + ' 项</div></div><button class="btn-goto" data-goto="todos">查看全部待办</button></div>' +
+      '<div class="today-grid today-grid-reminders"><div class="today-col"><div class="today-col-head">今日待办<span class="today-count">' + pending.length + '</span></div>';
     if (!pending.length) {
       todoHtml += '<div class="today-empty">没有未完成的待办</div>';
     } else {
@@ -2342,7 +2357,7 @@
       }).join('');
       if (pending.length > 4) todoHtml += '<div class="today-more" data-goto="todos">还有 ' + (pending.length - 4) + ' 项…</div>';
     }
-    board.innerHTML = todoHtml + '</div></div>';
+    board.innerHTML = todoHtml + '</div>' + peerReviewReminderHtml(reviewReminders) + '</div>';
     return;
 
     var fr = (state.frontier && state.frontier.items) || [];
@@ -7917,6 +7932,7 @@
     var todayBoardEl = $('#todayBoard');
     if (todayBoardEl) {
       todayBoardEl.addEventListener('click', function (e) {
+        if (handlePeerReviewReminderClick(e)) return;
         var el = e.target.closest('[data-goto]');
         if (!el) return;
         switchPanel(el.dataset.goto);
@@ -10274,17 +10290,68 @@
 
   // ===== 我的审稿任务：独立于自己的在投论文 =====
   var peerReviewFieldMap = {
-    title: 'peerReviewTitle', journal: 'peerReviewJournal', manuscriptCode: 'peerReviewCode', round: 'peerReviewRound',
+    title: 'peerReviewTitle', journal: 'peerReviewJournal', manuscriptCode: 'peerReviewCode', folderId: 'peerReviewFolder', round: 'peerReviewRound',
     status: 'peerReviewStatus', invitedAt: 'peerReviewInvited', dueAt: 'peerReviewDue', submittedAt: 'peerReviewSubmitted',
     recommendation: 'peerReviewRecommendation', manuscriptUrl: 'peerReviewUrl', summary: 'peerReviewSummary',
     majorComments: 'peerReviewMajor', minorComments: 'peerReviewMinor', editorComments: 'peerReviewConfidential', notes: 'peerReviewNotes'
   };
   var peerReviewLoadRequest = 0;
+  var peerReviewReminderRequest = 0;
+  var peerReviewReminderStatus = 'idle';
+  var peerReviewFolderEditingId = '';
+  function peerReviewDeadlineReminders(now) {
+    return (state.peerReviews.items || []).map(function (item) { return { item: item, deadline: peerReviewDeadline(item, now) }; }).filter(function (entry) {
+      return entry.deadline.kind === 'soon' || entry.deadline.kind === 'overdue';
+    }).sort(function (a, b) { return a.item.dueAt.localeCompare(b.item.dueAt) || String(a.item.title || '').localeCompare(String(b.item.title || '')); });
+  }
+  function peerReviewReminderHtml(reminders) {
+    var html = '<div class="today-col today-review-reminders"><div class="today-col-head">审稿截止提醒<span class="today-count">' + reminders.length + '</span></div>';
+    if (!account) return html + '<div class="today-empty">登录后查看审稿截止提醒</div><button type="button" class="today-review-link" data-review-reminder-login>登录同步</button></div>';
+    if (peerReviewReminderStatus === 'loading') html += '<div class="today-empty" role="status">正在载入审稿提醒…</div>';
+    if (peerReviewReminderStatus === 'error') html += '<div class="today-empty">提醒载入失败，下方如有任务为上次载入的数据。</div><button type="button" class="today-review-link" data-review-reminder-retry>重试加载</button>';
+    if (!reminders.length && peerReviewReminderStatus === 'ready') html += '<div class="today-empty">没有未来 7 天内截止或已逾期的审稿任务</div>';
+    html += reminders.slice(0, 6).map(function (entry) {
+      var item = entry.item;
+      return '<button type="button" class="today-review-task" data-review-reminder-open="' + escapeAttribute(item.id) + '" title="' + escapeAttribute(item.title || '未命名审稿任务') + '"><span class="today-review-task-title">' + escapeHtml(item.title || '未命名审稿任务') + '</span><small>' + escapeHtml(item.journal || '尚未填写期刊') + ' · 第 ' + escapeHtml(item.round || 1) + ' 轮 · 截止 ' + escapeHtml(item.dueAt) + '</small><span class="peer-review-deadline ' + entry.deadline.kind + '">' + escapeHtml(entry.deadline.label) + '</span></button>';
+    }).join('');
+    html += '<button type="button" class="today-review-link" data-goto="peer-reviews">' + (reminders.length > 6 ? '另有 ' + (reminders.length - 6) + ' 项提醒 · ' : '') + '查看全部审稿</button></div>';
+    return html;
+  }
+  function loadPeerReviewReminders() {
+    var request = ++peerReviewReminderRequest, userId = account && account.id;
+    if (!userId) { peerReviewReminderStatus = 'signed-out'; renderTodayBoard(); return Promise.resolve(); }
+    peerReviewReminderStatus = 'loading'; renderTodayBoard();
+    return api('/api/peer-reviews').then(function (result) {
+      if (request !== peerReviewReminderRequest || !account || account.id !== userId) return;
+      if (!result.ok) throw new Error(result.error || '提醒载入失败');
+      applyPeerReviewData(result.peerReviews);
+    }).catch(function () {
+      if (request !== peerReviewReminderRequest || !account || account.id !== userId) return;
+      peerReviewReminderStatus = 'error'; renderTodayBoard();
+    });
+  }
+  function openPeerReviewReminder(id) {
+    if (!account) { openAuth(); return Promise.resolve(false); }
+    var target = (state.peerReviews.items || []).find(function (item) { return String(item.id) === String(id); });
+    if (!target) { toast('审稿任务已不存在，请重新载入提醒'); return Promise.resolve(false); }
+    return afterCurrentEditorSaved(state.panel, function () {
+      state.peerReviewId = id; state.peerReviewTrashOpen = false; state.peerReviewFilter = 'all'; state.peerReviewFolderFilter = 'all'; state.peerReviewQuery = '';
+      state.peerReviewFolderCollapsed = state.peerReviewFolderCollapsed || {}; state.peerReviewFolderCollapsed[target.folderId || ''] = false;
+      return switchPanel('peer-reviews');
+    });
+  }
+  function handlePeerReviewReminderClick(event) {
+    var open = event.target.closest('[data-review-reminder-open]'), retry = event.target.closest('[data-review-reminder-retry]'), login = event.target.closest('[data-review-reminder-login]');
+    if (open) { openPeerReviewReminder(open.dataset.reviewReminderOpen); return true; }
+    if (retry) { loadPeerReviewReminders(); return true; }
+    if (login) { openAuth(); return true; }
+    return false;
+  }
   function activePeerReview() {
     return (state.peerReviews.items || []).find(function (item) { return String(item.id) === String(state.peerReviewId); }) || null;
   }
   function applyPeerReviewData(collection) {
-    state.peerReviews = Object.assign({ items: [], trash: [] }, collection || {});
+    state.peerReviews = Object.assign({ items: [], trash: [], folders: [] }, collection || {});
     state.peerReviews.items.forEach(function (item) {
       var draft = autoSaveSlots['peer-review:' + item.id];
       if (draft && draft.dirty && draft.payload && Number(draft.payload.round || 1) === Number(item.round || 1)) Object.keys(peerReviewFieldMap).forEach(function (field) {
@@ -10292,9 +10359,11 @@
       });
       if (draft && draft.dirty && draft.payload && Number(draft.payload.round || 1) === Number(item.round || 1) && Array.isArray(draft.payload.checklist)) item.checklist = JSON.parse(JSON.stringify(draft.payload.checklist));
     });
+    peerReviewReminderRequest++; peerReviewReminderStatus = 'ready'; renderTodayBoard();
   }
   function loadPeerReviews() {
     var request = ++peerReviewLoadRequest;
+    peerReviewReminderRequest++;
     state.peerReviewLoading = true; renderPeerReviews();
     $('#peerReviewSaveStatus').textContent = '正在载入审稿任务…';
     return api('/api/peer-reviews').then(function (result) {
@@ -10307,6 +10376,7 @@
     }).catch(function (error) {
       if (request !== peerReviewLoadRequest) return;
       state.peerReviewLoading = false; renderPeerReviews();
+      peerReviewReminderStatus = 'error'; renderTodayBoard();
       $('#peerReviewSaveStatus').textContent = (error && error.message) || '载入失败，请重新进入模块重试';
       toast((error && error.message) || '审稿任务载入失败');
     });
@@ -10326,6 +10396,8 @@
     return (state.peerReviews.items || []).filter(function (item) {
       var due = peerReviewDeadline(item);
       var match = state.peerReviewFilter === 'all' || state.peerReviewFilter === item.status || state.peerReviewFilter === '即将截止' && due.kind === 'soon' || state.peerReviewFilter === '已逾期' && due.kind === 'overdue';
+      var folderFilter = state.peerReviewFolderFilter === undefined ? 'all' : state.peerReviewFolderFilter;
+      if (folderFilter !== 'all' && (item.folderId || '') !== folderFilter) match = false;
       return match && (!needle || [item.title, item.journal, item.manuscriptCode, item.summary, item.majorComments, item.minorComments, item.editorComments, item.notes].join(' ').toLowerCase().indexOf(needle) >= 0);
     }).slice().sort(function (a, b) {
       var aOpen = a.status !== '已提交' && a.status !== '已拒绝', bOpen = b.status !== '已提交' && b.status !== '已拒绝';
@@ -10338,6 +10410,10 @@
     $('#peerReviewTrash').textContent = state.peerReviewTrashOpen ? '返回任务' : '回收站' + (collection.trash.length ? ' (' + collection.trash.length + ')' : '');
     $('#peerReviewSearch').value = state.peerReviewQuery;
     $('#peerReviewFilter').value = state.peerReviewFilter;
+    var folders = Array.isArray(collection.folders) ? collection.folders : [];
+    if (state.peerReviewFolderFilter && state.peerReviewFolderFilter !== 'all' && !folders.some(function (folder) { return folder.id === state.peerReviewFolderFilter; })) state.peerReviewFolderFilter = 'all';
+    $('#peerReviewFolderFilter').innerHTML = '<option value="all">全部审稿</option><option value="">未分类</option>' + folders.map(function (folder) { return '<option value="' + escapeAttribute(folder.id) + '">' + escapeHtml(folder.name) + '</option>'; }).join('');
+    $('#peerReviewFolderFilter').value = state.peerReviewFolderFilter === undefined ? 'all' : state.peerReviewFolderFilter;
     var open = collection.items.filter(function (item) { return item.status !== '已提交' && item.status !== '已拒绝'; });
     $('#peerReviewStats').textContent = '待处理 ' + open.length + ' · 7 天内截止 ' + open.filter(function (item) { return peerReviewDeadline(item).kind === 'soon'; }).length + ' · 已逾期 ' + open.filter(function (item) { return peerReviewDeadline(item).kind === 'overdue'; }).length;
     if (state.peerReviewTrashOpen) {
@@ -10347,10 +10423,17 @@
       return;
     }
     var items = visiblePeerReviews();
-    list.innerHTML = items.length ? items.map(function (item) {
+    function taskHtml(item) {
       var deadline = peerReviewDeadline(item);
       return '<button type="button" class="peer-review-task' + (String(item.id) === String(state.peerReviewId) ? ' is-active' : '') + '" data-review-open="' + escapeHtml(item.id) + '" title="' + escapeHtml(item.title || '未命名审稿任务') + '"><strong>' + escapeHtml(item.title || '未命名审稿任务') + '</strong><small>' + escapeHtml(item.journal || '尚未填写期刊') + ' · 第 ' + escapeHtml(item.round || 1) + ' 轮</small><span>' + escapeHtml(item.status || '待决定') + (deadline.label ? '<i class="peer-review-deadline ' + deadline.kind + '">' + escapeHtml(deadline.label) + '</i>' : '') + '</span></button>';
-    }).join('') : '<div class="peer-review-empty">' + (collection.items.length ? '没有匹配的审稿任务' : '点击“新建审稿”开始记录') + '</div>';
+    }
+    var groups = [{ id: '', name: '未分类' }].concat(folders), filter = state.peerReviewFolderFilter === undefined ? 'all' : state.peerReviewFolderFilter;
+    state.peerReviewFolderCollapsed = state.peerReviewFolderCollapsed || {};
+    list.innerHTML = groups.filter(function (folder) { return filter === 'all' || folder.id === filter; }).map(function (folder) {
+      var grouped = items.filter(function (item) { return (item.folderId || '') === folder.id; });
+      var open = state.peerReviewFolderCollapsed[folder.id] === undefined ? grouped.some(function (item) { return String(item.id) === String(state.peerReviewId); }) : !state.peerReviewFolderCollapsed[folder.id];
+      return '<details class="peer-review-folder" data-review-folder="' + escapeAttribute(folder.id) + '"' + (open ? ' open' : '') + '><summary><span title="' + escapeAttribute(folder.name) + '">' + escapeHtml(folder.name) + ' (' + grouped.length + ')</span>' + (folder.id ? '<button type="button" data-review-folder-rename="' + escapeAttribute(folder.id) + '">重命名</button><button type="button" data-review-folder-delete="' + escapeAttribute(folder.id) + '">删除</button>' : '') + '</summary><div>' + (grouped.length ? grouped.map(taskHtml).join('') : '<p class="peer-review-folder-empty">此文件夹暂无匹配任务</p>') + '</div></details>';
+    }).join('');
   }
   function renderPeerReviewSaveStatus() {
     var item = activePeerReview(), slot = item && autoSaveSlots['peer-review:' + item.id];
@@ -10359,6 +10442,7 @@
   function renderPeerReviews() {
     renderPeerReviewList();
     var item = state.peerReviewTrashOpen ? null : activePeerReview();
+    $('#peerReviewFolder').innerHTML = '<option value="">未分类</option>' + (state.peerReviews.folders || []).map(function (folder) { return '<option value="' + escapeAttribute(folder.id) + '">' + escapeHtml(folder.name) + '</option>'; }).join('');
     Object.keys(peerReviewFieldMap).forEach(function (field) {
       var input = $('#' + peerReviewFieldMap[field]);
       input.value = item ? item[field] === undefined ? '' : item[field] : field === 'round' ? 1 : '';
@@ -10368,7 +10452,9 @@
     $('#peerReviewSave').disabled = !item || state.peerReviewBusy || state.peerReviewLoading; $('#peerReviewDelete').disabled = !item || state.peerReviewBusy || state.peerReviewLoading;
     ['peerReviewExportAuthor', 'peerReviewExportEditor'].forEach(function (id) { $('#' + id).disabled = !item || state.peerReviewBusy || state.peerReviewLoading; });
     $('#peerReviewNextRound').disabled = !item || state.peerReviewBusy || state.peerReviewLoading || Number(item.round || 1) >= 20;
-    ['peerReviewNew', 'peerReviewTrash', 'peerReviewSearch', 'peerReviewFilter'].forEach(function (id) { $('#' + id).disabled = state.peerReviewBusy || state.peerReviewLoading; });
+    ['peerReviewNew', 'peerReviewTrash', 'peerReviewSearch', 'peerReviewFilter', 'peerReviewFolderFilter', 'peerReviewFolderNew', 'peerReviewFolderName', 'peerReviewFolderSubmit'].forEach(function (id) { $('#' + id).disabled = state.peerReviewBusy || state.peerReviewLoading; });
+    $('#peerReviewFolderNew').disabled = state.peerReviewBusy || state.peerReviewLoading || state.peerReviewTrashOpen;
+    if (state.peerReviewTrashOpen) $('#peerReviewFolderForm').hidden = true;
     renderPeerReviewSaveStatus();
     renderPeerReviewChecklist();
     renderPeerReviewHistory();
@@ -10381,8 +10467,10 @@
     return payload;
   }
   function persistPeerReview(payload) {
+    var reviewSaveAccount = account && account.id;
     if (String(payload.id) === String(state.peerReviewId) && state.panel === 'peer-reviews') $('#peerReviewSaveStatus').textContent = '正在保存…';
     return api('/api/peer-reviews', { method: 'POST', body: JSON.stringify(payload) }).then(function (result) {
+      if ((account && account.id) !== reviewSaveAccount) throw new Error('账号已变化，原账号的保存响应不会覆盖当前内容');
       if (!result.ok) throw new Error(result.error || '审稿任务保存失败');
       applyPeerReviewData(result.peerReviews);
       if (state.panel === 'peer-reviews') {
@@ -10425,14 +10513,20 @@
     if (state.peerReviewBusy || state.peerReviewLoading) return Promise.resolve();
     if (action === 'trash' && !confirm('将此审稿任务移入回收站？')) return Promise.resolve();
     if (action === 'purge' && !confirm('彻底删除此审稿任务？此操作无法恢复。')) return Promise.resolve();
+    var reviewMutationAccount = account && account.id;
     state.peerReviewBusy = true; renderPeerReviews();
     return afterCurrentEditorSaved('peer-reviews', function () {
-      return api('/api/peer-reviews', { method: 'POST', body: JSON.stringify({ action: action, id: id }) }).then(function (result) {
+      if ((account && account.id) !== reviewMutationAccount) throw new Error('账号已变化，请重新操作');
+      return api('/api/peer-reviews', { method: 'POST', body: JSON.stringify({ action: action, id: id, folderId: action === 'create' && state.peerReviewFolderFilter && state.peerReviewFolderFilter !== 'all' ? state.peerReviewFolderFilter : undefined }) }).then(function (result) {
+        if ((account && account.id) !== reviewMutationAccount) throw new Error('账号已变化，已忽略原账号的响应');
         if (!result.ok) throw new Error(result.error || '操作失败');
         applyPeerReviewData(result.peerReviews);
         if (action === 'create' || action === 'restore') {
+          if (action === 'restore') state.peerReviewFolderFilter = 'all';
           state.peerReviewTrashOpen = false; state.peerReviewFilter = 'all'; state.peerReviewQuery = '';
           state.peerReviewId = result.createdId || (state.peerReviews.items[state.peerReviews.items.length - 1] || {}).id || null;
+          var selectedReview = activePeerReview();
+          if (selectedReview) state.peerReviewFolderCollapsed[selectedReview.folderId || ''] = false;
         } else if (action === 'trash') state.peerReviewId = (state.peerReviews.items[0] || {}).id || null;
         toast(action === 'create' ? '已新建审稿任务' : action === 'restore' ? '已恢复审稿任务' : action === 'trash' ? '已移入回收站' : '已彻底删除');
       });
@@ -10500,12 +10594,14 @@
     if (!confirm('先保存并归档第 ' + (item.round || 1) + ' 轮，然后开始下一轮？本轮意见和核对清单会保留在历史中，新一轮意见、日期、核对清单和个人备注将清空。')) return Promise.resolve(false);
     // Queue the live form before locking it; never archive a stale server-only version.
     queuePeerReviewAutoSave();
-    var id = item.id, expectedRound = Number(item.round || 1), started = false;
+    var id = item.id, expectedRound = Number(item.round || 1), started = false, reviewRoundAccount = account && account.id;
     state.peerReviewBusy = true; renderPeerReviews();
     return afterCurrentEditorSaved('peer-reviews', function () {
+      if ((account && account.id) !== reviewRoundAccount) throw new Error('账号已变化，请重新操作');
       var slot = autoSaveSlots['peer-review:' + id];
       if (slot && slot.dirty) throw new Error('当前意见尚未保存，未开始下一轮，请重试');
       return api('/api/peer-reviews', { method: 'POST', body: JSON.stringify({ action: 'next-round', id: id, expectedRound: expectedRound }) }).then(function (result) {
+        if ((account && account.id) !== reviewRoundAccount) throw new Error('账号已变化，已忽略原账号的响应');
         if (!result.ok) throw new Error(result.error || '开始下一轮失败');
         applyPeerReviewData(result.peerReviews); started = true;
         toast('上一轮已保存并归档，已开始第 ' + (activePeerReview() || {}).round + ' 轮');
@@ -10575,7 +10671,36 @@
     item.checklist = rows.concat(additions);
     queuePeerReviewAutoSave(); renderPeerReviewChecklist(); toast('已引用 ' + additions.length + ' 条问题，请核对分条结果'); return true;
   }
+  function editPeerReviewFolder(id) {
+    if (state.peerReviewBusy || state.peerReviewLoading || state.peerReviewTrashOpen) return;
+    var folder = (state.peerReviews.folders || []).find(function (entry) { return entry.id === id; });
+    peerReviewFolderEditingId = folder ? folder.id : '';
+    $('#peerReviewFolderName').value = folder ? folder.name : '';
+    $('#peerReviewFolderSubmit').textContent = folder ? '保存名称' : '创建文件夹';
+    $('#peerReviewFolderForm').hidden = false; $('#peerReviewFolderName').focus();
+  }
+  function savePeerReviewFolder(action, folderId, name) {
+    if (state.peerReviewBusy || state.peerReviewLoading || state.peerReviewTrashOpen) return Promise.resolve(false);
+    if (action === 'delete-folder' && !confirm('删除文件夹？其中的审稿任务（含回收站）将移到未分类，不会删除任务或轮次历史。')) return Promise.resolve(false);
+    var saved = false, reviewFolderAccount = account && account.id;
+    state.peerReviewBusy = true; renderPeerReviews();
+    return afterCurrentEditorSaved('peer-reviews', function () {
+      if ((account && account.id) !== reviewFolderAccount) throw new Error('账号已变化，请重新操作');
+      return api('/api/peer-reviews', { method: 'POST', body: JSON.stringify({ action: action, folderId: folderId, name: name }) }).then(function (result) {
+        if ((account && account.id) !== reviewFolderAccount) throw new Error('账号已变化，已忽略原账号的响应');
+        if (!result.ok) throw new Error(result.error || '文件夹操作失败');
+        applyPeerReviewData(result.peerReviews); saved = true;
+        if (result.createdFolderId) { state.peerReviewFolderFilter = result.createdFolderId; state.peerReviewFolderCollapsed[result.createdFolderId] = false; }
+        $('#peerReviewFolderForm').hidden = true; toast(action === 'delete-folder' ? '文件夹已删除，任务已保留' : '文件夹已保存');
+      });
+    }).then(function () { state.peerReviewBusy = false; renderPeerReviews(); return saved; });
+  }
   function bindPeerReviewEvents() {
+    $('#peerReviewFolderNew').addEventListener('click', function () { editPeerReviewFolder(''); });
+    $('#peerReviewFolderCancel').addEventListener('click', function () { $('#peerReviewFolderForm').hidden = true; });
+    $('#peerReviewFolderForm').addEventListener('submit', function (event) { event.preventDefault(); savePeerReviewFolder(peerReviewFolderEditingId ? 'rename-folder' : 'create-folder', peerReviewFolderEditingId, $('#peerReviewFolderName').value); });
+    $('#peerReviewFolderFilter').addEventListener('change', function () { state.peerReviewFolderFilter = this.value; renderPeerReviewList(); });
+    $('#peerReviewList').addEventListener('toggle', function (event) { if (event.target.matches && event.target.matches('[data-review-folder]') && event.target.isConnected) state.peerReviewFolderCollapsed[event.target.dataset.reviewFolder] = !event.target.open; }, true);
     $('#peerReviewNew').addEventListener('click', function () { mutatePeerReview('create'); });
     $('#peerReviewSave').addEventListener('click', savePeerReview);
     $('#peerReviewExportAuthor').addEventListener('click', function () { exportPeerReview('author'); });
@@ -10615,6 +10740,8 @@
     });
     $('#peerReviewList').addEventListener('click', function (event) {
       if (state.peerReviewBusy || state.peerReviewLoading) return;
+      var renameFolder = event.target.closest('[data-review-folder-rename]'), deleteFolder = event.target.closest('[data-review-folder-delete]');
+      if (renameFolder || deleteFolder) { event.preventDefault(); if (renameFolder) editPeerReviewFolder(renameFolder.dataset.reviewFolderRename); else savePeerReviewFolder('delete-folder', deleteFolder.dataset.reviewFolderDelete); return; }
       var open = event.target.closest('[data-review-open]'), restore = event.target.closest('[data-review-restore]'), purge = event.target.closest('[data-review-purge]');
       if (open) afterCurrentEditorSaved('peer-reviews', function () { state.peerReviewId = open.dataset.reviewOpen; renderPeerReviews(); });
       if (restore) mutatePeerReview('restore', restore.dataset.reviewRestore);
@@ -12500,7 +12627,7 @@
       normalizeVariableRoles(item.role).forEach(function (role) { variableCollapsedRoles[role] = false; });
     }
     if (kind === 'projects') { state.projectTrashOpen = false; state.projectCategoryFilter = 'all'; state.projectId = item.id; }
-    if (kind === 'reviews') { state.peerReviewTrashOpen = false; state.peerReviewQuery = ''; state.peerReviewFilter = 'all'; state.peerReviewId = item.id; }
+    if (kind === 'reviews') { state.peerReviewTrashOpen = false; state.peerReviewQuery = ''; state.peerReviewFilter = 'all'; state.peerReviewFolderFilter = 'all'; state.peerReviewId = item.id; }
     if (kind === 'prompts') { state.promptTrashOpen = false; state.promptCategoryFilter = 'all'; state.promptId = item.id; }
     switchPanel(panel);
   }
@@ -12754,6 +12881,7 @@
       // 专注计时用的是时间戳，回前台立刻校准一次（后台标签页会被降频，
       // 也可能在后台期间已经到点）
       if (!document.hidden && focusIsActive()) { focusTick(); focusRenderAll(); }
+      if (!document.hidden && state.panel === 'dashboard') renderTodayBoard();
       if (!document.hidden && account) syncAndPullCloudData();
     });
     // The static browser edition restores Supabase's persisted session first.

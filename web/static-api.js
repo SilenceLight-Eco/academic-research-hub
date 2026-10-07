@@ -625,17 +625,35 @@
         var reviews = reviewData.peerReviews || { items: [], trash: [] };
         reviews.items = Array.isArray(reviews.items) ? reviews.items : [];
         reviews.trash = Array.isArray(reviews.trash) ? reviews.trash : [];
+        reviews.folders = Array.isArray(reviews.folders) ? reviews.folders : [];
         reviewData.peerReviews = reviews;
         if (method === 'GET') return response({ ok: true, peerReviews: reviews });
         if (method !== 'POST') return response({ error: '不支持此请求方法' }, 405);
-        if (['create', 'save', 'next-round', 'trash', 'restore', 'purge'].indexOf(body.action) < 0) return response({ error: '未知审稿操作' }, 400);
+        if (['create', 'save', 'next-round', 'trash', 'restore', 'purge', 'create-folder', 'rename-folder', 'delete-folder'].indexOf(body.action) < 0) return response({ error: '未知审稿操作' }, 400);
+        var reviewFolder = reviews.folders.find(function (folder) { return folder.id === body.folderId; });
+        if ((body.action === 'rename-folder' || body.action === 'delete-folder') && !reviewFolder) return response({ error: '文件夹已不存在，请重新载入' }, 404);
+        if (body.action === 'create-folder' || body.action === 'rename-folder') {
+          var reviewFolderName = typeof body.name === 'string' ? body.name.trim() : '';
+          if (!reviewFolderName || reviewFolderName.length > 80) return response({ error: '文件夹名称须为 1 至 80 个字符' }, 422);
+          if (reviewFolderName === '未分类' || reviewFolderName === '全部审稿' || reviews.folders.some(function (folder) { return (body.action !== 'rename-folder' || folder.id !== (reviewFolder || {}).id) && folder.name.toLowerCase() === reviewFolderName.toLowerCase(); })) return response({ error: '文件夹名称已存在或为保留名称' }, 409);
+          if (body.action === 'create-folder') {
+            var createdReviewFolderId = 'review-folder-' + nowId() + '-' + Math.random().toString(36).slice(2, 10);
+            reviews.folders.push({ id: createdReviewFolderId, name: reviewFolderName });
+          } else reviewFolder.name = reviewFolderName;
+        }
+        if (body.action === 'delete-folder') {
+          reviews.folders = reviews.folders.filter(function (folder) { return folder.id !== body.folderId; });
+          reviews.items.forEach(function (item) { if (item.folderId === body.folderId) item.folderId = ''; });
+          reviews.trash.forEach(function (entry) { if (entry.item && entry.item.folderId === body.folderId) entry.item.folderId = ''; });
+        }
+        if (['create', 'save'].indexOf(body.action) >= 0 && body.folderId !== undefined && (typeof body.folderId !== 'string' || body.folderId && !reviewFolder)) return response({ error: '请选择现有文件夹或未分类' }, 422);
         var reviewItem = reviews.items.find(function (item) { return String(item.id) === String(body.id); });
         var reviewTrash = reviews.trash.find(function (entry) { return String(entry.id) === String(body.id); });
         if (['save', 'next-round', 'trash'].indexOf(body.action) >= 0 && !reviewItem) return response({ error: '审稿任务已删除或不存在，请重新载入' }, 404);
         if ((body.action === 'restore' || body.action === 'purge') && !reviewTrash) return response({ error: '回收站任务已不存在' }, 404);
         if (body.action === 'create') {
           var reviewId = 'review-' + nowId() + '-' + Math.random().toString(36).slice(2, 10);
-          reviews.items.push({ id: reviewId, title: '未命名审稿任务', journal: '', manuscriptCode: '', round: 1,
+          reviews.items.push({ id: reviewId, title: '未命名审稿任务', journal: '', manuscriptCode: '', folderId: body.folderId || '', round: 1,
             status: '待决定', invitedAt: '', dueAt: '', submittedAt: '', recommendation: '尚未决定', manuscriptUrl: '',
             summary: '', majorComments: '', minorComments: '', editorComments: '', notes: '', checklist: [], history: [], created: nowText(), updated: nowText() });
         }
@@ -680,6 +698,7 @@
           reviewItem.manuscriptUrl = String(reviewItem.manuscriptUrl || '').trim();
           ['status', 'recommendation', 'invitedAt', 'dueAt', 'submittedAt'].forEach(function (field) { if (body[field] !== undefined) reviewItem[field] = String(body[field]); });
           if (body.round !== undefined) reviewItem.round = Number(body.round);
+          if (body.folderId !== undefined) reviewItem.folderId = body.folderId;
           reviewItem.updated = nowText();
         }
         if (body.action === 'next-round') {
@@ -709,7 +728,7 @@
         }
         if (body.action === 'restore' || body.action === 'purge') reviews.trash = reviews.trash.filter(function (entry) { return String(entry.id) !== String(body.id); });
         await saveWorkspace(reviewData, dataRevision);
-        return response({ ok: true, peerReviews: reviews, createdId: body.action === 'create' ? reviewId : undefined });
+        return response({ ok: true, peerReviews: reviews, createdId: body.action === 'create' ? reviewId : undefined, createdFolderId: createdReviewFolderId });
       }
       if (path === '/api/prompt-library' && body.action === 'reorder') {
         var orderedLibrary = data.promptLibrary || (data.promptLibrary = { prompts: [], trash: [], categories: ['通用'] });

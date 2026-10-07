@@ -15,7 +15,7 @@ async function request(h, body) { const response = await h.request(body, '/api/p
 
 test('authenticated legacy workspaces load an empty module without a write; signed-out reads and writes are rejected', async () => {
   const h = harness({ todos: [] }); const result = await h.get('/api/peer-reviews');
-  assert.equal(result.status, 200); assert.deepEqual((await result.json()).peerReviews, { items: [], trash: [] }); assert.equal(h.writeCount(), 0);
+  assert.equal(result.status, 200); assert.deepEqual((await result.json()).peerReviews, { items: [], trash: [], folders: [] }); assert.equal(h.writeCount(), 0);
   const guest = harness(initial(), { signedOut: true });
   assert.equal((await guest.get('/api/peer-reviews')).status, 401);
   assert.equal((await request(guest, { action: 'create' })).status, 401); assert.equal(guest.writeCount(), 0);
@@ -175,4 +175,41 @@ test('deleting one checklist row only affects that row and stale round saves can
   await request(h, { action: 'save', id, round: 2, checklist: [checkRow('keep'), checkRow('remove')] });
   await request(h, { action: 'save', id, round: 2, checklist: [checkRow('keep')] });
   assert.equal((await request(h, { action: 'save', id, round: 1, checklist: [] })).status, 409); assert.deepEqual(h.readWorkspace().peerReviews.items[0].checklist.map(row => row.id), ['keep']);
+});
+
+test('review folders create, rename and persist across a fresh account load; tasks can be created or moved into folders', async () => {
+  const h = harness(initial()); const folder = await request(h, { action: 'create-folder', name: '  Economics  ' });
+  assert.equal(folder.status, 200); const folderId = folder.body.createdFolderId; assert.ok(folderId);
+  const task = await request(h, { action: 'create', folderId }); const id = task.body.createdId;
+  assert.equal(task.body.peerReviews.items[0].folderId, folderId);
+  await request(h, { action: 'rename-folder', folderId, name: 'Environmental economics' });
+  const fresh = harness(h.readWorkspace()); const loaded = await (await fresh.get('/api/peer-reviews')).json();
+  assert.equal(loaded.peerReviews.folders[0].name, 'Environmental economics'); assert.equal(loaded.peerReviews.items[0].folderId, folderId);
+  await request(fresh, { action: 'save', id, round: 1, folderId: '' }); assert.equal(fresh.readWorkspace().peerReviews.items[0].folderId, '');
+  await request(fresh, { action: 'save', id, round: 1, folderId }); assert.equal(fresh.readWorkspace().peerReviews.items[0].folderId, folderId);
+});
+
+test('deleting a review folder moves active and trashed tasks to unfiled, preserving opinions, rounds and other folders', async () => {
+  const h = harness(initial()); const first = (await request(h, { action: 'create-folder', name: 'First' })).body.createdFolderId;
+  const second = (await request(h, { action: 'create-folder', name: 'Keep folder' })).body.createdFolderId;
+  const a = (await request(h, { action: 'create', folderId: first })).body.createdId; const b = (await request(h, { action: 'create', folderId: first })).body.createdId;
+  await request(h, { action: 'save', id: a, round: 1, summary: 'Keep author opinion' }); await request(h, { action: 'next-round', id: a, expectedRound: 1 }); await request(h, { action: 'trash', id: b });
+  const history = h.readWorkspace().peerReviews.items[0].history;
+  const deleted = await request(h, { action: 'delete-folder', folderId: first }); assert.equal(deleted.status, 200);
+  const data = deleted.body.peerReviews; assert.deepEqual(data.folders.map(folder => folder.id), [second]); assert.equal(data.items.length, 1); assert.equal(data.trash.length, 1);
+  assert.equal(data.items[0].folderId, ''); assert.equal(data.trash[0].item.folderId, ''); assert.deepEqual(data.items[0].history, history);
+  assert.deepEqual(h.readWorkspace().referenceLibrary, initial().referenceLibrary);
+});
+
+test('invalid folder actions, duplicate/reserved names and invalid task folder IDs fail before writes', async () => {
+  const h = harness(initial()); const id = await create(h); const folderId = (await request(h, { action: 'create-folder', name: 'Named folder' })).body.createdFolderId; const writes = h.writeCount();
+  for (const [body, status] of [[{ action: 'create-folder', name: '' }, 422], [{ action: 'create-folder', name: 'x'.repeat(81) }, 422], [{ action: 'create-folder', name: 'NAMED FOLDER', folderId }, 409], [{ action: 'create-folder', name: '未分类' }, 409], [{ action: 'rename-folder', folderId: 'missing', name: 'New' }, 404], [{ action: 'delete-folder', folderId: 'missing' }, 404], [{ action: 'create', folderId: 'missing' }, 422], [{ action: 'save', id, round: 1, folderId: 'missing' }, 422]]) assert.equal((await request(h, body)).status, status);
+  assert.equal(h.writeCount(), writes); assert.equal(h.readWorkspace().peerReviews.items.length, 1);
+});
+
+test('folder cloud-write failures leave tasks and folder catalog unchanged', async () => {
+  const data = initial(); data.peerReviews.folders = [{ id: 'f1', name: 'Keep' }]; data.peerReviews.items.push({ id: 'one', round: 1, folderId: 'f1', summary: 'Keep opinion' });
+  const h = harness(data, { failWrites: true });
+  for (const body of [{ action: 'create-folder', name: 'New' }, { action: 'rename-folder', folderId: 'f1', name: 'Changed' }, { action: 'delete-folder', folderId: 'f1' }]) assert.equal((await request(h, body)).status, 500);
+  assert.deepEqual(h.readWorkspace(), data); assert.equal(h.writeCount(), 0);
 });

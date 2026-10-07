@@ -31,7 +31,7 @@ function harness() {
     renderArticleCard: article => '<article data-id="' + article.id + '"></article>',
     $: () => list, $$: () => [], window: { scrollY: 0 }, scrollMemory: {},
     RETIRED_PANELS: [], PANEL_TITLES: {}, trackerArticleDetailId: '',
-    staggerCards: () => {}, refreshUnreadBadges: () => {}, positionNavInk: () => {}, syncHash: () => {}, restoreScroll: () => {},
+    staggerCards: () => {}, refreshUnreadBadges: () => {}, positionNavInk: () => {}, syncHash: () => {}, restoreScroll: () => {}, renderTodayBoard: () => {}, loadPeerReviewReminders: () => {},
     loadTrackerReferenceFolders: () => {}, startTrackerListPolling: () => {}, stopTrackerListPolling: () => {}, hideTrackerJournalSearchResults: () => {},
     loadJournalTracker: () => { loads.push({ ...state.trackerArticlePages }); }
   });
