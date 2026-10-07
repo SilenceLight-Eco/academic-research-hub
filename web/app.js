@@ -10287,7 +10287,7 @@
     state.peerReviews = Object.assign({ items: [], trash: [] }, collection || {});
     state.peerReviews.items.forEach(function (item) {
       var draft = autoSaveSlots['peer-review:' + item.id];
-      if (draft && draft.dirty && draft.payload) Object.keys(peerReviewFieldMap).forEach(function (field) {
+      if (draft && draft.dirty && draft.payload && Number(draft.payload.round || 1) === Number(item.round || 1)) Object.keys(peerReviewFieldMap).forEach(function (field) {
         if (draft.payload[field] !== undefined) item[field] = draft.payload[field];
       });
     });
@@ -10366,8 +10366,10 @@
     $('#peerReviewEditor').hidden = !item; $('#peerReviewEmpty').hidden = Boolean(item);
     $('#peerReviewSave').disabled = !item || state.peerReviewBusy || state.peerReviewLoading; $('#peerReviewDelete').disabled = !item || state.peerReviewBusy || state.peerReviewLoading;
     ['peerReviewExportAuthor', 'peerReviewExportEditor'].forEach(function (id) { $('#' + id).disabled = !item || state.peerReviewBusy || state.peerReviewLoading; });
+    $('#peerReviewNextRound').disabled = !item || state.peerReviewBusy || state.peerReviewLoading || Number(item.round || 1) >= 20;
     ['peerReviewNew', 'peerReviewTrash', 'peerReviewSearch', 'peerReviewFilter'].forEach(function (id) { $('#' + id).disabled = state.peerReviewBusy || state.peerReviewLoading; });
     renderPeerReviewSaveStatus();
+    renderPeerReviewHistory();
   }
   function readPeerReviewPayload() {
     var payload = { action: 'save', id: state.peerReviewId };
@@ -10452,10 +10454,8 @@
     var safeTitle = title.replace(/[<>:"/\\|?*\x00-\x1f\x7f]/g, '_').slice(0, 80).replace(/[. ]+$/g, '') || '未命名审稿任务';
     return { text: lines.join('\n'), filename: '审稿-' + safeTitle + '-第' + round + '轮-' + (audience === 'author' ? '作者版' : '编辑保密版') + '.md' };
   }
-  function exportPeerReview(audience) {
-    if (!activePeerReview() || state.peerReviewTrashOpen || state.peerReviewBusy || state.peerReviewLoading || ['author', 'editor'].indexOf(audience) < 0) return false;
-    // Read the current form, including edits not yet synced; export does not submit or change status.
-    var payload = readPeerReviewPayload();
+  function downloadPeerReviewExport(payload, audience) {
+    if (['author', 'editor'].indexOf(audience) < 0) return false;
     var hasContent = audience === 'author' ? [payload.summary, payload.majorComments, payload.minorComments].some(function (value) { return String(value || '').trim(); }) : String(payload.editorComments || '').trim() || ['接收', '小修', '大修', '拒稿'].indexOf(payload.recommendation) >= 0;
     if (!hasContent) { toast(audience === 'author' ? '请先填写总体评价、主要意见或次要意见' : '请先填写编辑保密意见或选择审稿建议'); return false; }
     try {
@@ -10465,11 +10465,59 @@
       return true;
     } catch (error) { toast('导出失败：' + (error.message || '请重试')); return false; }
   }
+  function exportPeerReview(audience) {
+    if (!activePeerReview() || state.peerReviewTrashOpen || state.peerReviewBusy || state.peerReviewLoading) return false;
+    // Read the current form, including edits not yet synced; export does not submit or change status.
+    return downloadPeerReviewExport(readPeerReviewPayload(), audience);
+  }
+  function renderPeerReviewHistory() {
+    var item = state.peerReviewTrashOpen ? null : activePeerReview();
+    $('#peerReviewHistorySection').hidden = !item;
+    var history = item && Array.isArray(item.history) ? item.history : [];
+    $('#peerReviewHistory').innerHTML = history.length ? history.slice().reverse().map(function (snapshot) {
+      var content = [['稿件名称', 'title'], ['期刊名称', 'journal'], ['稿件编号', 'manuscriptCode'], ['状态', 'status'], ['邀请日期', 'invitedAt'], ['截止日期', 'dueAt'], ['提交日期', 'submittedAt'], ['稿件或审稿系统链接', 'manuscriptUrl'], ['审稿建议', 'recommendation'], ['总体评价', 'summary'], ['主要意见', 'majorComments'], ['次要意见', 'minorComments'], ['仅供编辑的保密意见', 'editorComments'], ['个人备注', 'notes']].map(function (field) {
+        return '<div class="peer-review-history-field"><strong>' + field[0] + '</strong><div>' + escapeHtml(snapshot[field[1]] || '（未填写）') + '</div></div>';
+      }).join('');
+      return '<details class="peer-review-history-round"><summary>第 ' + escapeHtml(snapshot.round || 1) + ' 轮 · ' + escapeHtml(snapshot.status || '待决定') + ' · 归档于 ' + escapeHtml(snapshot.archivedAt || '') + '</summary><div class="peer-review-actions"><button type="button" data-review-history-author="' + escapeHtml(snapshot.id) + '"' + (state.peerReviewBusy || state.peerReviewLoading ? ' disabled' : '') + '>导出本轮给作者</button><button type="button" data-review-history-editor="' + escapeHtml(snapshot.id) + '"' + (state.peerReviewBusy || state.peerReviewLoading ? ' disabled' : '') + '>导出本轮给编辑</button></div>' + content + '</details>';
+    }).join('') : '<p class="peer-review-history-empty">暂无历史轮次。点击“开始下一轮”会先保存并归档当前轮次。</p>';
+  }
+  function exportPeerReviewHistory(id, audience) {
+    var item = activePeerReview();
+    if (!item || state.peerReviewTrashOpen || state.peerReviewBusy || state.peerReviewLoading) return false;
+    var snapshot = (Array.isArray(item.history) ? item.history : []).find(function (entry) { return String(entry.id) === String(id); });
+    if (!snapshot) { toast('此历史轮次已不存在，请重新载入'); return false; }
+    return downloadPeerReviewExport(snapshot, audience);
+  }
+  function startNextPeerReviewRound() {
+    var item = activePeerReview();
+    if (!item || state.peerReviewTrashOpen || state.peerReviewBusy || state.peerReviewLoading) return Promise.resolve(false);
+    if (Number(item.round || 1) >= 20) { toast('最多支持 20 轮审稿'); return Promise.resolve(false); }
+    if (!confirm('先保存并归档第 ' + (item.round || 1) + ' 轮，然后开始下一轮？本轮意见会保留在历史中，新一轮意见、日期和个人备注将清空。')) return Promise.resolve(false);
+    // Queue the live form before locking it; never archive a stale server-only version.
+    queuePeerReviewAutoSave();
+    var id = item.id, expectedRound = Number(item.round || 1), started = false;
+    state.peerReviewBusy = true; renderPeerReviews();
+    return afterCurrentEditorSaved('peer-reviews', function () {
+      var slot = autoSaveSlots['peer-review:' + id];
+      if (slot && slot.dirty) throw new Error('当前意见尚未保存，未开始下一轮，请重试');
+      return api('/api/peer-reviews', { method: 'POST', body: JSON.stringify({ action: 'next-round', id: id, expectedRound: expectedRound }) }).then(function (result) {
+        if (!result.ok) throw new Error(result.error || '开始下一轮失败');
+        applyPeerReviewData(result.peerReviews); started = true;
+        toast('上一轮已保存并归档，已开始第 ' + (activePeerReview() || {}).round + ' 轮');
+      });
+    }).then(function () { state.peerReviewBusy = false; renderPeerReviews(); return started; });
+  }
   function bindPeerReviewEvents() {
     $('#peerReviewNew').addEventListener('click', function () { mutatePeerReview('create'); });
     $('#peerReviewSave').addEventListener('click', savePeerReview);
     $('#peerReviewExportAuthor').addEventListener('click', function () { exportPeerReview('author'); });
     $('#peerReviewExportEditor').addEventListener('click', function () { exportPeerReview('editor'); });
+    $('#peerReviewNextRound').addEventListener('click', startNextPeerReviewRound);
+    $('#peerReviewHistory').addEventListener('click', function (event) {
+      var author = event.target.closest('[data-review-history-author]'), editor = event.target.closest('[data-review-history-editor]');
+      if (author) exportPeerReviewHistory(author.dataset.reviewHistoryAuthor, 'author');
+      if (editor) exportPeerReviewHistory(editor.dataset.reviewHistoryEditor, 'editor');
+    });
     $('#peerReviewDelete').addEventListener('click', function () { mutatePeerReview('trash', state.peerReviewId); });
     $('#peerReviewTrash').addEventListener('click', function () {
       if (state.peerReviewBusy || state.peerReviewLoading) return;

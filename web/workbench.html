@@ -8,7 +8,7 @@
   <link rel="apple-touch-icon" href="icon-180.png">
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#174e4a">
-  <link rel="stylesheet" href="style.css?v=20261007-03">
+  <link rel="stylesheet" href="style.css?v=20261007-04">
   <style>.sidebar-nav .retired-content{display:none!important}</style>
 </head>
 <body>
@@ -386,11 +386,11 @@
             <p class="peer-review-notice">审稿内容可能涉及保密稿件，请遵守期刊政策。此模块不会自动向期刊提交意见，也不会调用 AI 或外部文献信息服务。</p>
             <div id="peerReviewEmpty" class="peer-review-empty">选择左侧任务，或点击“新建审稿”直接填写。</div>
             <section id="peerReviewEditor" class="peer-review-editor" hidden>
-              <div class="peer-review-title-row"><label>稿件名称<input id="peerReviewTitle" maxlength="1000" placeholder="输入稿件标题"></label><button type="button" id="peerReviewDelete" title="移入回收站" aria-label="将当前审稿任务移入回收站">删除任务</button></div>
+              <div class="peer-review-title-row"><label>稿件名称<input id="peerReviewTitle" maxlength="1000" placeholder="输入稿件标题"></label><button type="button" id="peerReviewNextRound" title="保存当前轮次到历史，然后开启下一轮" disabled>开始下一轮</button><button type="button" id="peerReviewDelete" title="移入回收站" aria-label="将当前审稿任务移入回收站">删除任务</button></div>
               <div class="peer-review-meta">
                 <label>期刊名称<input id="peerReviewJournal" maxlength="300" placeholder="期刊或会议名称"></label>
                 <label>稿件编号<input id="peerReviewCode" maxlength="200" placeholder="例如：JEEM-2026-00123"></label>
-                <label>审稿轮次<input id="peerReviewRound" type="number" min="1" max="20" step="1" value="1"></label>
+                <label>审稿轮次<input id="peerReviewRound" type="number" min="1" max="20" step="1" value="1" readonly title="点击开始下一轮，保留本轮意见后递增轮次"></label>
                 <label>任务状态<select id="peerReviewStatus"><option>待决定</option><option>审稿中</option><option>已提交</option><option>已拒绝</option></select></label>
                 <label>邀请日期<input id="peerReviewInvited" type="date"></label>
                 <label>截止日期<input id="peerReviewDue" type="date"></label>
@@ -404,6 +404,7 @@
               <label>仅供编辑的保密意见<textarea id="peerReviewConfidential" maxlength="100000" placeholder="与给作者的意见分开记录；不会自动提交或分享"></textarea></label>
               <label>个人备注<textarea id="peerReviewNotes" maxlength="100000" placeholder="阅读进度、待核实问题或后续审稿记录"></textarea></label>
             </section>
+            <section id="peerReviewHistorySection" class="peer-review-history" hidden><h3>审稿轮次历史</h3><p>历史为只读记录，默认折叠；展开后可查看并分别导出本轮意见。</p><div id="peerReviewHistory"></div></section>
             <div class="peer-review-save-status" id="peerReviewSaveStatus" role="status" aria-live="polite">选择或新建审稿任务后填写内容。</div>
           </div>
         </div>
@@ -1568,9 +1569,9 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-<script src="static-api.js?v=20261007-03"></script>
+<script src="static-api.js?v=20261007-04"></script>
 <script src="reference-export.js?v=20260927-01"></script>
-  <script src="app.js?v=20261007-03"></script>
+  <script src="app.js?v=20261007-04"></script>
   <script src="attachments.js?v=20260925-1"></script>
 </body>
 </html>

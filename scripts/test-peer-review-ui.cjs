@@ -16,9 +16,9 @@ function harness(options = {}) {
   const context = vm.createContext({ state, autoSaveSlots: slots, Date, console, Blob,
     downloadBlob: (blob, filename) => { if (options.downloadFails) throw new Error('Download blocked'); downloads.push({ blob, filename }); },
     $: selector => node(selector.slice(1)), escapeHtml: text => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'),
-    toast: message => toasts.push(message), confirm: () => true,
+    toast: message => toasts.push(message), confirm: () => options.confirm !== false,
     api: async (endpoint, init) => { calls.push({ endpoint, body: init ? JSON.parse(init.body) : undefined }); return options.api ? options.api(endpoint, init) : { ok: true, peerReviews: structuredClone(state.peerReviews) }; },
-    afterCurrentEditorSaved: async (panel, callback) => { flushes++; if (options.flushFails) return; try { return await callback(); } catch (e) { toasts.push(e.message); } },
+    afterCurrentEditorSaved: async (panel, callback) => { flushes++; if (options.flushFails) return; try { const slot = slots['peer-review:' + state.peerReviewId]; if (slot && slot.dirty) { await slot.persist(slot.payload); slot.dirty = false; } return await callback(); } catch (e) { toasts.push(e.message); } },
     queueAutoSave: (key, payload, persist) => { slots[key] = { dirty: true, payload, persist }; },
     saveImmediately: async (key, payload, persist) => {
       slots[key] = { dirty: true, payload, persist };
@@ -91,6 +91,65 @@ test('failed local downloads show failure and never claim success', () => {
   const h = harness({ downloadFails: true }); addTask(h, { summary: 'Test opinion' });
   assert.equal(h.context.exportPeerReview('author'), false); assert.equal(h.downloads.length, 0);
   assert.ok(h.toasts.some(text => text.includes('导出失败'))); assert.ok(h.toasts.every(text => !text.includes('已生成')));
+});
+
+test('history is rendered as escaped read-only collapsed details with export actions, and hidden in trash', () => {
+  const h = harness(); addTask(h, { history: [{ id: 'r1', round: 1, status: '已提交', archivedAt: '2026-10-07', summary: '<script>alert(1)</script>\n\nTail', notes: 'Private notes' }] });
+  const markup = h.node('peerReviewHistory').innerHTML;
+  assert.ok(markup.includes('<details ')); assert.ok(!/<details[^>]*\bopen\b/.test(markup)); assert.ok(markup.includes('&lt;script>')); assert.ok(!markup.includes('<script>'));
+  assert.ok(markup.includes('data-review-history-author="r1"')); assert.ok(markup.includes('Private notes')); assert.ok(!/<textarea|<input/.test(markup));
+  assert.ok(css.includes('white-space:pre-wrap')); assert.ok(html.includes('value="1" readonly'));
+  h.state.peerReviewTrashOpen = true; h.context.renderPeerReviews(); assert.equal(h.node('peerReviewHistorySection').hidden, true); assert.equal(h.node('peerReviewNextRound').disabled, true);
+});
+
+test('history exports use the immutable historical round rather than the current editor and retain privacy allowlists', async () => {
+  const h = harness(); addTask(h, { round: 2, summary: 'Current second round', history: [{ id: 'r1', title: 'Old title', round: 1, summary: 'Old author opinion', recommendation: '大修', editorComments: 'OLD_EDITOR_SECRET', notes: 'OLD_PERSONAL_SECRET' }] });
+  assert.equal(h.context.exportPeerReviewHistory('r1', 'author'), true);
+  const author = await h.downloads[0].blob.text(); assert.ok(author.includes('Old author opinion')); assert.ok(!author.includes('Current second round')); assert.ok(!author.includes('OLD_EDITOR_SECRET')); assert.ok(!author.includes('OLD_PERSONAL_SECRET')); assert.ok(h.downloads[0].filename.includes('第1轮-作者版'));
+  assert.equal(h.context.exportPeerReviewHistory('r1', 'editor'), true); const editor = await h.downloads[1].blob.text(); assert.ok(editor.includes('OLD_EDITOR_SECRET')); assert.ok(!editor.includes('OLD_PERSONAL_SECRET')); assert.ok(!editor.includes('Old author opinion'));
+  assert.equal(h.context.exportPeerReviewHistory('missing', 'author'), false); assert.equal(h.downloads.length, 2);
+  h.state.peerReviewTrashOpen = true; assert.equal(h.context.exportPeerReviewHistory('r1', 'author'), false);
+});
+
+test('starting next round saves the latest form before archiving, preserves a single task and clears the editor only after success', async () => {
+  const actions = []; let saved;
+  const h = harness({ api: async (endpoint, init) => {
+    const body = JSON.parse(init.body); actions.push(body.action);
+    if (body.action === 'save') { saved = { ...body }; return { ok: true, peerReviews: { items: [{ ...body, history: [] }], trash: [] } }; }
+    assert.equal(body.expectedRound, 1); assert.equal(body.id, 'one'); assert.equal(saved.summary, 'Latest unsaved opinion');
+    return { ok: true, peerReviews: { items: [{ ...saved, round: 2, summary: '', notes: '', recommendation: '尚未决定', history: [{ ...saved, id: 'r1' }] }], trash: [] } };
+  } });
+  addTask(h, { summary: 'Older version' }); h.node('peerReviewSummary').value = 'Latest unsaved opinion';
+  assert.equal(await h.context.startNextPeerReviewRound(), true); assert.deepEqual(actions, ['save', 'next-round']);
+  assert.equal(h.state.peerReviews.items.length, 1); assert.equal(h.state.peerReviews.items[0].round, 2); assert.equal(h.node('peerReviewSummary').value, ''); assert.equal(h.state.peerReviews.items[0].history[0].summary, 'Latest unsaved opinion'); assert.equal(h.state.peerReviewBusy, false);
+});
+
+test('failed save or failed archive never clears the current opinions or shows next-round success', async () => {
+  for (const failAction of ['save', 'next-round']) {
+    const h = harness({ api: async (endpoint, init) => {
+      const body = JSON.parse(init.body); return body.action === failAction ? { ok: false, error: 'Simulated failure' } : { ok: true, peerReviews: { items: [{ ...body, history: [] }], trash: [] } };
+    } });
+    addTask(h); h.node('peerReviewSummary').value = 'Do not lose';
+    assert.equal(await h.context.startNextPeerReviewRound(), false); assert.equal(h.node('peerReviewSummary').value, 'Do not lose'); assert.equal(Number(h.state.peerReviews.items[0].round), 1); assert.equal(h.state.peerReviewBusy, false);
+    assert.ok(h.toasts.every(text => !text.includes('已开始')));
+    if (failAction === 'save') assert.ok(h.calls.every(call => call.body.action !== 'next-round'));
+  }
+});
+
+test('next-round controls reject cancellation, unavailable tasks, round limits and loading without writes', async () => {
+  const cancelled = harness({ confirm: false }); addTask(cancelled, { summary: 'Keep' }); assert.equal(await cancelled.context.startNextPeerReviewRound(), false); assert.equal(cancelled.calls.length, 0);
+  for (const flag of ['peerReviewBusy', 'peerReviewLoading', 'peerReviewTrashOpen']) { const h = harness(); addTask(h); h.state[flag] = true; assert.equal(await h.context.startNextPeerReviewRound(), false); assert.equal(h.calls.length, 0); }
+  const max = harness(); addTask(max, { round: 20 }); assert.equal(max.node('peerReviewNextRound').disabled, true); assert.equal(await max.context.startNextPeerReviewRound(), false); assert.equal(max.calls.length, 0);
+  const empty = harness(); assert.equal(await empty.context.startNextPeerReviewRound(), false);
+  const blocked = harness({ flushFails: true }); addTask(blocked); assert.equal(await blocked.context.startNextPeerReviewRound(), false); assert.equal(blocked.state.peerReviewBusy, false); assert.equal(blocked.calls.length, 0);
+});
+
+test('dirty old-round drafts cannot overwrite an incoming new round, but same-round drafts still win', () => {
+  const h = harness(); addTask(h); h.slots['peer-review:one'] = { dirty: true, payload: { id: 'one', round: 1, summary: 'Old local draft' } };
+  h.context.applyPeerReviewData({ items: [{ id: 'one', round: 2, summary: 'New round server', history: [{ id: 'r1', summary: 'Archived' }] }], trash: [] });
+  assert.equal(h.state.peerReviews.items[0].summary, 'New round server'); assert.equal(h.state.peerReviews.items[0].round, 2);
+  h.slots['peer-review:one'].payload = { id: 'one', round: 2, summary: 'New local draft' };
+  h.context.applyPeerReviewData({ items: [{ id: 'one', round: 2, summary: 'Older server value' }], trash: [] }); assert.equal(h.state.peerReviews.items[0].summary, 'New local draft');
 });
 
 test('all editor fields and event targets exist once; module, save, backup and search hooks are wired', () => {
