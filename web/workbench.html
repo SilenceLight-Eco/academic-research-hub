@@ -8,7 +8,7 @@
   <link rel="apple-touch-icon" href="icon-180.png">
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#174e4a">
-  <link rel="stylesheet" href="style.css?v=20261007-04">
+  <link rel="stylesheet" href="style.css?v=20261007-05">
   <style>.sidebar-nav .retired-content{display:none!important}</style>
 </head>
 <body>
@@ -403,6 +403,7 @@
               <label>次要意见<textarea id="peerReviewMinor" maxlength="100000" placeholder="表达、图表、引用及其他细节修改建议"></textarea></label>
               <label>仅供编辑的保密意见<textarea id="peerReviewConfidential" maxlength="100000" placeholder="与给作者的意见分开记录；不会自动提交或分享"></textarea></label>
               <label>个人备注<textarea id="peerReviewNotes" maxlength="100000" placeholder="阅读进度、待核实问题或后续审稿记录"></textarea></label>
+              <section class="peer-review-checklist-section"><div class="peer-review-checklist-head"><h3>二审核对清单</h3><div class="peer-review-actions"><button type="button" id="peerReviewChecklistImport" disabled>引用上一轮意见</button><button type="button" id="peerReviewChecklistAdd" disabled>+ 新建问题</button></div></div><p id="peerReviewChecklistProgress" role="status" aria-live="polite">共 0 条</p><div id="peerReviewChecklist"></div></section>
             </section>
             <section id="peerReviewHistorySection" class="peer-review-history" hidden><h3>审稿轮次历史</h3><p>历史为只读记录，默认折叠；展开后可查看并分别导出本轮意见。</p><div id="peerReviewHistory"></div></section>
             <div class="peer-review-save-status" id="peerReviewSaveStatus" role="status" aria-live="polite">选择或新建审稿任务后填写内容。</div>
@@ -1569,9 +1570,9 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-<script src="static-api.js?v=20261007-04"></script>
+<script src="static-api.js?v=20261007-05"></script>
 <script src="reference-export.js?v=20260927-01"></script>
-  <script src="app.js?v=20261007-04"></script>
+  <script src="app.js?v=20261007-05"></script>
   <script src="attachments.js?v=20260925-1"></script>
 </body>
 </html>

@@ -128,3 +128,51 @@ test('round limits, missing tasks, signed-out requests and cloud failures leave 
   const failed = harness(data, { failWrites: true }); assert.equal((await request(failed, { action: 'next-round', id: 'limit', expectedRound: 1 })).status, 500);
   assert.equal(failed.writeCount(), 0); assert.deepEqual(failed.readWorkspace(), data);
 });
+
+const checkRow = (id, extras = {}) => ({ id, kind: '主要意见', status: '待核对', issue: 'Identification strategy\n\nSecond paragraph', response: 'Author reply', assessment: 'My private judgment', sourceHistoryId: '', sourceKey: '', ...extras });
+
+test('checklist saves and reloads with whitespace, preserves omitted rows and ignores unrelated injected fields', async () => {
+  const h = harness(initial()); const id = await create(h);
+  const checklist = [checkRow('c1', { status: '部分解决', sourceRound: 99, unknown: 'Do not persist' }), checkRow('c2', { kind: '补充问题', status: '已解决' })];
+  assert.equal((await request(h, { action: 'save', id, round: 1, checklist })).status, 200);
+  const saved = h.readWorkspace().peerReviews.items[0].checklist;
+  assert.equal(saved.length, 2); assert.equal(saved[0].issue, checklist[0].issue); assert.equal(saved[0].assessment, checklist[0].assessment); assert.equal(saved[0].sourceRound, ''); assert.equal(saved[0].unknown, undefined);
+  await request(h, { action: 'save', id, round: 1, summary: 'Other changes' });
+  const loaded = await (await harness(h.readWorkspace()).get('/api/peer-reviews')).json(); assert.deepEqual(loaded.peerReviews.items[0].checklist, saved);
+});
+
+test('checklist source links are validated against actual history and round numbers are derived rather than trusted', async () => {
+  const h = harness(initial()); const id = await create(h); await request(h, { action: 'save', id, majorComments: 'Previous problem' });
+  const archived = await request(h, { action: 'next-round', id, expectedRound: 1 }); const snapshotId = archived.body.peerReviews.items[0].history[0].id;
+  const row = checkRow('c1', { sourceHistoryId: snapshotId, sourceKey: 'majorComments:0', sourceRound: 500 });
+  const result = await request(h, { action: 'save', id, round: 2, checklist: [row] }); assert.equal(result.status, 200);
+  assert.equal(result.body.peerReviews.items[0].checklist[0].sourceRound, 1); assert.equal(result.body.peerReviews.items[0].checklist[0].sourceHistoryId, snapshotId);
+  const before = h.readWorkspace(); const writes = h.writeCount();
+  assert.equal((await request(h, { action: 'save', id, round: 2, checklist: [checkRow('bad', { sourceHistoryId: 'foreign-snapshot' })] })).status, 422); assert.equal(h.writeCount(), writes); assert.deepEqual(h.readWorkspace(), before);
+});
+
+test('malformed, duplicate, oversized and excessive checklist rows fail before any cloud write', async () => {
+  const h = harness(initial()); const id = await create(h); const writes = h.writeCount();
+  for (const checklist of [{}, [null], [checkRow('x'), checkRow('x')], [checkRow('')], [checkRow('x', { kind: 'invalid' })], [checkRow('x', { status: 'invalid' })], [checkRow('x', { issue: {} })], [checkRow('x', { response: 'x'.repeat(10001) })], [checkRow('x', { sourceKey: 'x'.repeat(101) })], Array.from({ length: 101 }, (_, i) => checkRow('c' + i))]) {
+    assert.equal((await request(h, { action: 'save', id, round: 1, checklist })).status, 422);
+  }
+  assert.equal(h.writeCount(), writes); assert.deepEqual(h.readWorkspace().peerReviews.items[0].checklist, []);
+});
+
+test('archiving freezes checklist rows and a new round starts empty; trash/restore retains historical checks', async () => {
+  const h = harness(initial()); const id = await create(h);
+  await request(h, { action: 'save', id, round: 1, checklist: [checkRow('old', { status: '未解决' })] });
+  const result = await request(h, { action: 'next-round', id, expectedRound: 1 }); const frozen = result.body.peerReviews.items[0].history[0].checklist;
+  assert.equal(frozen[0].assessment, 'My private judgment'); assert.deepEqual(result.body.peerReviews.items[0].checklist, []);
+  await request(h, { action: 'save', id, round: 2, checklist: [checkRow('new', { status: '已解决' })] });
+  assert.deepEqual(h.readWorkspace().peerReviews.items[0].history[0].checklist, frozen);
+  const trash = await request(h, { action: 'trash', id }); const restored = await request(h, { action: 'restore', id: trash.body.peerReviews.trash[0].id });
+  assert.deepEqual(restored.body.peerReviews.items[0].history[0].checklist, frozen); assert.equal(restored.body.peerReviews.items[0].checklist[0].id, 'new');
+});
+
+test('deleting one checklist row only affects that row and stale round saves cannot erase the current checklist', async () => {
+  const h = harness(initial()); const id = await create(h); await request(h, { action: 'next-round', id, expectedRound: 1 });
+  await request(h, { action: 'save', id, round: 2, checklist: [checkRow('keep'), checkRow('remove')] });
+  await request(h, { action: 'save', id, round: 2, checklist: [checkRow('keep')] });
+  assert.equal((await request(h, { action: 'save', id, round: 1, checklist: [] })).status, 409); assert.deepEqual(h.readWorkspace().peerReviews.items[0].checklist.map(row => row.id), ['keep']);
+});

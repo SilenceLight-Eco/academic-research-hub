@@ -637,7 +637,7 @@
           var reviewId = 'review-' + nowId() + '-' + Math.random().toString(36).slice(2, 10);
           reviews.items.push({ id: reviewId, title: '未命名审稿任务', journal: '', manuscriptCode: '', round: 1,
             status: '待决定', invitedAt: '', dueAt: '', submittedAt: '', recommendation: '尚未决定', manuscriptUrl: '',
-            summary: '', majorComments: '', minorComments: '', editorComments: '', notes: '', history: [], created: nowText(), updated: nowText() });
+            summary: '', majorComments: '', minorComments: '', editorComments: '', notes: '', checklist: [], history: [], created: nowText(), updated: nowText() });
         }
         if (body.action === 'save') {
           var reviewStatuses = ['待决定', '审稿中', '已提交', '已拒绝'];
@@ -658,6 +658,23 @@
           var reviewLimits = { title: 1000, journal: 300, manuscriptCode: 200, manuscriptUrl: 2000, summary: 100000, majorComments: 100000, minorComments: 100000, editorComments: 100000, notes: 100000 };
           var oversizedReviewField = Object.keys(reviewLimits).find(function (field) { return body[field] !== undefined && String(body[field]).length > reviewLimits[field]; });
           if (oversizedReviewField) return response({ error: '输入内容过长，请缩短后重试' }, 422);
+          if (body.checklist !== undefined) {
+            if (!Array.isArray(body.checklist) || body.checklist.length > 100) return response({ error: '核对清单须为列表，最多支持 100 条' }, 422);
+            var reviewCheckIds = new Set(), checkedReviewRows = [], reviewCheckError = '';
+            body.checklist.forEach(function (row) {
+              if (!row || typeof row !== 'object' || Array.isArray(row) || typeof row.id !== 'string' || !row.id || row.id.length > 100 || reviewCheckIds.has(row.id)) { reviewCheckError = '核对条目标识无效或重复'; return; }
+              reviewCheckIds.add(row.id);
+              if (['主要意见', '次要意见', '补充问题'].indexOf(row.kind) < 0 || ['待核对', '已解决', '部分解决', '未解决'].indexOf(row.status) < 0) { reviewCheckError = '请选择有效的问题类型和核对状态'; return; }
+              if (['issue', 'response', 'assessment'].some(function (field) { return typeof row[field] !== 'string' || row[field].length > 10000; })) { reviewCheckError = '每条问题、回应和判断须为文本，且不超过 10000 字符'; return; }
+              var sourceSnapshot = row.sourceHistoryId ? (Array.isArray(reviewItem.history) ? reviewItem.history : []).find(function (snapshot) { return snapshot.id === row.sourceHistoryId; }) : null;
+              if (row.sourceHistoryId && !sourceSnapshot) { reviewCheckError = '引用的历史轮次不存在，请重新载入'; return; }
+              if (row.sourceKey != null && (typeof row.sourceKey !== 'string' || row.sourceKey.length > 100)) { reviewCheckError = '核对条目的来源标识无效'; return; }
+              checkedReviewRows.push({ id: row.id, kind: row.kind, status: row.status, issue: row.issue, response: row.response, assessment: row.assessment,
+                sourceHistoryId: sourceSnapshot ? sourceSnapshot.id : '', sourceRound: sourceSnapshot ? sourceSnapshot.round : '', sourceKey: sourceSnapshot ? row.sourceKey || '' : '' });
+            });
+            if (reviewCheckError) return response({ error: reviewCheckError }, 422);
+            reviewItem.checklist = checkedReviewRows;
+          }
           Object.keys(reviewLimits).forEach(function (field) { if (body[field] !== undefined) reviewItem[field] = String(body[field] || ''); });
           reviewItem.title = String(reviewItem.title || '').trim() || '未命名审稿任务';
           reviewItem.manuscriptUrl = String(reviewItem.manuscriptUrl || '').trim();
@@ -673,10 +690,12 @@
           // Immutable snapshots contain only review fields, never nested history or unrelated workspace data.
           ['title', 'journal', 'manuscriptCode', 'round', 'status', 'invitedAt', 'dueAt', 'submittedAt', 'recommendation', 'manuscriptUrl', 'summary', 'majorComments', 'minorComments', 'editorComments', 'notes'].forEach(function (field) { reviewSnapshot[field] = reviewItem[field] === undefined ? '' : reviewItem[field]; });
           reviewSnapshot.round = currentReviewRound;
+          reviewSnapshot.checklist = copyPayload(Array.isArray(reviewItem.checklist) ? reviewItem.checklist : []);
           reviewItem.history = Array.isArray(reviewItem.history) ? reviewItem.history : [];
           reviewItem.history.push(reviewSnapshot);
           reviewItem.round = currentReviewRound + 1;
           reviewItem.status = '审稿中'; reviewItem.recommendation = '尚未决定';
+          reviewItem.checklist = [];
           ['invitedAt', 'dueAt', 'submittedAt', 'summary', 'majorComments', 'minorComments', 'editorComments', 'notes'].forEach(function (field) { reviewItem[field] = ''; });
           reviewItem.updated = nowText();
         }

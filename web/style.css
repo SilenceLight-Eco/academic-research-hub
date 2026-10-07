@@ -7493,6 +7493,15 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .peer-review-history-round .peer-review-actions { margin:12px 0; }
 .peer-review-history-field { margin:12px 0; color:var(--text-secondary); font-size:12px; line-height:1.8; }
 .peer-review-history-field > div { margin-top:4px; color:var(--text); white-space:pre-wrap; overflow-wrap:anywhere; }
+.peer-review-checklist-section { border-top:1px solid var(--hairline); padding-top:16px; }
+.peer-review-checklist-head,.peer-review-check-head { display:flex; align-items:center; flex-wrap:wrap; gap:10px; }
+.peer-review-checklist-head { justify-content:space-between; }
+.peer-review-checklist-head h3 { margin:0; font-size:16px; color:var(--text); }
+#peerReviewChecklistProgress,.peer-review-check-head small { font-size:12px; color:var(--text-muted); line-height:1.8; }
+.peer-review-check-row { display:grid; gap:12px; margin:12px 0; padding:14px; border:1px solid var(--hairline); border-radius:8px; }
+.peer-review-check-head strong { font-size:13px; color:var(--text); }
+.peer-review-check-head button { margin-left:auto; padding:5px 10px; border:1px solid var(--hairline); border-radius:6px; color:#c64444; background:var(--glass-strong); cursor:pointer; font:inherit; }
+.peer-review-check-row textarea { min-height:85px; }
 .peer-review-meta { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px 16px; }
 .peer-review-editor textarea { min-height:105px; resize:vertical; }
 .peer-review-empty { padding:35px 12px; color:var(--text-muted); font-size:12px; text-align:center; }

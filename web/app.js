@@ -10290,6 +10290,7 @@
       if (draft && draft.dirty && draft.payload && Number(draft.payload.round || 1) === Number(item.round || 1)) Object.keys(peerReviewFieldMap).forEach(function (field) {
         if (draft.payload[field] !== undefined) item[field] = draft.payload[field];
       });
+      if (draft && draft.dirty && draft.payload && Number(draft.payload.round || 1) === Number(item.round || 1) && Array.isArray(draft.payload.checklist)) item.checklist = JSON.parse(JSON.stringify(draft.payload.checklist));
     });
   }
   function loadPeerReviews() {
@@ -10369,11 +10370,14 @@
     $('#peerReviewNextRound').disabled = !item || state.peerReviewBusy || state.peerReviewLoading || Number(item.round || 1) >= 20;
     ['peerReviewNew', 'peerReviewTrash', 'peerReviewSearch', 'peerReviewFilter'].forEach(function (id) { $('#' + id).disabled = state.peerReviewBusy || state.peerReviewLoading; });
     renderPeerReviewSaveStatus();
+    renderPeerReviewChecklist();
     renderPeerReviewHistory();
   }
   function readPeerReviewPayload() {
     var payload = { action: 'save', id: state.peerReviewId };
     Object.keys(peerReviewFieldMap).forEach(function (field) { payload[field] = $('#' + peerReviewFieldMap[field]).value; });
+    var item = activePeerReview();
+    payload.checklist = JSON.parse(JSON.stringify(item && Array.isArray(item.checklist) ? item.checklist : []));
     return payload;
   }
   function persistPeerReview(payload) {
@@ -10478,7 +10482,8 @@
       var content = [['稿件名称', 'title'], ['期刊名称', 'journal'], ['稿件编号', 'manuscriptCode'], ['状态', 'status'], ['邀请日期', 'invitedAt'], ['截止日期', 'dueAt'], ['提交日期', 'submittedAt'], ['稿件或审稿系统链接', 'manuscriptUrl'], ['审稿建议', 'recommendation'], ['总体评价', 'summary'], ['主要意见', 'majorComments'], ['次要意见', 'minorComments'], ['仅供编辑的保密意见', 'editorComments'], ['个人备注', 'notes']].map(function (field) {
         return '<div class="peer-review-history-field"><strong>' + field[0] + '</strong><div>' + escapeHtml(snapshot[field[1]] || '（未填写）') + '</div></div>';
       }).join('');
-      return '<details class="peer-review-history-round"><summary>第 ' + escapeHtml(snapshot.round || 1) + ' 轮 · ' + escapeHtml(snapshot.status || '待决定') + ' · 归档于 ' + escapeHtml(snapshot.archivedAt || '') + '</summary><div class="peer-review-actions"><button type="button" data-review-history-author="' + escapeHtml(snapshot.id) + '"' + (state.peerReviewBusy || state.peerReviewLoading ? ' disabled' : '') + '>导出本轮给作者</button><button type="button" data-review-history-editor="' + escapeHtml(snapshot.id) + '"' + (state.peerReviewBusy || state.peerReviewLoading ? ' disabled' : '') + '>导出本轮给编辑</button></div>' + content + '</details>';
+      var checks = (Array.isArray(snapshot.checklist) ? snapshot.checklist : []).map(function (row, index) { return '<div class="peer-review-history-field"><strong>核对 ' + (index + 1) + ' · ' + escapeHtml(row.kind) + ' · ' + escapeHtml(row.status) + '</strong><div>问题：' + escapeHtml(row.issue) + '\n作者回应：' + escapeHtml(row.response) + '\n我的判断：' + escapeHtml(row.assessment) + '</div></div>'; }).join('');
+      return '<details class="peer-review-history-round"><summary>第 ' + escapeHtml(snapshot.round || 1) + ' 轮 · ' + escapeHtml(snapshot.status || '待决定') + ' · 归档于 ' + escapeHtml(snapshot.archivedAt || '') + '</summary><div class="peer-review-actions"><button type="button" data-review-history-author="' + escapeHtml(snapshot.id) + '"' + (state.peerReviewBusy || state.peerReviewLoading ? ' disabled' : '') + '>导出本轮给作者</button><button type="button" data-review-history-editor="' + escapeHtml(snapshot.id) + '"' + (state.peerReviewBusy || state.peerReviewLoading ? ' disabled' : '') + '>导出本轮给编辑</button></div>' + content + checks + '</details>';
     }).join('') : '<p class="peer-review-history-empty">暂无历史轮次。点击“开始下一轮”会先保存并归档当前轮次。</p>';
   }
   function exportPeerReviewHistory(id, audience) {
@@ -10492,7 +10497,7 @@
     var item = activePeerReview();
     if (!item || state.peerReviewTrashOpen || state.peerReviewBusy || state.peerReviewLoading) return Promise.resolve(false);
     if (Number(item.round || 1) >= 20) { toast('最多支持 20 轮审稿'); return Promise.resolve(false); }
-    if (!confirm('先保存并归档第 ' + (item.round || 1) + ' 轮，然后开始下一轮？本轮意见会保留在历史中，新一轮意见、日期和个人备注将清空。')) return Promise.resolve(false);
+    if (!confirm('先保存并归档第 ' + (item.round || 1) + ' 轮，然后开始下一轮？本轮意见和核对清单会保留在历史中，新一轮意见、日期、核对清单和个人备注将清空。')) return Promise.resolve(false);
     // Queue the live form before locking it; never archive a stale server-only version.
     queuePeerReviewAutoSave();
     var id = item.id, expectedRound = Number(item.round || 1), started = false;
@@ -10507,12 +10512,97 @@
       });
     }).then(function () { state.peerReviewBusy = false; renderPeerReviews(); return started; });
   }
+  function peerReviewChecklistEditable() {
+    return activePeerReview() && !state.peerReviewTrashOpen && !state.peerReviewBusy && !state.peerReviewLoading;
+  }
+  function peerReviewChecklistRows() {
+    var item = activePeerReview();
+    if (!item) return [];
+    if (!Array.isArray(item.checklist)) item.checklist = [];
+    return item.checklist;
+  }
+  function renderPeerReviewChecklistProgress() {
+    var rows = peerReviewChecklistRows();
+    $('#peerReviewChecklistProgress').textContent = '共 ' + rows.length + ' 条 · 已解决 ' + rows.filter(function (row) { return row.status === '已解决'; }).length + ' · 部分解决 ' + rows.filter(function (row) { return row.status === '部分解决'; }).length + ' · 未解决 ' + rows.filter(function (row) { return row.status === '未解决'; }).length + ' · 待核对 ' + rows.filter(function (row) { return row.status === '待核对'; }).length;
+  }
+  function renderPeerReviewChecklist() {
+    var item = activePeerReview(), editable = peerReviewChecklistEditable(), rows = peerReviewChecklistRows();
+    $('#peerReviewChecklistAdd').disabled = !editable || rows.length >= 100;
+    $('#peerReviewChecklistImport').disabled = !editable || !(item && Array.isArray(item.history) && item.history.length) || rows.length >= 100;
+    var disabled = editable ? '' : ' disabled';
+    $('#peerReviewChecklist').innerHTML = rows.map(function (row, index) {
+      function select(field, values) { return '<select data-review-check-field="' + field + '"' + disabled + '>' + values.map(function (value) { return '<option' + (row[field] === value ? ' selected' : '') + '>' + value + '</option>'; }).join('') + '</select>'; }
+      function area(label, field) { return '<label>' + label + '<textarea maxlength="10000" data-review-check-field="' + field + '"' + disabled + '>' + escapeHtml(row[field] || '') + '</textarea></label>'; }
+      return '<section class="peer-review-check-row" data-review-check-id="' + escapeHtml(row.id) + '"><div class="peer-review-check-head"><strong>问题 ' + (index + 1) + '</strong><small>' + (row.sourceRound ? '引用第 ' + escapeHtml(row.sourceRound) + ' 轮' : '手动添加') + '</small><button type="button" data-review-check-delete="' + escapeHtml(row.id) + '"' + disabled + '>删除</button></div><div class="peer-review-meta"><label>问题类型' + select('kind', ['主要意见', '次要意见', '补充问题']) + '</label><label>核对状态' + select('status', ['待核对', '已解决', '部分解决', '未解决']) + '</label>' + area('上一轮问题／待核对问题', 'issue') + area('作者回应', 'response') + '</div>' + area('我的判断（内部记录，不自动导出）', 'assessment') + '</section>';
+    }).join('') || '<p class="peer-review-history-empty">点击“+ 新建问题”逐条填写，或引用上一轮的主要／次要意见。不会引用编辑保密意见及个人备注。</p>';
+    renderPeerReviewChecklistProgress();
+  }
+  function addPeerReviewCheck() {
+    if (!peerReviewChecklistEditable()) return false;
+    var rows = peerReviewChecklistRows();
+    if (rows.length >= 100) { toast('每轮最多支持 100 条核对问题'); return false; }
+    var id = 'check-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+    rows.push({ id: id, kind: '补充问题', status: '待核对', issue: '', response: '', assessment: '', sourceHistoryId: '', sourceRound: '', sourceKey: '' });
+    queuePeerReviewAutoSave(); renderPeerReviewChecklist();
+    var input = $('#peerReviewChecklist [data-review-check-id="' + id + '"] [data-review-check-field="issue"]');
+    if (input) input.focus();
+    return true;
+  }
+  function splitPeerReviewIssues(text) {
+    // Only split explicit numbered/bulleted lines; unnumbered paragraphs remain one editable issue.
+    var lines = String(text || '').replace(/\r\n?/g, '\n').split('\n'), parts = [], current = [];
+    lines.forEach(function (line) {
+      if (/^\s*(?:(?:\d+[.)、．]|[（(]\d+[）)])\s*\S|[-*•]\s+\S)/.test(line) && current.join('\n').trim()) { parts.push(current.join('\n').trim()); current = []; }
+      current.push(line);
+    });
+    if (current.join('\n').trim()) parts.push(current.join('\n').trim());
+    return parts;
+  }
+  function importPreviousPeerReviewChecks() {
+    if (!peerReviewChecklistEditable()) return false;
+    var item = activePeerReview(), history = Array.isArray(item.history) ? item.history : [], snapshot = history[history.length - 1];
+    if (!snapshot) { toast('暂无上一轮历史，请先开始下一轮'); return false; }
+    var rows = peerReviewChecklistRows(), additions = [];
+    [['majorComments', '主要意见'], ['minorComments', '次要意见']].forEach(function (group) {
+      splitPeerReviewIssues(snapshot[group[0]]).forEach(function (issue, index) {
+        var sourceKey = group[0] + ':' + index;
+        if (rows.some(function (row) { return row.sourceHistoryId === snapshot.id && row.sourceKey === sourceKey; })) return;
+        additions.push({ id: 'check-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10), kind: group[1], status: '待核对', issue: issue, response: '', assessment: '', sourceHistoryId: snapshot.id, sourceRound: snapshot.round, sourceKey: sourceKey });
+      });
+    });
+    if (!additions.length) { toast('上一轮没有可引用的新问题，或已全部引用'); return false; }
+    if (rows.length + additions.length > 100 || additions.some(function (row) { return row.issue.length > 10000; })) { toast('上一轮意见过多或单条过长，请手动拆分后逐条新建'); return false; }
+    item.checklist = rows.concat(additions);
+    queuePeerReviewAutoSave(); renderPeerReviewChecklist(); toast('已引用 ' + additions.length + ' 条问题，请核对分条结果'); return true;
+  }
   function bindPeerReviewEvents() {
     $('#peerReviewNew').addEventListener('click', function () { mutatePeerReview('create'); });
     $('#peerReviewSave').addEventListener('click', savePeerReview);
     $('#peerReviewExportAuthor').addEventListener('click', function () { exportPeerReview('author'); });
     $('#peerReviewExportEditor').addEventListener('click', function () { exportPeerReview('editor'); });
     $('#peerReviewNextRound').addEventListener('click', startNextPeerReviewRound);
+    $('#peerReviewChecklistAdd').addEventListener('click', addPeerReviewCheck);
+    $('#peerReviewChecklistImport').addEventListener('click', importPreviousPeerReviewChecks);
+    function editCheck(event) {
+      if (!peerReviewChecklistEditable()) return;
+      var input = event.target.closest('[data-review-check-field]'), container = event.target.closest('[data-review-check-id]');
+      if (!input || !container || ['issue', 'response', 'assessment', 'kind', 'status'].indexOf(input.dataset.reviewCheckField) < 0) return;
+      var row = peerReviewChecklistRows().find(function (entry) { return entry.id === container.dataset.reviewCheckId; });
+      if (!row) return;
+      row[input.dataset.reviewCheckField] = input.value;
+      queuePeerReviewAutoSave(); renderPeerReviewChecklistProgress();
+    }
+    $('#peerReviewChecklist').addEventListener('input', editCheck);
+    $('#peerReviewChecklist').addEventListener('change', editCheck);
+    $('#peerReviewChecklist').addEventListener('click', function (event) {
+      if (!peerReviewChecklistEditable()) return;
+      var button = event.target.closest('[data-review-check-delete]');
+      if (!button) return;
+      var item = activePeerReview(), row = peerReviewChecklistRows().find(function (entry) { return entry.id === button.dataset.reviewCheckDelete; });
+      if (!row || (row.issue || row.response || row.assessment) && !confirm('删除这一条核对问题？其他问题和历史轮次不受影响。')) return;
+      item.checklist = item.checklist.filter(function (entry) { return entry.id !== row.id; });
+      queuePeerReviewAutoSave(); renderPeerReviewChecklist();
+    });
     $('#peerReviewHistory').addEventListener('click', function (event) {
       var author = event.target.closest('[data-review-history-author]'), editor = event.target.closest('[data-review-history-editor]');
       if (author) exportPeerReviewHistory(author.dataset.reviewHistoryAuthor, 'author');

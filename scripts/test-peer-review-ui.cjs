@@ -152,6 +152,60 @@ test('dirty old-round drafts cannot overwrite an incoming new round, but same-ro
   h.context.applyPeerReviewData({ items: [{ id: 'one', round: 2, summary: 'Older server value' }], trash: [] }); assert.equal(h.state.peerReviews.items[0].summary, 'New local draft');
 });
 
+test('checklist add is inline, queues autosave and uses immutable draft copies', () => {
+  const h = harness(); addTask(h); assert.equal(h.context.addPeerReviewCheck(), true);
+  const row = h.state.peerReviews.items[0].checklist[0]; assert.ok(row.id); assert.equal(row.status, '待核对'); assert.equal(h.slots['peer-review:one'].payload.checklist.length, 1);
+  assert.ok(h.node('peerReviewChecklist').innerHTML.includes('<textarea')); assert.ok(h.node('peerReviewChecklistProgress').textContent.includes('待核对 1'));
+  row.issue = 'Changed after draft'; assert.equal(h.slots['peer-review:one'].payload.checklist[0].issue, '');
+  assert.ok(h.context.addPeerReviewCheck()); assert.equal(h.state.peerReviews.items[0].checklist.length, 2);
+});
+
+test('checklist split only recognizes explicit numbering/bullets and preserves continuation paragraphs', () => {
+  const h = harness();
+  assert.deepEqual(Array.from(h.context.splitPeerReviewIssues('1. First\nContinuation\n\n2、Second\n- Third')), ['1. First\nContinuation', '2、Second', '- Third']);
+  assert.deepEqual(Array.from(h.context.splitPeerReviewIssues('Plain paragraph\n\n**Bold heading**\nMore text')), ['Plain paragraph\n\n**Bold heading**\nMore text']);
+  assert.deepEqual(Array.from(h.context.splitPeerReviewIssues('')), []);
+});
+
+test('previous-round imports exclude private fields, are idempotent even after editing, and capture source round', () => {
+  const h = harness(); addTask(h, { round: 2, history: [{ id: 'r1', round: 1, majorComments: '1. First\n2. Second', minorComments: 'Small issue', editorComments: 'SECRET_EDITOR', notes: 'SECRET_NOTES' }] });
+  assert.equal(h.context.importPreviousPeerReviewChecks(), true); const rows = h.state.peerReviews.items[0].checklist;
+  assert.equal(rows.length, 3); assert.equal(rows[0].sourceHistoryId, 'r1'); assert.equal(rows[0].sourceRound, 1); assert.equal(rows[2].kind, '次要意见'); assert.ok(rows.every(row => row.status === '待核对'));
+  assert.ok(!JSON.stringify(rows).includes('SECRET_')); rows[0].issue = 'My edited problem';
+  assert.equal(h.context.importPreviousPeerReviewChecks(), false); assert.equal(rows.length, 3); assert.equal(h.slots['peer-review:one'].dirty, true);
+});
+
+test('delegated checklist editing saves response/status without rerendering the text editor and deletion removes only one row', () => {
+  const h = harness(); addTask(h); h.context.bindPeerReviewEvents(); h.context.addPeerReviewCheck(); h.context.addPeerReviewCheck();
+  const rows = h.state.peerReviews.items[0].checklist; const id = rows[0].id; const originalMarkup = h.node('peerReviewChecklist').innerHTML;
+  function edit(field, value) { const input = { dataset: { reviewCheckField: field }, value }; const container = { dataset: { reviewCheckId: id } }; h.node('peerReviewChecklist').handlers.input({ target: { closest: selector => selector === '[data-review-check-field]' ? input : container } }); }
+  edit('response', 'Author reply\n\nMore'); edit('status', '部分解决'); edit('assessment', 'Internal judgment');
+  assert.equal(rows[0].response, 'Author reply\n\nMore'); assert.equal(h.slots['peer-review:one'].payload.checklist[0].assessment, 'Internal judgment'); assert.equal(h.node('peerReviewChecklist').innerHTML, originalMarkup); assert.ok(h.node('peerReviewChecklistProgress').textContent.includes('部分解决 1'));
+  h.node('peerReviewChecklist').handlers.click({ target: { closest: () => ({ dataset: { reviewCheckDelete: id } }) } });
+  assert.deepEqual(Array.from(h.state.peerReviews.items[0].checklist, row => row.id), [rows[1].id]); assert.equal(h.slots['peer-review:one'].payload.checklist.length, 1);
+});
+
+test('dirty checklist drafts win within the same round, but never overlay a different round', () => {
+  const h = harness(); addTask(h); h.context.addPeerReviewCheck(); const draft = h.slots['peer-review:one'].payload.checklist;
+  h.context.applyPeerReviewData({ items: [{ id: 'one', round: 1, checklist: [] }], trash: [] }); assert.equal(h.state.peerReviews.items[0].checklist[0].id, draft[0].id);
+  h.context.applyPeerReviewData({ items: [{ id: 'one', round: 2, checklist: [] }], trash: [] }); assert.equal(h.state.peerReviews.items[0].checklist.length, 0);
+});
+
+test('checklist markup is escaped; frozen checklist history is read-only and never included in opinion exports', () => {
+  const h = harness(); const row = { id: 'safe', kind: '主要意见', status: '未解决', issue: '</textarea><script>', response: 'Response', assessment: 'PRIVATE_CHECKLIST_JUDGMENT' };
+  addTask(h, { checklist: [row], history: [{ id: 'r1', round: 1, summary: 'Author text', checklist: [row] }] });
+  assert.ok(h.node('peerReviewChecklist').innerHTML.includes('&lt;/textarea>')); assert.ok(!h.node('peerReviewChecklist').innerHTML.includes('<script>'));
+  const history = h.node('peerReviewHistory').innerHTML; assert.ok(history.includes('PRIVATE_CHECKLIST_JUDGMENT')); assert.ok(!/<textarea|<input/.test(history));
+  for (const audience of ['author', 'editor']) assert.ok(!h.context.buildPeerReviewExport(h.state.peerReviews.items[0].history[0], audience).text.includes('PRIVATE_CHECKLIST_JUDGMENT'));
+});
+
+test('checklist controls respect loading, busy, trash, absent history and limits; oversized imports are not partly applied', () => {
+  const h = harness(); addTask(h); assert.equal(h.node('peerReviewChecklistImport').disabled, true); assert.equal(h.context.importPreviousPeerReviewChecks(), false);
+  for (const flag of ['peerReviewLoading', 'peerReviewBusy', 'peerReviewTrashOpen']) { h.state[flag] = true; assert.equal(h.context.addPeerReviewCheck(), false); assert.equal(h.context.importPreviousPeerReviewChecks(), false); h.state[flag] = false; }
+  h.state.peerReviews.items[0].history = [{ id: 'r1', round: 1, majorComments: 'a'.repeat(10001) }]; assert.equal(h.context.importPreviousPeerReviewChecks(), false); assert.equal(h.state.peerReviews.items[0].checklist.length, 0);
+  h.state.peerReviews.items[0].checklist = Array.from({ length: 100 }, (_, i) => ({ id: String(i), status: '待核对' })); h.context.renderPeerReviewChecklist(); assert.equal(h.node('peerReviewChecklistAdd').disabled, true); assert.equal(h.context.addPeerReviewCheck(), false);
+});
+
 test('all editor fields and event targets exist once; module, save, backup and search hooks are wired', () => {
   const h = harness(); h.context.bindPeerReviewEvents();
   for (const id of Array.from(html.matchAll(/id="(peerReview[^"]+)"/g), m => m[1])) assert.equal((html.match(new RegExp('id="' + id + '"', 'g')) || []).length, 1, id);
