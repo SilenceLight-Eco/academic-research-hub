@@ -165,9 +165,9 @@ test('legacy status values remain selected without silently rewriting them', () 
 test('new cache version reaches both outer pages and embedded paper pipeline', () => {
   const repo = path.join(__dirname, '..');
   for (const file of ['index.html', 'web/index.html', 'web/workbench.html']) {
-    assert.match(fs.readFileSync(path.join(repo, file), 'utf8'), /20261007-10/);
+    assert.match(fs.readFileSync(path.join(repo, file), 'utf8'), /20261007-11/);
   }
-  assert.match(fs.readFileSync(path.join(repo, 'web/workbench.html'), 'utf8'), /paper-pipeline-v2\.html\?v=20261007-10/);
+  assert.match(fs.readFileSync(path.join(repo, 'web/workbench.html'), 'utf8'), /paper-pipeline-v2\.html\?v=20261007-11/);
 });
 
 test('submission count derives from history, ignores legacy manual numbers and updates on add/delete', () => {
@@ -350,8 +350,8 @@ test('changing journal after rejection archives old journal and starts another c
 
 test('inline editing current journal routes to history and editing current history journal syncs back', () => {
   const h = harness(); h.seed({ history: [{ journal: 'Journal B', date: '2026-10-01', status: 'under_review' }] });
-  h.context.commitEditField({ dataset: { editId: 'paper1' } }, { dataset: {}, value: 'Journal B edited' }, h.run('DATA.submitted[0]'), 'currentJournal');
-  assert.equal(h.field('history')[0].journal, 'Journal B edited');
+  h.context.commitEditField({ dataset: { editId: 'paper1' } }, { dataset: {}, value: 'JOURNAL B' }, h.run('DATA.submitted[0]'), 'currentJournal');
+  assert.equal(h.field('history')[0].journal, 'JOURNAL B');
   h.context.commitEditField({ dataset: { editId: 'paper1', editHist: '0' } }, { dataset: {}, value: 'Journal B second edit' }, h.run('DATA.submitted[0]'), 'journal');
   assert.equal(h.field('currentJournal'), 'Journal B second edit');
   assert.equal(h.field('submissionCount'), 1);
@@ -393,4 +393,58 @@ test('submission-history layout outranks generic timeline rules and gives dates 
   assert.ok(date);
   assert.match(date[1], /width:\s*180px/);
   assert.match(date[1], /min-width:\s*160px/);
+});
+
+test('resubmitting preserves the previous manuscript number and clears the current number', () => {
+  const h = harness(); h.seed({ status: 'rejected', manuscriptId: 'JB-2026-100', history: [{ journal: 'Journal B', date: '2026-10-01', status: 'rejected' }] });
+  h.context.setSubmissionStatus('paper1', 'resubmitted');
+  assert.equal(h.field('manuscriptId'), '');
+  assert.equal(h.field('history')[0].manuscriptId, 'JB-2026-100');
+  assert.equal(h.field('history')[1].manuscriptId, '');
+  const refreshed = harness(h.stored);
+  assert.equal(refreshed.field('manuscriptId'), '');
+  assert.equal(refreshed.field('history')[0].manuscriptId, 'JB-2026-100');
+});
+
+test('switching the current journal during review starts a new attempt with no stale manuscript number', () => {
+  const h = harness(); h.seed({ manuscriptId: 'JB-2026-100', history: [{ journal: 'Journal B', date: '2026-10-01', status: 'under_review' }] });
+  h.context.setCurrentSubmissionJournal('paper1', 'Journal C');
+  assert.equal(h.field('manuscriptId'), '');
+  assert.equal(h.field('history')[0].journal, 'Journal B');
+  assert.equal(h.field('history')[0].manuscriptId, 'JB-2026-100');
+  assert.equal(h.field('history')[1].journal, 'Journal C');
+  assert.equal(h.field('submissionCount'), 2);
+});
+
+test('the same journal or capitalization corrections preserve the manuscript number', () => {
+  const h = harness(); h.seed({ manuscriptId: 'JB-2026-100', history: [{ journal: 'Journal B', date: '2026-10-01', status: 'under_review', manuscriptId: 'JB-2026-100' }] });
+  for (const journal of ['Journal B', '  JOURNAL   B ']) h.context.setCurrentSubmissionJournal('paper1', journal);
+  assert.equal(h.field('manuscriptId'), 'JB-2026-100');
+  assert.equal(h.field('submissionCount'), 1);
+});
+
+test('new manuscript number syncs to current history and can be cleared without changing old rounds', () => {
+  const h = harness(); h.seed({ status: 'rejected', manuscriptId: 'JB-2026-100', history: [{ journal: 'Journal B', date: '2026-10-01', status: 'rejected' }] });
+  h.context.setCurrentSubmissionJournal('paper1', 'Journal C');
+  const paper = h.run('DATA.submitted[0]');
+  h.context.commitEditField({ dataset: { editId: 'paper1' } }, { dataset: {}, value: 'JC-2026-200' }, paper, 'manuscriptId');
+  assert.equal(h.field('history')[0].manuscriptId, 'JB-2026-100');
+  assert.equal(h.field('history')[1].manuscriptId, 'JC-2026-200');
+  assert.equal(harness(h.stored).field('manuscriptId'), 'JC-2026-200');
+  assert.match(h.run('renderSubmitted()'), /data-edit-hist="0" data-edit-field="manuscriptId"/);
+  h.context.commitEditField({ dataset: { editId: 'paper1', editHist: '1' } }, { dataset: {}, value: 'JC-2026-201' }, paper, 'manuscriptId');
+  assert.equal(h.field('manuscriptId'), 'JC-2026-201');
+  h.context.commitEditField({ dataset: { editId: 'paper1' } }, { dataset: {}, value: '' }, paper, 'manuscriptId');
+  assert.equal(h.field('manuscriptId'), '');
+  assert.equal(h.field('history')[1].manuscriptId, '');
+  assert.equal(h.field('history')[0].manuscriptId, 'JB-2026-100');
+  assert.equal(h.field('submissionCount'), 2);
+});
+
+test('filling the first journal does not erase a manuscript number already entered for it', () => {
+  const h = harness(); h.seed({ currentJournal: '', submissionDate: '', manuscriptId: 'FIRST-100' });
+  h.context.setCurrentSubmissionJournal('paper1', 'First Journal');
+  assert.equal(h.field('manuscriptId'), 'FIRST-100');
+  assert.equal(h.field('history')[0].manuscriptId, 'FIRST-100');
+  assert.equal(h.field('submissionCount'), 1);
 });
