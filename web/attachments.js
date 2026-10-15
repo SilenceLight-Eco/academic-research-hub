@@ -9,6 +9,7 @@
   var current = null;
   var busy = false;
   var files = [];
+  var loadRequest = 0;
 
   function setStatus(message, error) {
     status.textContent = message || '';
@@ -61,24 +62,30 @@
   async function loadFiles() {
     var context = current;
     if (!context) return;
+    var request = ++loadRequest;
     setStatus('正在读取附件…');
     try {
-      files = await window.__academicAttachments.list(context.kind, context.id);
-      if (current !== context) return;
+      var loaded = await window.__academicAttachments.list(context.kind, context.id);
+      if (current !== context || request !== loadRequest) return;
+      files = loaded;
       renderFiles();
       setStatus(files.length ? '共 ' + files.length + ' 个附件' : '');
     } catch (error) {
-      if (current === context) setStatus(error.message || '读取附件失败', true);
+      if (current === context && request === loadRequest) setStatus(error.message || '读取附件失败', true);
     }
   }
 
-  function openFiles(kind, id, title) {
+  function openFiles(kind, id, title, description) {
+    if (busy) { setStatus('当前附件操作尚未结束，请稍候再切换材料分类。'); return; }
     if (!id) { window.alert('请先选择已保存的内容'); return; }
     if (!window.__academicAttachments) { window.alert('附件仅在登录后的云端网页版中可用'); return; }
     current = { kind: kind, id: String(id) };
     files = [];
     renderFiles();
     document.getElementById('fileModalTitle').textContent = (title || '当前内容') + ' · 附件';
+    var contextDescription = document.getElementById('fileContextDescription');
+    contextDescription.textContent = typeof description === 'string' ? description.slice(0, 500) : '';
+    contextDescription.hidden = !contextDescription.textContent;
     modal.hidden = false;
     loadFiles();
   }
@@ -104,7 +111,7 @@
     var frame = document.querySelector('.research-hub-frame');
     if (event.origin !== location.origin || !frame || event.source !== frame.contentWindow) return;
     if (!event.data || event.data.type !== 'academic-research-hub-open-attachments') return;
-    openFiles('paper', event.data.id, event.data.title || '论文');
+    openFiles('paper', event.data.id, event.data.title || '论文', event.data.description);
   });
 
   document.getElementById('fileModalClose').addEventListener('click', closeFiles);
@@ -112,6 +119,7 @@
   document.addEventListener('keydown', function (event) { if (event.key === 'Escape' && !modal.hidden) closeFiles(); });
   uploadButton.addEventListener('click', function () { if (!busy) input.click(); });
   input.addEventListener('change', async function () {
+    if (busy) return;
     var selected = Array.from(input.files || []);
     input.value = '';
     if (!selected.length || !current) return;

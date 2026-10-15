@@ -264,6 +264,13 @@ h1 { margin: 8px 0 8px; font-size: 31px; letter-spacing: -.8px; }
 .revision-deadline { display:inline-block; padding:3px 8px; border-radius:6px; color:var(--muted); font-size:12px; font-weight:600; }
 .revision-deadline.soon { color:var(--orange); background:var(--orange-soft); }
 .revision-deadline.overdue { color:var(--red); background:var(--red-soft); }
+.submission-materials { display:flex; flex-wrap:wrap; align-items:center; gap:7px; padding:9px 0; }
+.submission-materials > .muted { font-size:12px; margin-right:3px; }
+.submission-file-archive { border:1px solid var(--line); border-radius:9px; padding:10px 12px; font-size:12px; }
+.submission-file-archive > summary { cursor:pointer; color:var(--text); font-weight:600; }
+.submission-file-round { padding-top:10px; margin-top:8px; border-top:1px solid var(--line); }
+.submission-file-round strong { display:block; overflow-wrap:anywhere; }
+.submission-file-round .muted { display:block; margin-top:4px; }
 
 /* ===== V2.1 引用次数操作 ===== */
 .citation-actions { margin-top: 10px; }
@@ -822,9 +829,11 @@ function renderSubmittedCard(p) {
     <div class="card-line"><span class="muted">稿件编号</span><strong>${editableText(p, "manuscriptId")}</strong></div>
     <div class="card-line"><span class="muted">投稿次数</span><strong title="按投稿历史记录数自动计算，状态变化不会增加次数">${getPaperField(p, "submissionCount")} 次</strong></div>
     <div class="next-action"><b>NEXT ACTION</b>${editableText(p, "nextAction")}</div>
+    <div class="submission-materials"><span class="muted">本轮材料</span>${renderSubmissionFileButtons(p, null)}</div>
     <div><div class="hist-head"><span class="muted">投稿历史</span><button class="stage-tool" title="添加投稿记录" onclick="addHistory('${p._key}')">＋</button></div><div class="timeline">${history.map((h, i) => renderSubmissionHistory(p, h, i)).join("") || "<div class='muted'>（暂无投稿历史，点击 ＋ 新建）</div>"}</div></div>
     <div class="file-path-row"><span class="muted">文件夹</span>${editableText(p, "filePath", "path-text")}<button class="btn" onclick="copyPath('${encodeURIComponent(getPaperField(p, "filePath") || "")}')">复制路径</button></div>
-    <div class="file-path-row"><span class="muted">投稿附件</span><button class="btn" type="button" onclick="openPaperFiles('${p._key}')">上传与查看文件</button></div>
+    <div class="file-path-row"><span class="muted">通用与原有附件</span><button class="btn" type="button" onclick="openPaperFiles('${p._key}')">上传与查看文件</button></div>
+    ${renderSubmissionFileArchive(p)}
     <button class="btn flow-btn" title="录用后流转到已发表论文（继承标题、作者、当前期刊、文件夹路径与附件）" onclick="moveToPublished('${p._key}')">转移到已发表 ➜</button>
   </article>`;
 }
@@ -1008,6 +1017,7 @@ function renderPublishedCard(p) {
     <div class="card-line"><span class="muted">DOI</span><strong>${editableText(p, "doi")}</strong></div>
     <div class="citation-actions"><button class="btn" onclick="importPublishedMetadata('${p._key}')">按 DOI 补全摘要与关键词</button><button class="btn" data-semantic-scholar-key="${escapeHtml(p._key)}" onclick="importPublishedSemanticScholar('${p._key}')" title="优先按 DOI 查询；无 DOI 时按标题精确匹配，仅补充空字段">Semantic Scholar 补充信息</button></div>
     <div class="file-path-row"><span class="muted">论文附件</span><button class="btn" type="button" onclick="openPaperFiles('${p._key}')">上传与查看文件</button></div>
+    ${renderSubmissionFileArchive(p)}
     ${renderCitationBlock(p)}
     <div><div class="muted" style="margin-bottom:6px">摘要</div><div class="abstract">${editableText(p, "abstract", "editable-abstract")}</div></div>
     ${renderChipEditor(p, "keywords", "关键词")}
@@ -1427,6 +1437,7 @@ function commitEditField(span, input, p, field) {
 const CARD_STORE_KEY = "research-hub-cards-v1";
 const CARD_PREFIX = { research: "R", submitted: "S", published: "P" };
 const SUBMITTED_STATUS_OPTIONS = [["submitted","已投稿"],["with_editor","初审中"],["under_review","外审中"],["minor_revision","小修改"],["major_revision","大修改"],["accepted","已录用"],["rejected","已拒稿"],["resubmitted","已重投"],["withdrawn","已撤稿"]];
+const SUBMISSION_MATERIAL_TYPES = { manuscript: "投稿稿", revision: "返修稿", response: "回复信" };
 
 function submissionDateValue(value) {
   const date = String(value || "");
@@ -1502,6 +1513,7 @@ function renderSubmissionHistory(p, history, index) {
       <input class="submission-date" type="date" aria-label="第 ${index + 1} 次投稿当前状态日期" data-status="${escapeHtml(history.status || "submitted")}" value="${submissionDateValue(submissionHistoryStatusDate(history, history.status))}" onchange="setHistoryStatusDate('${p._key}', ${index}, this.dataset.status, this.value)">
       <button class="stage-tool" title="删除该记录" onclick="deleteHistory('${p._key}', ${index})">✕</button>
       ${history.revisionDueAt || SubmissionDeadlines.isRevision(history.status) ? `<div class="card-line"><label>本轮返修截止<input class="submission-date" type="date" aria-label="第 ${index + 1} 次投稿返修截止日期" value="${SubmissionDeadlines.dateOnly(history.revisionDueAt)}" onchange="setHistoryRevisionDueAt('${p._key}', ${index}, this.value)"></label></div>` : ""}
+      <div class="submission-materials"><span class="muted">本轮材料</span>${renderSubmissionFileButtons(p, index)}</div>
       <details class="submission-status-dates" data-submission-times="${escapeHtml(p._key)}:${index}">
         <summary>各状态时间</summary>
         <div class="submission-date-grid">${SUBMITTED_STATUS_OPTIONS.map(([status, label]) => `<label>${label}<input class="submission-date" type="date" aria-label="第 ${index + 1} 次投稿${label}日期" value="${submissionDateValue(submissionHistoryStatusDate(history, status))}" onchange="setHistoryStatusDate('${p._key}', ${index}, '${status}', this.value)"></label>`).join("")}</div>
@@ -1593,6 +1605,7 @@ function refreshSubmissionStatus() {
   const search = document.getElementById("searchInput")?.value || "";
   const status = document.getElementById("statusFilter")?.value || "";
   const openDates = new Set([...document.querySelectorAll("[data-submission-times][open]")].map(el => el.dataset.submissionTimes));
+  const openFileArchives = new Set([...document.querySelectorAll("[data-submission-file-archive][open]")].map(el => el.dataset.submissionFileArchive));
   render();
   if (currentPage === "submitted") {
     const searchInput = document.getElementById("searchInput");
@@ -1601,6 +1614,7 @@ function refreshSubmissionStatus() {
     if (statusFilter) statusFilter.value = status;
     if (searchInput) searchInput.dispatchEvent(new Event("input"));
     document.querySelectorAll("[data-submission-times]").forEach(el => { el.open = openDates.has(el.dataset.submissionTimes); });
+    document.querySelectorAll("[data-submission-file-archive]").forEach(el => { el.open = openFileArchives.has(el.dataset.submissionFileArchive); });
   }
   updateStatusBar();
   if (window.parent && window.parent !== window) window.parent.postMessage({ type: "academic-research-hub-submissions-changed" }, location.origin);
@@ -2224,6 +2238,7 @@ function moveToPublished(key) {
   if (!p) return;
   const title = getPaperField(p, "title") || "未命名论文";
   if (!confirm(`确定将“${title}”从在投论文转移到已发表论文吗？\n将继承标题、作者、当前期刊（转为期刊名）、文件夹路径与附件，其余信息需在已发表页面手动补充。`)) return;
+  const submissionFileRounds = getSubmissionFileRounds(p);
   const st = getCardStore();
   st.submitted = st.submitted || {};
   if (st.submitted.added && st.submitted.added[key]) delete st.submitted.added[key];
@@ -2239,11 +2254,12 @@ function moveToPublished(key) {
   const np = NEW_CARD_TEMPLATES.published();
   np._key = nk;
   np.attachmentKey = kept.attachmentKey || p.attachmentKey || key;
+  np.submissionFileRounds = submissionFileRounds;
   np.title = kept.title != null ? kept.title : (p.title || "");
   np.authors = kept.authors != null ? [...kept.authors] : (p.authors || []);
   np.journal = kept.currentJournal != null ? kept.currentJournal : (p.currentJournal || "");
   np.filePath = kept.filePath != null ? kept.filePath : (p.filePath || "");
-  fs[nk] = { title: np.title, authors: np.authors, journal: np.journal, filePath: np.filePath, attachmentKey: np.attachmentKey };
+  fs[nk] = { title: np.title, authors: np.authors, journal: np.journal, filePath: np.filePath, attachmentKey: np.attachmentKey, submissionFileRounds };
   try { localStorage.setItem(FIELD_STORE_KEY, JSON.stringify(fs)); } catch (e) {}
   st.published = st.published || {};
   st.published.added = st.published.added || {};
@@ -2422,6 +2438,92 @@ async function copyAllPublishedReferences(){const zh=sortPublishedReferences((DA
 function openKnowledgeBaseFromPaper() {
   if (window.parent && window.parent !== window) { window.parent.postMessage({ type: "academic-research-hub-open-knowledge-base" }, window.location.origin); return; }
   window.location.hash = "knowledge-base";
+}
+
+function validSubmissionFileRoundId(value) {
+  return /^r[A-Za-z0-9_-]{8,64}$/.test(String(value || ""));
+}
+
+function newSubmissionFileRoundId() {
+  return "r" + (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2));
+}
+
+// The independent catalog keeps files reachable even after a history row is removed.
+function getSubmissionFileRounds(p) {
+  const stored = getPaperField(p, "submissionFileRounds");
+  const history = getPaperField(p, "history") || [];
+  const seen = new Set();
+  return (Array.isArray(stored) ? stored : []).filter(round => {
+    if (!round || !validSubmissionFileRoundId(round.id) || seen.has(round.id)) return false;
+    seen.add(round.id);
+    return true;
+  }).map(round => {
+    const record = history.find(entry => entry.attachmentRoundId === round.id);
+    return Object.assign({}, round, record ? { journal: record.journal || "", date: record.date || "" } : {});
+  }).sort((a, b) => (Number(a.number) || 0) - (Number(b.number) || 0));
+}
+
+function renderSubmissionFileButtons(p, reference) {
+  const ref = reference === null ? "null" : Number.isInteger(reference) ? String(reference) : `'${escapeHtml(reference)}'`;
+  return Object.entries(SUBMISSION_MATERIAL_TYPES).map(([type, label]) => `<button class="btn" type="button" onmousedown="event.preventDefault()" data-submission-material="${type}" onclick="openSubmissionFiles('${p._key}', ${ref}, '${type}')">${label}</button>`).join("");
+}
+
+function renderSubmissionFileArchive(p) {
+  const rounds = getSubmissionFileRounds(p);
+  if (!rounds.length) return "";
+  return `<details class="submission-file-archive" data-submission-file-archive="${escapeHtml(p._key)}"><summary>投稿材料归档 · ${rounds.length} 轮</summary><p class="muted">按轮次分别保存；删除投稿历史不会删除这里的附件。</p>${rounds.map(round => `<div class="submission-file-round"><strong>第 ${escapeHtml(String(round.number || "—"))} 次投稿 · ${escapeHtml(round.journal || "未填写期刊")}</strong><span class="muted">${escapeHtml(round.date || "未填写投稿日期")}</span><div class="submission-materials">${renderSubmissionFileButtons(p, round.id)}</div></div>`).join("")}</details>`;
+}
+
+function openSubmissionFiles(key, reference, type) {
+  const p = findPaperByKey(key);
+  if (!p || !Object.prototype.hasOwnProperty.call(SUBMISSION_MATERIAL_TYPES, type)) return;
+  if (!window.parent || window.parent === window) { alert("请从学术工作台打开论文管线后使用云端附件。"); return; }
+  // Finish inline edits before capturing the journal/date and creating stable links.
+  document.querySelectorAll(".editable .edit-input").forEach(input => {
+    const span = input.closest(".editable");
+    if (span && span.dataset.editId === key) commitEditField(span, input, p, span.dataset.editField);
+  });
+  let rounds = getSubmissionFileRounds(p);
+  let round;
+  if (typeof reference === "string") round = rounds.find(entry => entry.id === reference);
+  else {
+    if (!(DATA.submitted || []).some(paper => pkey(paper) === key)) return;
+    const history = JSON.parse(JSON.stringify(getPaperField(p, "history") || []));
+    let index = reference;
+    if (reference === null) {
+      const journal = String(getPaperField(p, "currentJournal") || "").trim();
+      const date = getPaperField(p, "submissionDate") || "";
+      if (!journal) { alert("请先填写当前期刊，再归档本轮材料。"); return; }
+      index = -1;
+      for (let i = history.length - 1; i >= 0; i--) {
+        if (String(history[i].journal || "").trim() === journal && (!date || history[i].date === date)) { index = i; break; }
+      }
+    }
+    if (!Number.isInteger(index) || index < 0 || !history[index]) { alert("请先将当前投稿记录到历史，再归档本轮材料。"); return; }
+    const record = history[index];
+    let id = record.attachmentRoundId;
+    if (!validSubmissionFileRoundId(id)) {
+      do { id = newSubmissionFileRoundId(); } while (rounds.some(entry => entry.id === id));
+      record.attachmentRoundId = id;
+      setPaperField(p, "history", history);
+    }
+    round = Object.assign({}, rounds.find(entry => entry.id === id) || { id, number: index + 1 }, { journal: record.journal || "", date: record.date || "" });
+    rounds = rounds.filter(entry => entry.id !== id).concat(round);
+    setPaperField(p, "submissionFileRounds", rounds);
+    // Do not upload against an ephemeral ID if local persistence failed.
+    const persisted = getFieldStore()[pkey(p)] || {};
+    if (!(persisted.submissionFileRounds || []).some(entry => entry.id === id) || !(persisted.history || []).some(entry => entry.attachmentRoundId === id)) {
+      alert("无法保存材料归档位置，请检查本机存储空间后重试。"); return;
+    }
+    refreshSubmissionStatus();
+  }
+  if (!round) return;
+  window.parent.postMessage({
+    type: "academic-research-hub-open-attachments",
+    id: `submission_${round.id}_${type}`,
+    title: `${getPaperField(p, "title") || "论文"} · 第 ${round.number} 次投稿 · ${SUBMISSION_MATERIAL_TYPES[type]}`,
+    description: `${round.journal || "未填写期刊"} · ${round.date || "未填写投稿日期"}。本处仅显示这一轮的${SUBMISSION_MATERIAL_TYPES[type]}，与其他轮次和通用附件分开保存。`
+  }, window.location.origin);
 }
 
 function openPaperFiles(key) {
