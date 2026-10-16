@@ -7542,7 +7542,7 @@
   function requestTrackerZoteroBridge(type, payload, timeoutMs) {
     var requestId = 'zotero-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
     return new Promise(function (resolve, reject) {
-      var timeout = setTimeout(function () { delete trackerZoteroBridgeRequests[requestId]; reject(new Error('未检测到桌面桥接扩展。请先在 Chrome 加载 zotero-bridge 扩展，再刷新工作台。')); }, timeoutMs || 4000);
+      var timeout = setTimeout(function () { delete trackerZoteroBridgeRequests[requestId]; reject(new Error('未收到 Zotero Bridge 响应。若已安装，请确认正在使用安装它的 Chrome 用户，并刷新工作台；只有该用户的扩展列表中确实没有它时，才需要从固定文件夹加载一次。')); }, timeoutMs || 4000);
       trackerZoteroBridgeRequests[requestId] = { resolve: resolve, reject: reject, timeout: timeout };
       window.postMessage({ channel: trackerZoteroBridgeChannel, type: type, requestId: requestId, payload: payload || {} }, location.origin);
     });
