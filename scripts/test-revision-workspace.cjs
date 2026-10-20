@@ -17,7 +17,8 @@ function harness(stored) {
 
 test('revision is a real pipeline navigation page, not a fourth paper store', () => {
   const h = harness(); h.seed({ status: 'major_revision' });
-  assert.match(html, /data-page="revision"[^>]*>.*?返修论文/);
+  assert.match(html, /data-page="revision">📑 <span>返修论文<\/span>/);
+  assert.doesNotMatch(html, /data-page="revision"><span aria-hidden="true">↻/);
   h.context.navigate('revision'); assert.equal(h.run('currentPage'), 'revision');
   assert.equal(h.node('page-title').textContent, '返修论文');
   assert.match(h.node('page-content').innerHTML, /class="cards-grid revision-cards-grid"/);
