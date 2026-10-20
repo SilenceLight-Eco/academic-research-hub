@@ -128,6 +128,11 @@ h1 { margin: 8px 0 8px; font-size: 31px; letter-spacing: -.8px; }
 .revision-cards-grid { grid-template-columns: minmax(0, 1fr); }
 .revision-paper-card .revision-history-round { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
 .revision-paper-meta { display: flex; flex-wrap: wrap; gap: 12px; font-size: 13px; }
+.revision-reviewer-group { padding: 10px; border: 1px solid var(--line); border-radius: 9px; }
+.revision-reviewer-group > summary { cursor: pointer; font-size: 13px; font-weight: 600; }
+.revision-group-content { display: grid; gap: 12px; margin-top: 12px; }
+.revision-group-form { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.revision-group-form input { min-width: 120px; flex: 1; padding: 8px; border: 1px solid var(--line); border-radius: 7px; font: inherit; }
 .muted { color: var(--muted); font-size: 12px; }
 .card-line { display: flex; justify-content: space-between; gap: 15px; font-size: 13px; }
 .card-line strong { font-weight: 600; text-align: right; }
@@ -1646,6 +1651,7 @@ function refreshSubmissionStatus() {
   const openDates = new Set([...document.querySelectorAll("[data-submission-times][open]")].map(el => el.dataset.submissionTimes));
   const openFileArchives = new Set([...document.querySelectorAll("[data-submission-file-archive][open]")].map(el => el.dataset.submissionFileArchive));
   const revisionPanels = new Map([...document.querySelectorAll("[data-submission-revision]")].map(el => [el.dataset.submissionRevision, el.open]));
+  const reviewerPanels = new Map([...document.querySelectorAll("[data-revision-reviewer]")].map(el => [el.dataset.revisionReviewer, el.open]));
   render();
   if (["submitted", "revision"].includes(currentPage)) {
     const searchInput = document.getElementById("searchInput");
@@ -1658,6 +1664,9 @@ function refreshSubmissionStatus() {
   }
   document.querySelectorAll("[data-submission-revision]").forEach(el => {
     if (revisionPanels.has(el.dataset.submissionRevision)) el.open = revisionPanels.get(el.dataset.submissionRevision);
+  });
+  document.querySelectorAll("[data-revision-reviewer]").forEach(el => {
+    if (reviewerPanels.has(el.dataset.revisionReviewer)) el.open = reviewerPanels.get(el.dataset.revisionReviewer);
   });
   updateStatusBar();
   if (window.parent && window.parent !== window) window.parent.postMessage({ type: "academic-research-hub-submissions-changed" }, location.origin);
@@ -2574,6 +2583,22 @@ function startPaperRevision(key) {
 
 const REVISION_ITEM_STATUSES = [["pending", "未处理"], ["working", "修改中"], ["done", "已完成"]];
 const REVISION_ITEM_FIELDS = { comment: "审稿意见", change: "修改内容", position: "稿件位置（页码／行号／章节）", response: "回复文字" };
+const DEFAULT_REVISION_GROUPS = [{ id: "geditor001", name: "编辑" }, { id: "greviewer01", name: "审稿人 1" }, { id: "greviewer02", name: "审稿人 2" }];
+
+function revisionGroups(round) {
+  const source = Array.isArray(round.groups) ? round.groups : DEFAULT_REVISION_GROUPS;
+  const seen = new Set();
+  return source.filter(group => {
+    if (!group || !/^g[A-Za-z0-9_-]{8,64}$/.test(String(group.id || "")) || !String(group.name || "").trim() || seen.has(group.id)) return false;
+    seen.add(group.id); return true;
+  }).map(group => ({ id: group.id, name: String(group.name).trim().slice(0, 40) }));
+}
+
+function revisionGroupsWithItems(round) {
+  return revisionGroups(round).concat([{ id: "", name: "未分组" }]).map(group => ({
+    ...group, items: round.items.filter(item => (item.groupId || "") === group.id)
+  }));
+}
 
 function currentRevisionHistoryIndex(p) {
   if (!(DATA.submitted || []).some(paper => pkey(paper) === pkey(p))) return -1;
@@ -2597,15 +2622,17 @@ function getSubmissionRevisionRounds(p) {
     seen.add(round.id); return true;
   }).map(round => {
     const record = history.find(entry => entry.revisionRoundId === round.id);
+    const groups = revisionGroups(round);
     const itemIds = new Set();
     const items = (Array.isArray(round.items) ? round.items : []).filter(item => {
       if (!item || !validSubmissionFileRoundId(item.id) || itemIds.has(item.id)) return false;
       itemIds.add(item.id); return true;
     }).map(item => ({
       id: item.id, status: REVISION_ITEM_STATUSES.some(([value]) => value === item.status) ? item.status : "pending",
+      groupId: groups.some(group => group.id === item.groupId) ? item.groupId : "",
       ...Object.fromEntries(Object.keys(REVISION_ITEM_FIELDS).map(field => [field, String(item[field] || "")]))
     }));
-    return Object.assign({}, round, record ? { journal: record.journal || "", date: record.date || "", dueAt: record.revisionDueAt || "" } : {}, { items });
+    return Object.assign({}, round, record ? { journal: record.journal || "", date: record.date || "", dueAt: record.revisionDueAt || "" } : {}, { items, groups });
   });
 }
 
@@ -2621,7 +2648,7 @@ function submissionRevisionContext(p, reference) {
   if (!Number.isInteger(index) || index < 0 || !history[index]) return null;
   const record = history[index];
   return { index, history, rounds, round: rounds.find(entry => entry.id === record.revisionRoundId) || {
-    id: "", number: index + 1, journal: record.journal || "", date: record.date || "", dueAt: record.revisionDueAt || "", items: []
+    id: "", number: index + 1, journal: record.journal || "", date: record.date || "", dueAt: record.revisionDueAt || "", items: [], groups: revisionGroups({})
   } };
 }
 
@@ -2643,11 +2670,22 @@ function renderSubmissionRevision(p, reference) {
     <div class="revision-body">
       <div class="muted">${escapeHtml(round.journal || "请先填写当前期刊，并记录到投稿历史")} · ${escapeHtml(round.date || "未填写投稿日期")}${deadline ? ` · 返修截止 ${escapeHtml(round.dueAt)}（${escapeHtml(deadline.label)}）` : ""}。输入即自动保存；按投稿轮次独立保留。</div>
       <progress class="revision-progress" max="100" value="${progress.percent}" aria-label="返修完成进度"></progress>
-      ${round.items.map((item, index) => `<div class="revision-item" data-revision-item="${item.id}" tabindex="-1">
+      ${revisionGroupsWithItems(round).map(group => {
+        const groupProgress = revisionProgress(group.items);
+        return `<details class="revision-reviewer-group" data-revision-reviewer="${escapeHtml(p._key + ':' + token + ':' + (group.id || 'unfiled'))}" ${group.items.length ? "open" : ""}>
+        <summary>${escapeHtml(group.name)} · ${groupProgress.done}/${groupProgress.total} 已完成（${groupProgress.percent}%）</summary>
+        <div class="revision-group-content"><progress class="revision-progress" max="100" value="${groupProgress.percent}" aria-label="${escapeHtml(group.name)}完成进度"></progress>
+        ${group.id ? `<form class="revision-group-form" onsubmit="event.preventDefault(); renameRevisionGroup('${p._key}', ${ref}, '${group.id}', this.elements.groupName.value)"><input name="groupName" maxlength="40" value="${escapeHtml(group.name)}" aria-label="${escapeHtml(group.name)}分组名称"><button type="submit" class="btn">重命名</button><button type="button" class="btn" onclick="deleteRevisionGroup('${p._key}', ${ref}, '${group.id}')">删除分组</button></form>` : ""}
+        ${group.items.map(item => { const index = round.items.indexOf(item); return `<div class="revision-item" data-revision-item="${item.id}" tabindex="-1">
         <div class="revision-item-head"><strong>意见 ${index + 1}</strong><select class="select" aria-label="意见 ${index + 1} 处理状态" onchange="updateRevisionItem('${p._key}', '${round.id}', '${item.id}', 'status', this.value)">${REVISION_ITEM_STATUSES.map(([value, text]) => `<option value="${value}" ${item.status === value ? "selected" : ""}>${text}</option>`).join("")}</select><button type="button" class="stage-tool" aria-label="删除意见 ${index + 1}" onclick="deleteRevisionItem('${p._key}', '${round.id}', '${item.id}')">✕</button></div>
+        <label>意见来源<select class="select" aria-label="意见 ${index + 1} 所属分组" onchange="updateRevisionItem('${p._key}', '${round.id}', '${item.id}', 'groupId', this.value)"><option value="">未分组</option>${revisionGroups(round).map(entry => `<option value="${entry.id}" ${item.groupId === entry.id ? "selected" : ""}>${escapeHtml(entry.name)}</option>`).join("")}</select></label>
         ${Object.entries(REVISION_ITEM_FIELDS).map(([field, text]) => `<label>${text}<textarea aria-label="意见 ${index + 1} ${text}" oninput="updateRevisionItem('${p._key}', '${round.id}', '${item.id}', '${field}', this.value)">${escapeHtml(item[field])}</textarea></label>`).join("")}
         <div class="revision-actions"><button type="button" class="btn" onclick="addRevisionTodo('${p._key}', '${round.id}', '${item.id}', this)" ${item.status === "done" ? "disabled" : ""}>加入待办</button><span class="muted" role="status" aria-live="polite"></span></div>
-      </div>`).join("") || '<div class="muted">暂无意见，点击“新建审稿意见”后可一次填写全部内容。</div>'}
+        </div>`; }).join("") || '<div class="muted">本组暂无意见。</div>'}
+        <button type="button" class="btn" onclick="addRevisionItem('${p._key}', ${ref}, '${group.id}')">＋ 新建本组意见</button>
+        </div></details>`;
+      }).join("")}
+      <form class="revision-group-form" onsubmit="event.preventDefault(); addRevisionGroup('${p._key}', ${ref}, this.elements.groupName.value)"><input name="groupName" maxlength="40" aria-label="新建审稿人分组名称" placeholder="新分组名称，例如：审稿人 3" required><button type="submit" class="btn">新建分组</button></form>
       <div class="revision-actions"><button type="button" class="btn" onmousedown="event.preventDefault()" onclick="addRevisionItem('${p._key}', ${ref})">＋ 新建审稿意见</button><button type="button" class="btn" onclick="exportRevisionChecklist('${p._key}', ${ref})" ${progress.total ? "" : "disabled"}>导出回复清单</button></div>
     </div>
   </details>`;
@@ -2698,16 +2736,16 @@ function revealRevisionTodoTarget(key, roundId, itemId) {
   const item = panel && [...panel.querySelectorAll('[data-revision-item]')].find(el => el.dataset.revisionItem === itemId);
   if (!item) return false;
   panel.open = true;
+  const group = item.closest && item.closest('[data-revision-reviewer]');
+  if (group) group.open = true;
   item.scrollIntoView({ block: 'center', behavior: 'smooth' });
   item.focus({ preventScroll: true });
   return true;
 }
 
-function addRevisionItem(key, reference) {
-  const p = findPaperByKey(key);
-  if (!p) return;
+function ensureRevisionRound(p, reference) {
   const context = submissionRevisionContext(p, reference);
-  if (!context) { alert("请先填写当前期刊，并点击“记录当前投稿到历史”，再新建返修意见。"); return; }
+  if (!context) { alert("请先填写当前期刊，并点击“记录当前投稿到历史”，再建立返修清单。"); return null; }
   const { rounds, round, history, index } = context;
   if (!round.id) {
     do { round.id = newSubmissionFileRoundId(); } while (rounds.some(entry => entry.id === round.id));
@@ -2715,25 +2753,86 @@ function addRevisionItem(key, reference) {
     setPaperField(p, "history", history);
     rounds.push(round);
   }
+  return context;
+}
+
+function addRevisionItem(key, reference, groupId = "") {
+  const p = findPaperByKey(key);
+  if (!p) return;
+  const context = submissionRevisionContext(p, reference);
+  if (!context) { alert("请先填写当前期刊，并点击“记录当前投稿到历史”，再新建返修意见。"); return; }
+  if (groupId && !revisionGroups(context.round).some(group => group.id === groupId)) return;
+  const { rounds, round } = ensureRevisionRound(p, reference);
   let id;
   do { id = newSubmissionFileRoundId(); } while (round.items.some(item => item.id === id));
-  round.items.push({ id, comment: "", change: "", position: "", response: "", status: "pending" });
+  round.items.push({ id, comment: "", change: "", position: "", response: "", status: "pending", groupId });
   setPaperField(p, "submissionRevisionRounds", rounds);
   refreshSubmissionStatus();
+  revealRevisionTodoTarget(key, round.id, id);
 }
 
 function updateRevisionItem(key, roundId, itemId, field, value) {
-  if (field !== "status" && !Object.prototype.hasOwnProperty.call(REVISION_ITEM_FIELDS, field)) return;
+  if (!["status", "groupId"].includes(field) && !Object.prototype.hasOwnProperty.call(REVISION_ITEM_FIELDS, field)) return;
   if (field === "status" && !REVISION_ITEM_STATUSES.some(([status]) => status === value)) return;
   const p = findPaperByKey(key);
   if (!p) return;
   const rounds = getSubmissionRevisionRounds(p);
-  const item = rounds.find(round => round.id === roundId)?.items.find(entry => entry.id === itemId);
+  const round = rounds.find(round => round.id === roundId);
+  const item = round?.items.find(entry => entry.id === itemId);
   if (!item) return;
+  if (field === "groupId" && value !== "" && !round.groups.some(group => group.id === value)) return;
   item[field] = String(value);
   setPaperField(p, "submissionRevisionRounds", rounds);
   // Text input never redraws the editor, so focus/caret and unsaved IME text stay put.
-  if (field === "status") refreshSubmissionStatus();
+  if (["status", "groupId"].includes(field)) refreshSubmissionStatus();
+  if (field === "groupId") revealRevisionTodoTarget(key, roundId, itemId);
+}
+
+function validRevisionGroupName(name, groups, exceptId) {
+  const value = String(name || "").trim();
+  if (!value || value.length > 40 || value === "未分组") { alert("请输入 1 至 40 个字的分组名称，且不能使用“未分组”。"); return ""; }
+  if (groups.some(group => group.id !== exceptId && group.name.toLocaleLowerCase() === value.toLocaleLowerCase())) { alert("同名分组已存在。"); return ""; }
+  return value;
+}
+
+function addRevisionGroup(key, reference, name) {
+  const p = findPaperByKey(key), context = p && submissionRevisionContext(p, reference);
+  if (!context) { alert("请先建立本轮投稿记录，再新建分组。"); return; }
+  const value = validRevisionGroupName(name, revisionGroups(context.round));
+  if (!value) return;
+  const { rounds, round } = ensureRevisionRound(p, reference);
+  let id;
+  do { id = "g" + newSubmissionFileRoundId().slice(1); } while (round.groups.some(group => group.id === id));
+  round.groups.push({ id, name: value });
+  setPaperField(p, "submissionRevisionRounds", rounds);
+  refreshSubmissionStatus();
+}
+
+function renameRevisionGroup(key, reference, groupId, name) {
+  const p = findPaperByKey(key), context = p && submissionRevisionContext(p, reference);
+  if (!context) { alert("请先建立本轮投稿记录，再修改分组。"); return; }
+  const group = context && revisionGroups(context.round).find(entry => entry.id === groupId);
+  if (!group) return;
+  const value = validRevisionGroupName(name, revisionGroups(context.round), groupId);
+  if (!value) return;
+  const { rounds, round } = ensureRevisionRound(p, reference);
+  round.groups.find(entry => entry.id === groupId).name = value;
+  setPaperField(p, "submissionRevisionRounds", rounds);
+  refreshSubmissionStatus();
+}
+
+function deleteRevisionGroup(key, reference, groupId) {
+  const p = findPaperByKey(key), context = p && submissionRevisionContext(p, reference);
+  if (!context) { alert("请先建立本轮投稿记录，再修改分组。"); return; }
+  if (!revisionGroups(context.round).some(group => group.id === groupId)) return;
+  if (!confirm("删除此分组后，组内意见会移到“未分组”，不会删除意见、回复或待办关联。是否继续？")) return;
+  const { rounds, round } = ensureRevisionRound(p, reference);
+  const moved = round.items.find(item => item.groupId === groupId);
+  round.groups = round.groups.filter(group => group.id !== groupId);
+  round.items.forEach(item => { if (item.groupId === groupId) item.groupId = ""; });
+  setPaperField(p, "submissionRevisionRounds", rounds);
+  refreshSubmissionStatus();
+  if (moved) revealRevisionTodoTarget(key, round.id, moved.id);
 }
 
 function deleteRevisionItem(key, roundId, itemId) {
@@ -2752,8 +2851,11 @@ function buildRevisionChecklistMarkdown(p, round) {
   return [`# ${getPaperField(p, "title") || "论文"} — 返修回复清单`,
     `第 ${round.number} 次投稿 · ${round.journal || "未填写期刊"} · ${round.date || "未填写投稿日期"}`,
     `返修截止：${round.dueAt || "未设置"}；进度：${progress.done}/${progress.total}（${progress.percent}%）`,
-    ...round.items.map((item, index) => [`## 意见 ${index + 1}（${REVISION_ITEM_STATUSES.find(([status]) => status === item.status)?.[1] || "未处理"}）`,
-      ...Object.entries(REVISION_ITEM_FIELDS).map(([field, text]) => `### ${text}\n\n${item[field] || "（未填写）"}`)].join("\n\n"))].join("\n\n") + "\n";
+    ...revisionGroupsWithItems(round).filter(group => group.items.length).map(group => {
+      const groupProgress = revisionProgress(group.items);
+      return [`## ${group.name}（${groupProgress.done}/${groupProgress.total} 已完成）`, ...group.items.map(item => [`### 意见 ${round.items.indexOf(item) + 1}（${REVISION_ITEM_STATUSES.find(([status]) => status === item.status)?.[1] || "未处理"}）`,
+        ...Object.entries(REVISION_ITEM_FIELDS).map(([field, text]) => `#### ${text}\n\n${item[field] || "（未填写）"}`)].join("\n\n"))].join("\n\n");
+    })].join("\n\n") + "\n";
 }
 
 function exportRevisionChecklist(key, reference) {
@@ -2879,7 +2981,7 @@ function showNotes(id) {
   alert((p.notes || "暂无备注") + (p.filePath ? "\n\n文件夹：\n" + p.filePath : ""));
 }
 </script>
-<script src="pipeline-save.js?v=20261020-04"></script>
+<script src="pipeline-save.js?v=20261020-05"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 /* Public client key only. Row Level Security protects every workspace row. */
