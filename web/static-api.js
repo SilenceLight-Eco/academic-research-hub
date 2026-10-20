@@ -1168,6 +1168,40 @@
       if (path === '/api/news') return response({ ok: true, data: { news: {}, weather: null } });
       if (path === '/api/todos') {
         if (method === 'GET') return response(data.todos);
+        if (body.action === 'add-revision') {
+          var revisionUser = await getUser();
+          if (!revisionUser || String(revisionUser.email || '').trim().toLowerCase() !== String(body.accountEmail || '').trim().toLowerCase()) return response({ ok: false, error: '账号已切换，请重新操作' }, 409);
+          var revisionPaperKey = String(body.paperKey || ''), revisionRoundId = String(body.roundId || ''), revisionItemId = String(body.itemId || '');
+          if (!/^[A-Za-z0-9_-]{1,120}$/.test(revisionPaperKey) || !/^r[A-Za-z0-9_-]{8,64}$/.test(revisionRoundId) || !/^r[A-Za-z0-9_-]{8,64}$/.test(revisionItemId)) return response({ ok: false, error: '返修意见标识无效' }, 422);
+          var revisionCards, revisionFields;
+          try {
+            revisionCards = JSON.parse((data.researchHub || {})['research-hub-cards-v1'] || '{}');
+            revisionFields = JSON.parse((data.researchHub || {})['research-hub-fields-v1'] || '{}');
+          } catch (_) { return response({ ok: false, error: '论文数据尚未同步，请保存后重试' }, 409); }
+          var revisionBasePaper;
+          ['submitted', 'published'].some(function (kind) { revisionBasePaper = (((revisionCards[kind] || {}).added) || {})[revisionPaperKey]; return !!revisionBasePaper; });
+          if (!revisionBasePaper) return response({ ok: false, error: '原论文已删除或尚未同步' }, 404);
+          var revisionPaper = Object.assign({}, revisionBasePaper, revisionFields[revisionPaperKey] || {});
+          var revisionRound = (Array.isArray(revisionPaper.submissionRevisionRounds) ? revisionPaper.submissionRevisionRounds : []).find(function (round) { return round.id === revisionRoundId; });
+          var revisionItems = revisionRound && Array.isArray(revisionRound.items) ? revisionRound.items : [];
+          var revisionIndex = revisionItems.findIndex(function (item) { return item.id === revisionItemId; });
+          var revisionItem = revisionItems[revisionIndex];
+          if (!revisionItem) return response({ ok: false, error: '原返修意见已删除或尚未同步' }, 404);
+          data.todos = Array.isArray(data.todos) ? data.todos : [];
+          var existingRevisionTodo = data.todos.find(function (todo) { var source = todo.source || {}; return source.type === 'submission-revision' && source.paperKey === revisionPaperKey && source.roundId === revisionRoundId && source.itemId === revisionItemId; });
+          if (existingRevisionTodo) return response({ ok: true, status: 'duplicate', todoId: existingRevisionTodo.id, todos: data.todos });
+          if (['pending', 'working'].indexOf(revisionItem.status) < 0) return response({ ok: false, error: '仅未完成意见可加入待办' }, 422);
+          var revisionComment = String(revisionItem.comment || '').trim();
+          if (!revisionComment) return response({ ok: false, error: '请先填写审稿意见' }, 422);
+          var revisionHistory = (Array.isArray(revisionPaper.history) ? revisionPaper.history : []).find(function (entry) { return entry.revisionRoundId === revisionRoundId; });
+          var revisionDeadline = String(revisionHistory ? revisionHistory.revisionDueAt || '' : revisionRound.dueAt || '');
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(revisionDeadline) || !Number.isFinite(Date.parse(revisionDeadline + 'T00:00:00Z')) || new Date(revisionDeadline + 'T00:00:00Z').toISOString().slice(0, 10) !== revisionDeadline) revisionDeadline = '';
+          var revisionTodoId = nowId();
+          while (data.todos.some(function (todo) { return todo.id === revisionTodoId; })) revisionTodoId++;
+          data.todos.push({ id: revisionTodoId, text: '返修 · ' + String(revisionPaper.title || '未命名论文').slice(0, 160) + ' · 第 ' + (Number(revisionRound.number) || 1) + ' 次投稿意见 ' + (revisionIndex + 1) + '：' + revisionComment.slice(0, 500), done: false, created: nowText(), deadline: revisionDeadline, priority: '普通', source: { type: 'submission-revision', paperKey: revisionPaperKey, roundId: revisionRoundId, itemId: revisionItemId } });
+          await saveWorkspace(data, dataRevision);
+          return response({ ok: true, status: 'added', todoId: revisionTodoId, todos: data.todos });
+        }
         if (body.action === 'add' && String(body.text || '').trim()) data.todos.push({ id: nowId(), text: String(body.text).trim(), done: false, created: nowText(), deadline: body.deadline || '', priority: body.priority || '普通' });
         if (body.action === 'toggle') data.todos.forEach(function (item) { if (item.id === body.id) item.done = !item.done; });
         if (body.action === 'delete') data.todos = data.todos.filter(function (item) { return item.id !== body.id; });

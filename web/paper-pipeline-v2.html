@@ -124,6 +124,7 @@ h1 { margin: 8px 0 8px; font-size: 31px; letter-spacing: -.8px; }
 .revision-item textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .revision-progress { accent-color: var(--accent); width: 100%; height: 8px; }
 .revision-archive { display: grid; gap: 10px; }
+.revision-item:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
 .muted { color: var(--muted); font-size: 12px; }
 .card-line { display: flex; justify-content: space-between; gap: 15px; font-size: 13px; }
 .card-line strong { font-weight: 600; text-align: right; }
@@ -612,6 +613,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!["research", "submitted", "published"].includes(kind)) return;
       if (!(DATA[kind] || []).some(p => String(p._key) === key)) return;
       navigate(kind);
+      if (event.data.revision && revealRevisionTodoTarget(key, event.data.revision.roundId, event.data.revision.itemId)) return;
       const card = [...document.querySelectorAll(".paper-card")].find(el => el.dataset.paperKey === key);
       if (card) card.scrollIntoView({ block: "start", behavior: "smooth" });
     }
@@ -2535,14 +2537,15 @@ function renderSubmissionRevision(p, reference) {
   const token = reference === null ? "current" : String(reference);
   const label = reference === null ? "本轮返修清单" : `第 ${round.number || "—"} 次投稿返修清单`;
   const deadline = SubmissionDeadlines.evaluate("major_revision", round.dueAt);
-  return `<details class="submission-revision" data-submission-revision="${escapeHtml(p._key + ':' + token)}" ${reference === null ? "open" : ""} ondragstart="event.stopPropagation()">
+  return `<details class="submission-revision" data-submission-revision="${escapeHtml(p._key + ':' + token)}" data-revision-round="${escapeHtml(round.id || '')}" ${reference === null ? "open" : ""} ondragstart="event.stopPropagation()">
     <summary>${escapeHtml(label)} · ${progress.done}/${progress.total} 已完成（${progress.percent}%）</summary>
     <div class="revision-body">
       <div class="muted">${escapeHtml(round.journal || "请先填写当前期刊，并记录到投稿历史")} · ${escapeHtml(round.date || "未填写投稿日期")}${deadline ? ` · 返修截止 ${escapeHtml(round.dueAt)}（${escapeHtml(deadline.label)}）` : ""}。输入即自动保存；按投稿轮次独立保留。</div>
       <progress class="revision-progress" max="100" value="${progress.percent}" aria-label="返修完成进度"></progress>
-      ${round.items.map((item, index) => `<div class="revision-item">
+      ${round.items.map((item, index) => `<div class="revision-item" data-revision-item="${item.id}" tabindex="-1">
         <div class="revision-item-head"><strong>意见 ${index + 1}</strong><select class="select" aria-label="意见 ${index + 1} 处理状态" onchange="updateRevisionItem('${p._key}', '${round.id}', '${item.id}', 'status', this.value)">${REVISION_ITEM_STATUSES.map(([value, text]) => `<option value="${value}" ${item.status === value ? "selected" : ""}>${text}</option>`).join("")}</select><button type="button" class="stage-tool" aria-label="删除意见 ${index + 1}" onclick="deleteRevisionItem('${p._key}', '${round.id}', '${item.id}')">✕</button></div>
         ${Object.entries(REVISION_ITEM_FIELDS).map(([field, text]) => `<label>${text}<textarea aria-label="意见 ${index + 1} ${text}" oninput="updateRevisionItem('${p._key}', '${round.id}', '${item.id}', '${field}', this.value)">${escapeHtml(item[field])}</textarea></label>`).join("")}
+        <div class="revision-actions"><button type="button" class="btn" onclick="addRevisionTodo('${p._key}', '${round.id}', '${item.id}', this)" ${item.status === "done" ? "disabled" : ""}>加入待办</button><span class="muted" role="status" aria-live="polite"></span></div>
       </div>`).join("") || '<div class="muted">暂无意见，点击“新建审稿意见”后可一次填写全部内容。</div>'}
       <div class="revision-actions"><button type="button" class="btn" onmousedown="event.preventDefault()" onclick="addRevisionItem('${p._key}', ${ref})">＋ 新建审稿意见</button><button type="button" class="btn" onclick="exportRevisionChecklist('${p._key}', ${ref})" ${progress.total ? "" : "disabled"}>导出回复清单</button></div>
     </div>
@@ -2555,6 +2558,48 @@ function renderRevisionArchive(p) {
   const rounds = getSubmissionRevisionRounds(p).filter(round => !submitted || !linked.has(round.id));
   if (!rounds.length) return "";
   return `<div class="revision-archive"><span class="muted">返修清单归档（删除投稿历史后仍保留）</span>${rounds.map(round => renderSubmissionRevision(p, round.id)).join("")}</div>`;
+}
+
+const revisionTodoInFlight = new Set();
+async function addRevisionTodo(key, roundId, itemId, button) {
+  const token = JSON.stringify([key, roundId, itemId]);
+  if (revisionTodoInFlight.has(token)) return;
+  const p = findPaperByKey(key);
+  const item = p && getSubmissionRevisionRounds(p).find(round => round.id === roundId)?.items.find(entry => entry.id === itemId);
+  const feedback = button?.parentElement?.querySelector('[role="status"]');
+  const show = message => { if (feedback) feedback.textContent = message; };
+  if (!item || item.status === "done") { show("仅未完成意见可加入待办"); return; }
+  if (!item.comment.trim()) { show("请先填写审稿意见"); return; }
+  revisionTodoInFlight.add(token);
+  if (button) { button.disabled = true; button.textContent = "正在加入…"; }
+  show("");
+  let timeout;
+  try {
+    if (window.parent === window || typeof window.parent?.__academicAddRevisionTodo !== "function") throw new Error("请从学术工作台打开论文管线后使用待办联动");
+    if (typeof window.__academicPipelineFlushLocalWrites === "function") window.__academicPipelineFlushLocalWrites();
+    const result = await Promise.race([
+      window.parent.__academicAddRevisionTodo(window, { paperKey: key, roundId, itemId }),
+      new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error("尚未收到保存确认，请稍后重试；重试不会重复创建待办")), 30000); })
+    ]);
+    if (!result || result.ok !== true || !["added", "duplicate"].includes(result.status)) throw new Error("未收到待办保存确认，请重试");
+    show(result.status === "duplicate" ? "已在待办中，不重复创建" : "已加入待办，可从待办返回本条意见");
+  } catch (error) { show(error.message || "加入失败，请重试"); }
+  finally {
+    clearTimeout(timeout);
+    revisionTodoInFlight.delete(token);
+    if (button) { button.disabled = item.status === "done"; button.textContent = "加入待办"; }
+  }
+}
+
+function revealRevisionTodoTarget(key, roundId, itemId) {
+  const card = [...document.querySelectorAll('.paper-card')].find(el => el.dataset.paperKey === key);
+  const panel = card && [...card.querySelectorAll('[data-revision-round]')].find(el => el.dataset.revisionRound === roundId);
+  const item = panel && [...panel.querySelectorAll('[data-revision-item]')].find(el => el.dataset.revisionItem === itemId);
+  if (!item) return false;
+  panel.open = true;
+  item.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  item.focus({ preventScroll: true });
+  return true;
 }
 
 function addRevisionItem(key, reference) {
@@ -2733,7 +2778,7 @@ function showNotes(id) {
   alert((p.notes || "暂无备注") + (p.filePath ? "\n\n文件夹：\n" + p.filePath : ""));
 }
 </script>
-<script src="pipeline-save.js?v=20261020-02"></script>
+<script src="pipeline-save.js?v=20261020-03"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 /* Public client key only. Row Level Security protects every workspace row. */

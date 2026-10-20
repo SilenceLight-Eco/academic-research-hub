@@ -2211,8 +2211,10 @@
         '<div class="todo-card-meta">' +
         '<span class="todo-priority-tag ' + p + '">' + escapeHtml(t.priority || '普通') + '</span>' +
         '<span>' + escapeHtml(t.created || '') + '</span>' +
+        (t.source && t.source.type === 'submission-revision' ? '<span>返修意见' + (t.deadline ? ' · 截止 ' + escapeHtml(t.deadline) : '') + '</span>' : '') +
         '</div></div>' +
         '<div class="todo-card-actions">' +
+        (t.source && t.source.type === 'submission-revision' ? '<button type="button" class="btn" data-action="open-revision" data-id="' + t.id + '">返回返修意见</button>' : '') +
         (!t.done ? '<button class="todo-card-pomo" data-action="pomo" data-id="' + t.id + '" title="开始 ' + focusPreset + ' 分钟专注"><svg class="ico-inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="9" y1="2" x2="15" y2="2"/></svg>' + ((pomoCounts[t.id] || 0) > 0 ? ' ×' + pomoCounts[t.id] : '') + '</button>' : '') +
         '<button class="todo-card-delete" data-action="delete" data-id="' + t.id + '" aria-label="删除">×</button>' +
         '</div></div></div>';
@@ -8052,6 +8054,7 @@
       if (btn.dataset.action === 'toggle') toggleTodo(id);
       else if (btn.dataset.action === 'delete') deleteTodo(id);
       else if (btn.dataset.action === 'pomo') startPomo(id);
+      else if (btn.dataset.action === 'open-revision') openRevisionTodo(id);
     });
 
     // 日志类型筛选
@@ -9140,6 +9143,48 @@
       });
   }
 
+  // ===== 返修意见与待办联动 =====
+  var revisionTodoPending = new Map();
+  window.__academicAddRevisionTodo = function (sourceWindow, reference) {
+    var frame = $('.research-hub-frame');
+    if (!frame || frame.contentWindow !== sourceWindow) return Promise.reject(new Error('待办来源无效'));
+    if (!account) return Promise.reject(new Error('请先登录后加入待办'));
+    reference = reference || {};
+    var paperKey = String(reference.paperKey || ''), roundId = String(reference.roundId || ''), itemId = String(reference.itemId || '');
+    if (!/^[A-Za-z0-9_-]{1,120}$/.test(paperKey) || !/^r[A-Za-z0-9_-]{8,64}$/.test(roundId) || !/^r[A-Za-z0-9_-]{8,64}$/.test(itemId)) return Promise.reject(new Error('返修意见标识无效'));
+    var owner = autoSaveDraftAccountKey(), token = JSON.stringify([owner, paperKey, roundId, itemId]);
+    if (revisionTodoPending.has(token)) return revisionTodoPending.get(token);
+    // Save the latest checklist first. The API then derives the task from that
+    // confirmed workspace, never from arbitrary text supplied by a frame.
+    var pending = window.__academicSavePipeline(sourceWindow).then(function (saved) {
+      if (!account || autoSaveDraftAccountKey() !== owner) throw new Error('账号已切换，请重新操作');
+      if (!saved || saved.scope !== 'cloud') throw new Error('请先同步论文管线后重试');
+      return api('/api/todos', { method: 'POST', body: JSON.stringify({ action: 'add-revision', paperKey: paperKey, roundId: roundId, itemId: itemId, accountEmail: owner }) });
+    }).then(function (result) {
+      if (!account || autoSaveDraftAccountKey() !== owner) throw new Error('账号已切换，请重新操作');
+      if (!result || result.ok !== true || !Array.isArray(result.todos) || ['added', 'duplicate'].indexOf(result.status) < 0) throw new Error(result && result.error || '待办保存失败');
+      state.todos = result.todos;
+      renderTodos(); renderDashboardTodos(); updateTodoBadge();
+      if (state.panel === 'dashboard') renderTodayBoard();
+      return result;
+    }).finally(function () { revisionTodoPending.delete(token); });
+    revisionTodoPending.set(token, pending);
+    return pending;
+  };
+
+  function openRevisionTodo(id) {
+    var todo = (state.todos || []).find(function (item) { return String(item.id) === String(id); });
+    var source = todo && todo.source;
+    if (!source || source.type !== 'submission-revision') return;
+    var paper = projectPaperTargets().find(function (entry) { return entry.id === source.paperKey; });
+    if (!paper) { toast('原论文已删除或尚未加载，待办内容仍然保留'); return; }
+    var round = (paper.item.submissionRevisionRounds || []).find(function (entry) { return entry.id === source.roundId; });
+    var item = round && (round.items || []).find(function (entry) { return entry.id === source.itemId; });
+    if (!item) toast('原返修意见已删除，已为你打开对应论文');
+    afterCurrentEditorSaved(state.panel, function () {
+      openPipelinePaper(paper.kind, paper.id, item ? { roundId: source.roundId, itemId: source.itemId } : null);
+    });
+  }
   // ===== 操作：日志 =====
   function addJournal() {
     var input = $('#journalInput');
@@ -10027,11 +10072,11 @@
         (link.implicit ? '<small title="在文献与引用中更改关联研究项目">文献关联</small>' : '<button type="button" class="project-link-remove" data-project-link-remove="' + escapeHtml(link.type) + '" data-link-id="' + escapeHtml(link.id) + '" aria-label="移除关联">×</button>') + '</div>';
     }).join('') || '<p class="project-link-empty">还没有关联记录；选择类型与记录后点击“关联”。</p>') : '';
   }
-  function openPipelinePaper(kind, key) {
+  function openPipelinePaper(kind, key, revision) {
     switchPanel('research-hub');
     var frame = $('.research-hub-frame');
     if (!frame) return;
-    var send = function () { frame.contentWindow.postMessage({ type: 'academic-research-hub-open-paper', kind: kind, key: key }, location.origin); };
+    var send = function () { frame.contentWindow.postMessage({ type: 'academic-research-hub-open-paper', kind: kind, key: key, revision: revision || null }, location.origin); };
     if (frame.contentDocument && frame.contentDocument.readyState === 'complete') send();
     else { frame.addEventListener('load', send, { once: true }); frame.loading = 'eager'; }
   }
