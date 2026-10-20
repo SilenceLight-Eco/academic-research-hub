@@ -940,6 +940,25 @@
     return syncData().then(pullCloudData);
   }
 
+  // Only the same-origin embedded pipeline can use this save entry point.
+  window.__academicSavePipeline = function (sourceWindow) {
+    var frame = $('.research-hub-frame');
+    if (!frame || frame.contentWindow !== sourceWindow) return Promise.reject(new Error('保存来源无效'));
+    var owner = autoSaveDraftAccountKey();
+    if (!account) return Promise.resolve({ scope: 'local' });
+    if (activeWorkspaceConflict) return Promise.reject(new Error('请先处理工作台同步冲突'));
+    if (navigator.onLine === false) return Promise.reject(new Error('当前离线，尚未同步云端，请联网后重试'));
+    // Only researchHub is supplied: unfinished edits in other modules are not
+    // overwritten. api() serializes this with other writes and handles conflicts.
+    return api('/api/sync', { method: 'POST', body: JSON.stringify({ data: { researchHub: researchHubSnapshot() } }) }).then(function (result) {
+      if (!account || autoSaveDraftAccountKey() !== owner) throw new Error('账号已切换，请重新保存');
+      if (!result || result.ok !== true) throw new Error(result && result.error || '云端保存失败');
+      setGlobalSaveState('论文管线已同步云端', 'saved');
+      if (state.panel === 'dashboard') renderTodayBoard();
+      return { scope: 'cloud' };
+    });
+  };
+
   function applySyncData(data) {
     if (!data) return;
     if (Array.isArray(data.todos) && JSON.stringify(data.todos) !== JSON.stringify(state.todos)) { state.todos = data.todos; renderTodos(); renderDashboardTodos(); updateTodoBadge(); }

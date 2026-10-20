@@ -271,6 +271,11 @@ h1 { margin: 8px 0 8px; font-size: 31px; letter-spacing: -.8px; }
 .submission-file-round { padding-top:10px; margin-top:8px; border-top:1px solid var(--line); }
 .submission-file-round strong { display:block; overflow-wrap:anywhere; }
 .submission-file-round .muted { display:block; margin-top:4px; }
+.pipeline-save-controls { display:flex; align-items:center; justify-content:flex-end; gap:10px; flex-wrap:wrap; max-width:460px; }
+.pipeline-save-status { font-size:12px; color:var(--muted); overflow-wrap:anywhere; }
+.pipeline-save-status[data-state="saved"] { color:var(--green); }
+.pipeline-save-status[data-state="error"] { color:var(--red); }
+.pipeline-save-controls button:disabled { opacity:.65; cursor:wait; }
 
 /* ===== V2.1 引用次数操作 ===== */
 .citation-actions { margin-top: 10px; }
@@ -1377,6 +1382,8 @@ document.addEventListener("dblclick", e => {
 });
 
 function commitEditField(span, input, p, field) {
+  if (input.dataset.pipelineCommitted === "1") return;
+  input.dataset.pipelineCommitted = "1";
   if (input.dataset.cancel !== "1") {
     const val = input.value.trim();
     if (val || field === "authors" || field === "manuscriptId") {
@@ -2551,6 +2558,7 @@ function showNotes(id) {
   alert((p.notes || "暂无备注") + (p.filePath ? "\n\n文件夹：\n" + p.filePath : ""));
 }
 </script>
+<script src="pipeline-save.js?v=20261020-01"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 /* Public client key only. Row Level Security protects every workspace row. */
@@ -2562,9 +2570,52 @@ function showNotes(id) {
     "research-hub-stages-v1", "research-hub-fields-v1", "research-hub-cards-v1",
     "research-hub-theme", "research-hub-unassigned-data-code-v1"
   ];
-  const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
+  let client = null;
   let session = null;
   let timer = null;
+  let sessionReady = Promise.resolve();
+  let saveChain = Promise.resolve();
+
+  function save() {
+    clearTimeout(timer);
+    const task = saveChain.catch(() => {}).then(async () => {
+      if (window.__academicPipelineFlushLocalWrites) window.__academicPipelineFlushLocalWrites();
+      if (window.parent !== window) {
+        if (typeof window.parent.__academicSavePipeline !== "function") throw new Error("工作台保存服务尚未就绪，请稍后重试");
+        return window.parent.__academicSavePipeline(window);
+      }
+      if (!client) throw new Error("云端登录组件尚未就绪，请稍后重试");
+      await sessionReady;
+      if (!session) return { scope: "local" };
+      const owner = session.user.id;
+      const current = await client.from("user_workspaces").select("payload").eq("user_id", owner).maybeSingle();
+      if (current.error) throw current.error;
+      if (!session || session.user.id !== owner) throw new Error("账号已切换，请重新保存");
+      const payload = Object.assign({}, (current.data && current.data.payload) || {}, { researchHub: snapshot() });
+      const { error } = await client.from("user_workspaces").upsert({ user_id: owner, payload, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
+      if (error) throw error;
+      if (!session || session.user.id !== owner) throw new Error("账号已切换，请重新保存");
+      return { scope: "cloud" };
+    });
+    saveChain = task.catch(() => {});
+    return task;
+  }
+  window.__academicPipelineCloudSave = save;
+  function queueSave() { clearTimeout(timer); timer = setTimeout(() => save().catch(error => console.warn("论文管线自动同步失败", error.message)), 700); }
+  let initialized = false;
+  document.addEventListener("DOMContentLoaded", () => { initialized = true; });
+  const originalSetItem = Storage.prototype.setItem;
+  Storage.prototype.setItem = function(key, value) {
+    const relevant = this === localStorage && STORE_KEYS.includes(key);
+    const previous = relevant ? this.getItem(key) : null;
+    originalSetItem.call(this, key, value);
+    if (initialized && relevant && previous !== String(value)) queueSave();
+  };
+  window.addEventListener("beforeunload", () => { save().catch(() => {}); });
+  // Embedded pipeline uses the workbench's authenticated, serialized, conflict-
+  // checked save path instead of creating a second writer for the same account.
+  if (window.parent !== window) return;
+  client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
 
   const style = document.createElement("style");
   style.textContent = ".cloud-auth{border:1px solid var(--line);background:var(--panel);border-radius:9px;padding:8px 11px;color:var(--text);font:inherit;cursor:pointer}.cloud-auth:hover{border-color:var(--accent)}.cloud-dialog{position:fixed;inset:0;background:rgba(8,15,27,.48);display:grid;place-items:center;z-index:999}.cloud-card{width:min(92vw,360px);background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:14px;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.28)}.cloud-card h2{margin:0 0 8px;font-size:20px}.cloud-card p{font-size:13px;line-height:1.6;color:var(--muted)}.cloud-card input{box-sizing:border-box;width:100%;margin:7px 0;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text)}.cloud-card button{margin-top:8px;padding:9px 12px;border-radius:8px;border:0;background:var(--accent);color:#fff;cursor:pointer}.cloud-card .cloud-cancel{background:transparent;color:var(--muted);margin-left:6px}.cloud-msg{min-height:18px;color:var(--accent);font-size:12px}";
@@ -2573,15 +2624,6 @@ function showNotes(id) {
   function snapshot() { const values = {}; STORE_KEYS.forEach(k => values[k] = localStorage.getItem(k)); return values; }
   function apply(values) { STORE_KEYS.forEach(k => values[k] === null ? localStorage.removeItem(k) : localStorage.setItem(k, values[k])); }
   function updateButton() { const b = document.getElementById("cloudAuth"); if (b) b.textContent = session ? "已登录 · 同步" : "登录同步"; }
-  async function save() {
-    if (!session) return;
-    const current = await client.from("user_workspaces").select("payload").eq("user_id", session.user.id).maybeSingle();
-    if (current.error) throw current.error;
-    const payload = Object.assign({}, (current.data && current.data.payload) || {}, { researchHub: snapshot() });
-    const { error } = await client.from("user_workspaces").upsert({ user_id: session.user.id, payload: payload, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
-    if (error) console.warn("同步失败", error.message);
-  }
-  function queueSave() { clearTimeout(timer); timer = setTimeout(save, 700); }
   async function loadCloud() {
     const { data, error } = await client.from("user_workspaces").select("payload").eq("user_id", session.user.id).maybeSingle();
     if (error) throw error;
@@ -2603,9 +2645,8 @@ function showNotes(id) {
   }
   const button = document.createElement("button"); button.id = "cloudAuth"; button.className = "cloud-auth"; button.type = "button"; button.addEventListener("click", openDialog);
   document.querySelector(".topbar-right")?.prepend(button);
-  const originalSetItem = Storage.prototype.setItem;
-  Storage.prototype.setItem = function(key, value) { originalSetItem.call(this, key, value); if (this === localStorage && STORE_KEYS.includes(key)) queueSave(); };
-  client.auth.getSession().then(({ data }) => { session = data.session; updateButton(); });
-  window.addEventListener("beforeunload", () => { if (session) save(); });
+  sessionReady = client.auth.getSession().then(({ data, error }) => { if (error) throw error; session = data.session; updateButton(); });
+  sessionReady.catch(error => console.warn("登录状态读取失败", error.message));
+  client.auth.onAuthStateChange((_event, nextSession) => { session = nextSession; updateButton(); });
 })();
 </script></body></html>
