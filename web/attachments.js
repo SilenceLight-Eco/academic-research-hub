@@ -11,6 +11,12 @@
   var files = [];
   var loadRequest = 0;
 
+  function notifyPipelineFilesChanged(context) {
+    var frame = document.querySelector('.research-hub-frame');
+    if (!context || context.kind !== 'paper' || !frame || !frame.contentWindow || typeof frame.contentWindow.postMessage !== 'function') return;
+    frame.contentWindow.postMessage({ type: 'academic-research-hub-materials-changed', contextId: context.id }, location.origin);
+  }
+
   function setStatus(message, error) {
     status.textContent = message || '';
     status.classList.toggle('is-error', Boolean(error));
@@ -143,6 +149,7 @@
     } finally {
       busy = false;
       uploadButton.disabled = false;
+      notifyPipelineFilesChanged(context);
     }
   });
 
@@ -177,6 +184,7 @@
     } finally {
       busy = false;
       button.disabled = false;
+      if (button.dataset.fileAction === 'remove') notifyPipelineFilesChanged(current);
     }
   });
 })();

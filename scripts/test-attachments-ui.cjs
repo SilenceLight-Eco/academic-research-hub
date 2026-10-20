@@ -9,6 +9,8 @@ const deferred = () => { let resolve, reject; const promise = new Promise((yes, 
 const tick = () => new Promise(resolve => setImmediate(resolve));
 function harness(api = {}) {
   const nodes = new Map(), handlers = {}, frames = { contentWindow: {} }, uploads = [], downloaded = [], removed = [], alerts = [];
+  const notifications = [];
+  frames.contentWindow.postMessage = (data, origin) => notifications.push({ data, origin });
   function element(tag) { return { tag, hidden: true, value: '', textContent: '', dataset: {}, children: [], disabled: false, handlers: {}, classList: { toggle() {} },
     replaceChildren() { this.children = []; }, appendChild(child) { this.children.push(child); }, append(...children) { this.children.push(...children); },
     addEventListener(type, handler) { this.handlers[type] = handler; }, click() {}, remove() {} }; }
@@ -24,7 +26,7 @@ function harness(api = {}) {
   function open(id, title = id, description = '', options = {}) { handlers['window:message']({ origin: options.origin || 'https://example.test', source: options.source || frames.contentWindow, data: { type: 'academic-research-hub-open-attachments', id, title, description } }); }
   const action = (id, type) => node('fileList').handlers.click({ target: { closest: () => ({ dataset: { fileId: id, fileAction: type } }) } });
   async function upload(file = { name: 'test.docx', size: 100 }) { node('fileInput').files = [file]; await node('fileInput').handlers.change(); }
-  return { node, open, action, upload, uploads, downloaded, removed, alerts };
+  return { node, open, action, upload, uploads, downloaded, removed, alerts, notifications };
 }
 
 test('modal labels identify the selected round/type and reset when opening generic attachments', async () => {
@@ -73,4 +75,24 @@ test('closing before a read finishes leaves no stale files in the next modal', a
   old.resolve([{ id: 'old-file', file_name: 'Old.docx' }]); await tick();
   assert.match(h.node('fileList').children[0].textContent, /还没有附件/);
   await h.action('old-file', 'download'); assert.equal(h.downloaded.length, 0);
+});
+
+test('upload and removal notify the exact parent-owned paper context; viewing and downloading do not invalidate checks', async () => {
+  const h = harness({ list: async () => [{ id: 'file1', file_name: 'Reply.docx', created_at: '2026-10-20' }] });
+  h.open('submission_rmaterials123_response'); await tick(); assert.equal(h.notifications.length, 0);
+  await h.action('file1', 'download'); assert.equal(h.notifications.length, 0);
+  await h.upload(); await h.action('file1', 'remove'); assert.equal(h.notifications.length, 2);
+  for (const event of h.notifications) {
+    assert.equal(event.origin, 'https://example.test'); assert.equal(event.data.type, 'academic-research-hub-materials-changed');
+    assert.equal(event.data.contextId, 'submission_rmaterials123_response');
+  }
+});
+
+test('partial or failed uploads conservatively invalidate checks so uncertain results cannot remain green', async () => {
+  let uploads = 0;
+  const h = harness({ upload: async () => { uploads++; if (uploads === 2) throw new Error('Network error'); } });
+  h.open('submission_rmaterials123_revision'); await tick();
+  h.node('fileInput').files = [{ name: 'One.docx', size: 100 }, { name: 'Two.docx', size: 100 }];
+  await h.node('fileInput').handlers.change(); assert.equal(uploads, 2);
+  assert.equal(h.notifications.length, 1); assert.match(h.node('fileStatus').textContent, /Network error/);
 });

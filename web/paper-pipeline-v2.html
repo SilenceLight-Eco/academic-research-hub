@@ -133,6 +133,11 @@ h1 { margin: 8px 0 8px; font-size: 31px; letter-spacing: -.8px; }
 .revision-group-content { display: grid; gap: 12px; margin-top: 12px; }
 .revision-group-form { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .revision-group-form input { min-width: 120px; flex: 1; padding: 8px; border: 1px solid var(--line); border-radius: 7px; font: inherit; }
+.revision-preflight { border: 1px solid var(--line); border-radius: 9px; padding: 12px; font-size: 13px; line-height: 1.7; }
+.revision-preflight ul { margin: 8px 0; padding-left: 20px; }
+.revision-preflight li { margin: 6px 0; }
+.revision-preflight [data-state="ready"] > strong { color: var(--green); }
+.revision-preflight [data-state="issues"] > strong, .revision-preflight [data-state="stale"] > strong { color: var(--orange); }
 .muted { color: var(--muted); font-size: 12px; }
 .card-line { display: flex; justify-content: space-between; gap: 15px; font-size: 13px; }
 .card-line strong { font-weight: 600; text-align: right; }
@@ -610,6 +615,10 @@ document.addEventListener("DOMContentLoaded", () => {
   render();
   window.addEventListener("message", event => {
     if (event.origin !== location.origin || event.source !== window.parent || !event.data) return;
+    if (event.data.type === "academic-research-hub-materials-changed") {
+      invalidateRevisionPreflightMaterials(String(event.data.contextId || ""));
+      return;
+    }
     if (event.data.type === "academic-research-hub-data-code-migration") {
       importLegacyDataCodeLibrary(event.data.library || {});
     }
@@ -2632,7 +2641,7 @@ function getSubmissionRevisionRounds(p) {
       groupId: groups.some(group => group.id === item.groupId) ? item.groupId : "",
       ...Object.fromEntries(Object.keys(REVISION_ITEM_FIELDS).map(field => [field, String(item[field] || "")]))
     }));
-    return Object.assign({}, round, record ? { journal: record.journal || "", date: record.date || "", dueAt: record.revisionDueAt || "" } : {}, { items, groups });
+    return Object.assign({}, round, record ? { journal: record.journal || "", date: record.date || "", dueAt: record.revisionDueAt || "", attachmentRoundId: record.attachmentRoundId || round.attachmentRoundId || "" } : {}, { items, groups });
   });
 }
 
@@ -2648,7 +2657,7 @@ function submissionRevisionContext(p, reference) {
   if (!Number.isInteger(index) || index < 0 || !history[index]) return null;
   const record = history[index];
   return { index, history, rounds, round: rounds.find(entry => entry.id === record.revisionRoundId) || {
-    id: "", number: index + 1, journal: record.journal || "", date: record.date || "", dueAt: record.revisionDueAt || "", items: [], groups: revisionGroups({})
+    id: "", number: index + 1, journal: record.journal || "", date: record.date || "", dueAt: record.revisionDueAt || "", attachmentRoundId: record.attachmentRoundId || "", items: [], groups: revisionGroups({})
   } };
 }
 
@@ -2686,7 +2695,8 @@ function renderSubmissionRevision(p, reference) {
         </div></details>`;
       }).join("")}
       <form class="revision-group-form" onsubmit="event.preventDefault(); addRevisionGroup('${p._key}', ${ref}, this.elements.groupName.value)"><input name="groupName" maxlength="40" aria-label="新建审稿人分组名称" placeholder="新分组名称，例如：审稿人 3" required><button type="submit" class="btn">新建分组</button></form>
-      <div class="revision-actions"><button type="button" class="btn" onmousedown="event.preventDefault()" onclick="addRevisionItem('${p._key}', ${ref})">＋ 新建审稿意见</button><button type="button" class="btn" onclick="exportRevisionChecklist('${p._key}', ${ref})" ${progress.total ? "" : "disabled"}>导出回复清单</button></div>
+      <div class="revision-actions"><button type="button" class="btn" onmousedown="event.preventDefault()" onclick="addRevisionItem('${p._key}', ${ref})">＋ 新建审稿意见</button><button type="button" class="btn" onclick="exportRevisionChecklist('${p._key}', ${ref})" ${progress.total ? "" : "disabled"}>导出回复清单</button><button type="button" class="btn primary" onclick="runRevisionPreflight('${p._key}', ${ref})">提交前检查</button></div>
+      <div class="revision-preflight" data-revision-preflight="${escapeHtml(revisionPreflightKey(p._key, reference))}" role="status" aria-live="polite">${renderRevisionPreflight(p, reference)}</div>
     </div>
   </details>`;
 }
@@ -2697,6 +2707,126 @@ function renderRevisionArchive(p) {
   const rounds = getSubmissionRevisionRounds(p).filter(round => !submitted || !linked.has(round.id));
   if (!rounds.length) return "";
   return `<div class="revision-archive"><span class="muted">返修清单归档（删除投稿历史后仍保留）</span>${rounds.map(round => renderSubmissionRevision(p, round.id)).join("")}</div>`;
+}
+
+const REVISION_REQUIRED_MATERIALS = { revision: "返修稿", response: "回复信" };
+const revisionPreflightCache = new Map(), revisionPreflightPending = new Set();
+
+function revisionPreflightKey(key, reference) { return JSON.stringify([key, reference]); }
+
+function revisionPreflightSnapshot(p, reference) {
+  const context = submissionRevisionContext(p, reference);
+  if (!context) return null;
+  const history = getPaperField(p, "history") || [];
+  const historyIndex = context.history ? context.index : history.findIndex(entry => entry.revisionRoundId === context.round.id);
+  const fileRoundId = String(context.round.attachmentRoundId || "");
+  return { ...context, historyIndex, fileRoundId,
+    fingerprint: JSON.stringify({ round: context.round, historyIndex, fileRoundId, status: getPaperField(p, "status") }) };
+}
+
+function revisionPreflightIssues(round, materials) {
+  const issues = [];
+  if (!round.items.length) issues.push({ kind: "empty", label: "尚未登记审稿意见，无法确认是否已逐条回复" });
+  round.items.forEach((item, index) => {
+    const group = revisionGroups(round).find(entry => entry.id === item.groupId)?.name || "未分组";
+    const label = `${group} · 意见 ${index + 1}`;
+    if (item.status !== "done") issues.push({ kind: "unfinished", itemId: item.id, label: label + "：尚未标记完成" });
+    if (!String(item.response || "").trim()) issues.push({ kind: "reply", itemId: item.id, label: label + "：回复文字为空" });
+  });
+  Object.entries(REVISION_REQUIRED_MATERIALS).forEach(([type, label]) => {
+    const item = materials && materials[type];
+    if (item && item.state === "present" && Number.isInteger(item.count) && item.count > 0) return;
+    if (item && item.state === "missing" && item.count === 0) issues.push({ kind: "missing", material: type, label: label + "：本轮分类下暂无附件" });
+    else issues.push({ kind: "unknown", material: type, label: label + "：未确认；" + String(item?.message || "尚未读取附件记录") });
+  });
+  return issues;
+}
+
+function renderRevisionPreflight(p, reference) {
+  const entry = revisionPreflightCache.get(revisionPreflightKey(pkey(p), reference));
+  if (!entry) return '<span class="muted">点击“提交前检查”核对本轮意见、回复和材料。仅检查附件存在性，不核验正文，不会自动提交。</span>';
+  const snapshot = revisionPreflightSnapshot(p, reference);
+  if (!snapshot || entry.invalidated || entry.fingerprint !== snapshot.fingerprint || entry.status === "stale") return '<div data-state="stale"><strong>内容或材料已变化，请重新检查。</strong><p class="muted">旧结果不再作为本轮提交依据；若上一次检查仍在进行，请结束后再点击检查。</p></div>';
+  if (entry.status === "checking") return '<div data-state="checking">正在检查本轮意见与材料…</div>';
+  const issues = revisionPreflightIssues(snapshot.round, entry.materials);
+  const ref = reference === null ? "null" : Number.isInteger(reference) ? String(reference) : `'${escapeHtml(reference)}'`;
+  const counts = kind => issues.filter(issue => issue.kind === kind).length;
+  return `<div data-state="${issues.length ? "issues" : "ready"}"><strong>${issues.length ? "本轮尚有待核对事项" : "本轮检查通过（仅限已登记信息和附件存在性）"}</strong>
+    <p>未完成意见 ${counts("unfinished")} 条 · 空白回复 ${counts("reply")} 条 · 缺失材料 ${counts("missing")} 类 · 未确认材料 ${counts("unknown")} 类</p>
+    ${issues.length ? `<ul>${issues.map(issue => `<li>${escapeHtml(issue.label)} <button type="button" class="btn" onclick="${issue.itemId ? `jumpToRevisionPreflightItem('${p._key}', ${ref}, '${issue.itemId}', '${issue.kind}')` : issue.material ? `openRevisionPreflightMaterial('${p._key}', ${ref}, '${issue.material}')` : `addRevisionItem('${p._key}', ${ref})`}">${issue.material ? "查看材料" : issue.itemId ? "定位意见" : "新建意见"}</button></li>`).join("")}</ul>` : '<p>登记的意见均已完成并填写回复，本轮返修稿和回复信分类下均有附件。</p>'}
+    <p class="muted">检查时间：${escapeHtml(entry.checkedAt || "")}。只核对本轮“返修稿／回复信”分类；通用附件和旧轮次材料不自动算入。此检查不代替保存；提交前请确认已保存，并人工核对期刊要求与文件正文。</p></div>`;
+}
+
+function refreshRevisionPreflightReports(key) {
+  document.querySelectorAll('[data-revision-preflight]').forEach(host => {
+    let id, reference;
+    try { [id, reference] = JSON.parse(host.dataset.revisionPreflight); } catch (_) { return; }
+    if (key && id !== key) return;
+    if (!revisionPreflightCache.has(revisionPreflightKey(id, reference))) return;
+    const p = findPaperByKey(id);
+    if (p) host.innerHTML = renderRevisionPreflight(p, reference);
+  });
+}
+
+async function runRevisionPreflight(key, reference) {
+  const p = findPaperByKey(key), snapshot = p && revisionPreflightSnapshot(p, reference);
+  if (!snapshot) { alert("请先选择论文并建立本轮投稿记录。"); return; }
+  const token = revisionPreflightKey(key, reference);
+  if (revisionPreflightPending.has(token)) return;
+  revisionPreflightPending.add(token);
+  const entry = { key, reference, fileRoundId: snapshot.fileRoundId, fingerprint: snapshot.fingerprint, status: "checking", invalidated: false };
+  revisionPreflightCache.set(token, entry);
+  refreshRevisionPreflightReports(key);
+  let timeout, materials;
+  try {
+    if (window.parent === window || typeof window.parent?.__academicCheckRevisionMaterials !== "function") throw new Error("请从已登录的学术工作台打开，材料状态尚未确认");
+    const result = await Promise.race([
+      window.parent.__academicCheckRevisionMaterials(window, { paperKey: key, fileRoundId: snapshot.fileRoundId }),
+      new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error("材料读取超时，请重试；当前未确认")), 20000); })
+    ]);
+    if (!result || result.ok !== true || !result.materials || typeof result.materials !== "object") throw new Error("未收到材料检查确认");
+    materials = result.materials;
+  } catch (error) {
+    materials = Object.fromEntries(Object.keys(REVISION_REQUIRED_MATERIALS).map(type => [type, { state: "unknown", message: error.message || "材料读取失败" }]));
+  } finally { clearTimeout(timeout); revisionPreflightPending.delete(token); }
+  const current = findPaperByKey(key), fresh = current && revisionPreflightSnapshot(current, reference);
+  if (!fresh || fresh.fingerprint !== entry.fingerprint || entry.invalidated) entry.status = "stale";
+  else {
+    entry.status = "ready"; entry.materials = materials;
+    entry.checkedAt = new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false });
+  }
+  refreshRevisionPreflightReports(key);
+  return entry;
+}
+
+function invalidateRevisionPreflightMaterials(contextId) {
+  revisionPreflightCache.forEach(entry => {
+    if (!entry.fileRoundId || !Object.keys(REVISION_REQUIRED_MATERIALS).some(type => contextId === `submission_${entry.fileRoundId}_${type}`)) return;
+    entry.invalidated = true;
+    refreshRevisionPreflightReports(entry.key);
+  });
+}
+
+function jumpToRevisionPreflightItem(key, reference, itemId, kind) {
+  const p = findPaperByKey(key), snapshot = p && revisionPreflightSnapshot(p, reference);
+  if (!snapshot || !snapshot.round.items.some(item => item.id === itemId)) return;
+  if (!revealRevisionTodoTarget(key, snapshot.round.id, itemId)) return;
+  const card = [...document.querySelectorAll('.paper-card')].find(el => el.dataset.paperKey === key);
+  const node = card && [...card.querySelectorAll('[data-revision-item]')].find(el => el.dataset.revisionItem === itemId);
+  const control = node && node.querySelector(kind === 'reply' ? 'textarea[aria-label$="回复文字"]' : 'select[aria-label$="处理状态"]');
+  if (control) control.focus({ preventScroll: true });
+}
+
+function openRevisionPreflightMaterial(key, reference, type) {
+  if (!Object.prototype.hasOwnProperty.call(REVISION_REQUIRED_MATERIALS, type)) return;
+  const p = findPaperByKey(key), snapshot = p && revisionPreflightSnapshot(p, reference);
+  if (!snapshot) return;
+  if (snapshot.fileRoundId && getSubmissionFileRounds(p).some(round => round.id === snapshot.fileRoundId)) { openSubmissionFiles(key, snapshot.fileRoundId, type); return; }
+  if (snapshot.historyIndex >= 0) { openSubmissionFiles(key, snapshot.historyIndex, type); return; }
+  const card = [...document.querySelectorAll('.paper-card')].find(el => el.dataset.paperKey === key);
+  const archive = card && card.querySelector('[data-submission-file-archive]');
+  if (archive) { archive.open = true; archive.scrollIntoView({ block: 'start', behavior: 'smooth' }); }
+  alert("此旧轮次缺少可靠的材料关联，请在投稿材料归档中人工核对；系统不会按相似日期或轮次猜测。");
 }
 
 const revisionTodoInFlight = new Set();
@@ -2784,6 +2914,7 @@ function updateRevisionItem(key, roundId, itemId, field, value) {
   item[field] = String(value);
   setPaperField(p, "submissionRevisionRounds", rounds);
   // Text input never redraws the editor, so focus/caret and unsaved IME text stay put.
+  refreshRevisionPreflightReports(key);
   if (["status", "groupId"].includes(field)) refreshSubmissionStatus();
   if (field === "groupId") revealRevisionTodoTarget(key, roundId, itemId);
 }
@@ -2940,6 +3071,8 @@ function openSubmissionFiles(key, reference, type) {
     round = Object.assign({}, rounds.find(entry => entry.id === id) || { id, number: index + 1 }, { journal: record.journal || "", date: record.date || "" });
     rounds = rounds.filter(entry => entry.id !== id).concat(round);
     setPaperField(p, "submissionFileRounds", rounds);
+    const revisionRounds = getSubmissionRevisionRounds(p);
+    if (revisionRounds.length) setPaperField(p, "submissionRevisionRounds", revisionRounds);
     // Do not upload against an ephemeral ID if local persistence failed.
     const persisted = getFieldStore()[pkey(p)] || {};
     if (!(persisted.submissionFileRounds || []).some(entry => entry.id === id) || !(persisted.history || []).some(entry => entry.attachmentRoundId === id)) {
@@ -2981,7 +3114,7 @@ function showNotes(id) {
   alert((p.notes || "暂无备注") + (p.filePath ? "\n\n文件夹：\n" + p.filePath : ""));
 }
 </script>
-<script src="pipeline-save.js?v=20261020-05"></script>
+<script src="pipeline-save.js?v=20261020-06"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 /* Public client key only. Row Level Security protects every workspace row. */

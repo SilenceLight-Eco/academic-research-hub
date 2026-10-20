@@ -166,9 +166,9 @@ test('legacy status values remain selected without silently rewriting them', () 
 test('new cache version reaches both outer pages and embedded paper pipeline', () => {
   const repo = path.join(__dirname, '..');
   for (const file of ['index.html', 'web/index.html', 'web/workbench.html']) {
-    assert.match(fs.readFileSync(path.join(repo, file), 'utf8'), /20261020-05/);
+    assert.match(fs.readFileSync(path.join(repo, file), 'utf8'), /20261020-06/);
   }
-  assert.match(fs.readFileSync(path.join(repo, 'web/workbench.html'), 'utf8'), /paper-pipeline-v2\.html\?v=20261020-05/);
+  assert.match(fs.readFileSync(path.join(repo, 'web/workbench.html'), 'utf8'), /paper-pipeline-v2\.html\?v=20261020-06/);
 });
 
 test('submission count derives from history, ignores legacy manual numbers and updates on add/delete', () => {

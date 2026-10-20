@@ -9143,6 +9143,36 @@
       });
   }
 
+  // ===== 返修提交前：只读核对私有材料 =====
+  window.__academicCheckRevisionMaterials = async function (sourceWindow, reference) {
+    var frame = $('.research-hub-frame');
+    if (!frame || frame.contentWindow !== sourceWindow) throw new Error('材料检查来源无效');
+    if (!account) throw new Error('请先登录，材料状态尚未确认');
+    if (navigator.onLine === false) throw new Error('当前离线，材料状态尚未确认');
+    if (activeWorkspaceConflict) throw new Error('请先处理工作区同步冲突，再核对材料');
+    var owner = autoSaveDraftAccountKey();
+    reference = reference || {};
+    var paperKey = String(reference.paperKey || ''), roundId = String(reference.fileRoundId || '');
+    if (!/^[A-Za-z0-9_-]{1,120}$/.test(paperKey) || (roundId && !/^r[A-Za-z0-9_-]{8,64}$/.test(roundId))) throw new Error('材料轮次标识无效');
+    var paper = projectPaperTargets().find(function (entry) { return entry.id === paperKey && ['submitted', 'published'].indexOf(entry.kind) >= 0; });
+    if (!paper) throw new Error('原论文已删除或尚未加载');
+    if (!roundId) return { ok: true, materials: {
+      revision: { state: 'unknown', message: '本轮材料尚未关联归档，请先归档或人工核对' },
+      response: { state: 'unknown', message: '本轮材料尚未关联归档，请先归档或人工核对' }
+    } };
+    if (!(Array.isArray(paper.item.submissionFileRounds) ? paper.item.submissionFileRounds : []).some(function (round) { return round.id === roundId; })) throw new Error('本轮材料关联尚未确认，请刷新检查');
+    if (!window.__academicAttachments) throw new Error('附件组件尚未就绪，材料状态未确认');
+    var results = await Promise.all(['revision', 'response'].map(async function (type) {
+      try {
+        var files = await window.__academicAttachments.list('paper', 'submission_' + roundId + '_' + type);
+        if (!Array.isArray(files)) throw new Error('附件服务未返回可确认的记录');
+        return { state: files.length ? 'present' : 'missing', count: files.length };
+      } catch (error) { return { state: 'unknown', message: String(error.message || '读取附件失败').slice(0, 300) }; }
+    }));
+    if (!account || autoSaveDraftAccountKey() !== owner) throw new Error('账号已切换，材料检查结果已作废');
+    return { ok: true, materials: { revision: results[0], response: results[1] } };
+  };
+
   // ===== 返修意见与待办联动 =====
   var revisionTodoPending = new Map();
   window.__academicAddRevisionTodo = function (sourceWindow, reference) {
