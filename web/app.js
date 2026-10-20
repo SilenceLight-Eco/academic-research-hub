@@ -9182,7 +9182,7 @@
     var item = round && (round.items || []).find(function (entry) { return entry.id === source.itemId; });
     if (!item) toast('原返修意见已删除，已为你打开对应论文');
     afterCurrentEditorSaved(state.panel, function () {
-      openPipelinePaper(paper.kind, paper.id, item ? { roundId: source.roundId, itemId: source.itemId } : null);
+      openPipelinePaper('revision', paper.id, item ? { roundId: source.roundId, itemId: source.itemId } : null);
     });
   }
   // ===== 操作：日志 =====
@@ -10384,7 +10384,7 @@
     var key = open.dataset.submissionReminderOpen;
     afterCurrentEditorSaved(state.panel, function () {
       if (!account || !projectPaperTargets().some(function (paper) { return paper.kind === 'submitted' && paper.id === key; })) { toast('论文已删除或尚未加载'); return; }
-      openPipelinePaper('submitted', key);
+      openPipelinePaper('revision', key);
     });
     return true;
   }

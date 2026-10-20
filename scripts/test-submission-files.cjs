@@ -19,11 +19,14 @@ function harness() {
   return { ...h, messages, alerts, open, attachments };
 }
 
-test('current and history show three material types and retain legacy attachment access', () => {
-  const h = harness(); const markup = h.run('renderSubmitted()');
-  for (const label of ['投稿稿', '返修稿', '回复信', '通用与原有附件']) assert.ok(markup.includes(label));
+test('revision workspace groups material types while submitted cards retain manuscript and legacy access', () => {
+  const h = harness(); const markup = h.run('renderRevisionPaperCard(DATA.submitted[0], "submitted")');
+  for (const label of ['投稿稿', '返修稿', '回复信']) assert.ok(markup.includes(label));
   assert.match(markup, /openSubmissionFiles\('paper1', null, 'manuscript'\)/);
-  assert.match(markup, /openSubmissionFiles\('paper1', 0, 'response'\)/);
+  assert.match(markup, /openSubmissionFiles\('paper1', null, 'response'\)/);
+  const submitted = h.run('renderSubmitted()');
+  assert.match(submitted, /通用与原有附件/); assert.match(submitted, /openSubmissionFiles\('paper1', 0, 'manuscript'\)/);
+  assert.doesNotMatch(submitted, /data-submission-material="response"/);
 });
 
 test('each material type has a separate persistent context and opening files never adds submission attempts', () => {

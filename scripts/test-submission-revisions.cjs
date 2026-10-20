@@ -13,6 +13,7 @@ function harness(stored) {
   const h = factory.harness(stored), alerts = [];
   h.context.alert = message => alerts.push(message);
   if (!stored) h.seed({ status: 'major_revision', revisionDueAt: '2026-10-25' });
+  h.run('currentPage = "revision"; render();');
   const rounds = () => h.run('getSubmissionRevisionRounds(findPaperByKey("paper1"))');
   const add = (reference = null) => h.context.addRevisionItem('paper1', reference);
   const update = (field, value, roundIndex = 0, itemIndex = 0) => {
@@ -22,20 +23,21 @@ function harness(stored) {
   return { ...h, alerts, rounds, add, update };
 }
 
-test('current checklist is inline only on submitted cards, with all fields and no prompt', () => {
+test('current checklist is inline in the revision workspace, with all fields and no prompt', () => {
   const h = harness(); h.add();
-  const markup = h.run('renderSubmittedCard(DATA.submitted[0])');
+  const markup = h.run('renderRevisionPaperCard(DATA.submitted[0], "submitted")');
   for (const text of ['本轮返修清单', '审稿意见', '修改内容', '稿件位置', '回复文字', '未处理', '修改中', '已完成', '导出回复清单']) assert.ok(markup.includes(text));
   assert.equal((markup.match(/class="submission-revision"/g) || []).length, 1);
   assert.equal((markup.match(/<textarea/g) || []).length, 4);
   assert.match(markup, /2026-10-25/);
   assert.doesNotMatch(h.run('renderResearchCard(DATA.submitted[0])'), /submission-revision/);
+  assert.doesNotMatch(h.run('renderSubmittedCard(DATA.submitted[0])'), /class="submission-revision"/);
   assert.doesNotMatch(source.slice(source.indexOf('const REVISION_ITEM_STATUSES'), source.indexOf('function validSubmissionFileRoundId')), /prompt\(/);
 });
 
 test('rendering never mutates data; creating opinions does not increase submission count', () => {
   const h = harness(), snapshot = JSON.stringify([...h.stored]);
-  h.run('renderSubmitted()'); assert.equal(JSON.stringify([...h.stored]), snapshot);
+  h.run('renderRevisionPapers()'); assert.equal(JSON.stringify([...h.stored]), snapshot);
   h.add(); h.add();
   assert.equal(h.field('submissionCount'), 1); assert.equal(h.rounds().length, 1);
   assert.equal(h.rounds()[0].items.length, 2);
@@ -48,7 +50,7 @@ test('all four fields and progress survive refresh using the existing synced fie
   const fresh = harness(h.stored), item = fresh.rounds()[0].items[0];
   assert.equal(item.comment, '识别假设\n补充说明'); assert.equal(item.change, '新增稳健性检验');
   assert.equal(item.position, '第 4 页，第 12 行'); assert.equal(item.response, 'Thank you.\n已修改。');
-  assert.match(fresh.run('renderSubmitted()'), /1\/1 已完成（100%）/);
+  assert.match(fresh.run('renderRevisionPapers()'), /1\/1 已完成（100%）/);
   const fields = JSON.parse(h.stored.get('research-hub-fields-v1')).paper1;
   assert.equal(fields.submissionRevisionRounds[0].items[0].status, 'done');
   assert.equal(fields.history[0].revisionRoundId, fields.submissionRevisionRounds[0].id);
@@ -83,7 +85,7 @@ test('resubmission starts empty and old-round replies remain independently edita
   h.update('response', '新回复', 1); h.update('comment', '旧意见');
   assert.equal(h.rounds()[0].items[0].response, '旧回复'); assert.equal(h.rounds()[1].items[0].response, '新回复');
   assert.equal(h.run('submissionRevisionContext(DATA.submitted[0], 0).round.id'), old);
-  assert.equal((h.run('renderSubmitted()').match(/class="submission-revision"/g) || []).length, 2);
+  assert.equal((h.run('renderRevisionPapers()').match(/class="submission-revision"/g) || []).length, 2);
 });
 
 test('changing journals creates separate revision rounds without copying replies', () => {
@@ -107,7 +109,7 @@ test('deleting a history row retains archived replies and their latest deadline'
   h.context.setRevisionDueAt('paper1', '2026-11-02'); const id = h.rounds()[0].id;
   h.context.deleteHistory('paper1', 0);
   assert.equal(h.field('submissionCount'), 0); assert.equal(h.rounds()[0].dueAt, '2026-11-02');
-  assert.match(h.run('renderSubmitted()'), /返修清单归档/);
+  assert.match(h.run('renderRevisionPapers()'), /返修清单归档/);
   h.add(id); assert.equal(h.rounds()[0].items.length, 2);
   h.context.recordCurrentSubmission('paper1'); h.add();
   assert.equal(h.rounds().length, 2); assert.notEqual(h.rounds()[1].id, id);
@@ -125,7 +127,7 @@ test('deleting a history index cannot transfer another round’s replies', () =>
 test('moving to published preserves complete revision archives across refresh', () => {
   const h = harness(); h.add(); h.update('response', '录用前回复'); const id = h.rounds()[0].id;
   h.context.moveToPublished('paper1');
-  assert.match(h.run('renderPublishedCard(DATA.published[0])'), /返修清单归档/);
+  assert.match(h.run('renderRevisionPaperCard(DATA.published[0], "published")'), /返修清单归档/);
   const fresh = harness(h.stored); assert.equal(fresh.rounds()[0].id, id);
   assert.equal(fresh.rounds()[0].items[0].response, '录用前回复');
   fresh.add(id); assert.equal(fresh.rounds()[0].items.length, 2);
@@ -139,7 +141,7 @@ test('delete removes only the selected opinion; cancel preserves it', () => {
   h.context.deleteRevisionItem('paper1', round.id, round.items[0].id);
   assert.equal(h.rounds()[0].items.length, 1); assert.equal(h.rounds()[0].items[0].id, round.items[1].id);
   h.context.deleteRevisionItem('paper1', round.id, round.items[1].id);
-  assert.match(h.run('renderSubmitted()'), /0\/0 已完成（0%）/);
+  assert.match(h.run('renderRevisionPapers()'), /0\/0 已完成（0%）/);
 });
 
 test('unrecorded current attempts and invalid references cannot silently create ambiguous rounds', () => {
@@ -162,7 +164,7 @@ test('invalid statuses, fields, item and round IDs cannot overwrite unrelated da
 test('user text is escaped in HTML, retains whitespace, and exports the real reply content', () => {
   const h = harness(); h.add(); const payload = '</textarea><img src=x onerror=alert(1)>\n\n中文  双空格';
   h.update('comment', payload); h.update('response', '感谢审稿人\n\n详见修订稿。');
-  const markup = h.run('renderSubmitted()');
+  const markup = h.run('renderRevisionPapers()');
   assert.ok(!markup.includes('</textarea><img')); assert.ok(markup.includes('&lt;/textarea&gt;&lt;img'));
   assert.equal(h.rounds()[0].items[0].comment, payload);
   const markdown = h.run('buildRevisionChecklistMarkdown(DATA.submitted[0], getSubmissionRevisionRounds(DATA.submitted[0])[0])');

@@ -125,10 +125,10 @@ test('parent does not create tasks after failed sync, account changes, or unconf
 
 test('todo return entry locates the exact opinion; deleted sources degrade safely', async () => {
   const h = parentHarness(); await h.add(); h.context.openRevisionTodo(1);
-  assert.equal(h.opened[0][0], 'submitted'); assert.equal(h.opened[0][1], 'paper1');
+  assert.equal(h.opened[0][0], 'revision'); assert.equal(h.opened[0][1], 'paper1');
   assert.equal(h.opened[0][2].itemId, ref.itemId); assert.equal(h.opened[0][2].roundId, ref.roundId);
   h.context.projectPaperTargets = () => [{ id: 'paper1', kind: 'published', item: {} }];
-  h.context.openRevisionTodo(1); assert.equal(h.opened[1][0], 'published'); assert.equal(h.opened[1][2], null);
+  h.context.openRevisionTodo(1); assert.equal(h.opened[1][0], 'revision'); assert.equal(h.opened[1][2], null);
   assert.match(h.notices.at(-1), /意见已删除/);
   h.context.projectPaperTargets = () => []; h.context.openRevisionTodo(1); assert.equal(h.opened.length, 2); assert.match(h.notices.at(-1), /论文已删除/);
 });

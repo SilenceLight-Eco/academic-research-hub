@@ -84,7 +84,7 @@ test('signed-out overview does not display cached manuscript names', () => {
 test('click opens the exact submitted paper after autosaving; removed papers cannot be opened', () => {
   const h = harness(); h.seed({ target: paper('Target', '2026-10-10') });
   assert.equal(h.click('target'), true); assert.equal(h.flushes(), 1);
-  assert.deepEqual(h.opened, [{ kind: 'submitted', key: 'target' }]);
+  assert.deepEqual(h.opened, [{ kind: 'revision', key: 'target' }]);
   h.click('deleted'); assert.equal(h.opened.length, 1); assert.equal(h.toasts.length, 1);
 });
 

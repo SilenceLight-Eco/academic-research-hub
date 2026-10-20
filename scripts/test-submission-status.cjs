@@ -166,9 +166,9 @@ test('legacy status values remain selected without silently rewriting them', () 
 test('new cache version reaches both outer pages and embedded paper pipeline', () => {
   const repo = path.join(__dirname, '..');
   for (const file of ['index.html', 'web/index.html', 'web/workbench.html']) {
-    assert.match(fs.readFileSync(path.join(repo, file), 'utf8'), /20261020-03/);
+    assert.match(fs.readFileSync(path.join(repo, file), 'utf8'), /20261020-04/);
   }
-  assert.match(fs.readFileSync(path.join(repo, 'web/workbench.html'), 'utf8'), /paper-pipeline-v2\.html\?v=20261020-03/);
+  assert.match(fs.readFileSync(path.join(repo, 'web/workbench.html'), 'utf8'), /paper-pipeline-v2\.html\?v=20261020-04/);
 });
 
 test('submission count derives from history, ignores legacy manual numbers and updates on add/delete', () => {
@@ -454,7 +454,7 @@ test('major and minor revision show the deadline picker; other statuses do not',
   const h = harness(); h.seed();
   for (const status of ['major_revision', 'minor_revision']) {
     h.context.setSubmissionStatus('paper1', status);
-    assert.match(h.run('renderSubmitted()'), /aria-label="返修截止日期"/);
+    assert.match(h.run('renderRevisionPaperCard(DATA.submitted[0], "submitted")'), /aria-label="返修截止日期"/);
   }
   for (const status of ['accepted', 'rejected', 'withdrawn', 'under_review']) {
     h.context.setSubmissionStatus('paper1', status);
@@ -469,7 +469,7 @@ test('revision deadline automatically persists, mirrors current round and surviv
   assert.equal(h.field('history')[0].revisionDueAt, '2026-10-20');
   const fresh = harness(h.stored);
   assert.equal(fresh.field('revisionDueAt'), '2026-10-20');
-  assert.match(fresh.run('renderSubmitted()'), /aria-label="返修截止日期" value="2026-10-20"/);
+  assert.match(fresh.run('renderRevisionPaperCard(DATA.submitted[0], "submitted")'), /aria-label="返修截止日期" value="2026-10-20"/);
   assert.ok(fresh.field('lastUpdated'));
 });
 
@@ -500,7 +500,8 @@ test('switching journals archives the deadline and clears it for the new attempt
   assert.equal(h.field('history')[0].revisionDueAt, '2026-10-20');
   assert.equal(h.field('history')[1].revisionDueAt, '');
   assert.equal(h.field('revisionDueAt'), '');
-  assert.match(h.run('renderSubmissionHistory(DATA.submitted[0], getPaperField(DATA.submitted[0], "history")[0], 0)'), /本轮返修截止/);
+  assert.match(h.run('renderRevisionPaperCard(DATA.submitted[0], "submitted")'), /本轮返修截止/);
+  assert.match(h.run('renderSubmissionHistory(DATA.submitted[0], getPaperField(DATA.submitted[0], "history")[0], 0)'), /查看本轮返修/);
 });
 
 test('editing an old deadline cannot change the current reminder; current history editing stays linked', () => {
