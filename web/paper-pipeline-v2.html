@@ -113,6 +113,17 @@ h1 { margin: 8px 0 8px; font-size: 31px; letter-spacing: -.8px; }
 .submission-history-item .timeline-date label { display: grid; gap: 4px; }
 .submission-history-item .submission-date { width: 180px; min-width: 160px; font-size: 13px; padding: 7px 8px; }
 .submission-history-item .timeline-content { min-width: 0; }
+.submission-revision { border: 1px solid var(--line); border-radius: 10px; padding: 12px; min-width: 0; }
+.submission-revision > summary { cursor: pointer; font-size: 13px; font-weight: 600; }
+.revision-body { display: grid; gap: 12px; margin-top: 12px; }
+.revision-item { display: grid; gap: 10px; padding: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
+.revision-item-head, .revision-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.revision-item-head strong { margin-right: auto; }
+.revision-item label { display: grid; gap: 5px; font-size: 12px; }
+.revision-item textarea { width: 100%; min-height: 70px; resize: vertical; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text); font: inherit; line-height: 1.6; }
+.revision-item textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.revision-progress { accent-color: var(--accent); width: 100%; height: 8px; }
+.revision-archive { display: grid; gap: 10px; }
 .muted { color: var(--muted); font-size: 12px; }
 .card-line { display: flex; justify-content: space-between; gap: 15px; font-size: 13px; }
 .card-line strong { font-weight: 600; text-align: right; }
@@ -834,11 +845,13 @@ function renderSubmittedCard(p) {
     <div class="card-line"><span class="muted">稿件编号</span><strong>${editableText(p, "manuscriptId")}</strong></div>
     <div class="card-line"><span class="muted">投稿次数</span><strong title="按投稿历史记录数自动计算，状态变化不会增加次数">${getPaperField(p, "submissionCount")} 次</strong></div>
     <div class="next-action"><b>NEXT ACTION</b>${editableText(p, "nextAction")}</div>
+    ${renderSubmissionRevision(p, null)}
     <div class="submission-materials"><span class="muted">本轮材料</span>${renderSubmissionFileButtons(p, null)}</div>
     <div><div class="hist-head"><span class="muted">投稿历史</span><button class="stage-tool" title="添加投稿记录" onclick="addHistory('${p._key}')">＋</button></div><div class="timeline">${history.map((h, i) => renderSubmissionHistory(p, h, i)).join("") || "<div class='muted'>（暂无投稿历史，点击 ＋ 新建）</div>"}</div></div>
     <div class="file-path-row"><span class="muted">文件夹</span>${editableText(p, "filePath", "path-text")}<button class="btn" onclick="copyPath('${encodeURIComponent(getPaperField(p, "filePath") || "")}')">复制路径</button></div>
     <div class="file-path-row"><span class="muted">通用与原有附件</span><button class="btn" type="button" onclick="openPaperFiles('${p._key}')">上传与查看文件</button></div>
     ${renderSubmissionFileArchive(p)}
+    ${renderRevisionArchive(p)}
     <button class="btn flow-btn" title="录用后流转到已发表论文（继承标题、作者、当前期刊、文件夹路径与附件）" onclick="moveToPublished('${p._key}')">转移到已发表 ➜</button>
   </article>`;
 }
@@ -1023,6 +1036,7 @@ function renderPublishedCard(p) {
     <div class="citation-actions"><button class="btn" onclick="importPublishedMetadata('${p._key}')">按 DOI 补全摘要与关键词</button><button class="btn" data-semantic-scholar-key="${escapeHtml(p._key)}" onclick="importPublishedSemanticScholar('${p._key}')" title="优先按 DOI 查询；无 DOI 时按标题精确匹配，仅补充空字段">Semantic Scholar 补充信息</button></div>
     <div class="file-path-row"><span class="muted">论文附件</span><button class="btn" type="button" onclick="openPaperFiles('${p._key}')">上传与查看文件</button></div>
     ${renderSubmissionFileArchive(p)}
+    ${renderRevisionArchive(p)}
     ${renderCitationBlock(p)}
     <div><div class="muted" style="margin-bottom:6px">摘要</div><div class="abstract">${editableText(p, "abstract", "editable-abstract")}</div></div>
     ${renderChipEditor(p, "keywords", "关键词")}
@@ -1521,6 +1535,7 @@ function renderSubmissionHistory(p, history, index) {
       <button class="stage-tool" title="删除该记录" onclick="deleteHistory('${p._key}', ${index})">✕</button>
       ${history.revisionDueAt || SubmissionDeadlines.isRevision(history.status) ? `<div class="card-line"><label>本轮返修截止<input class="submission-date" type="date" aria-label="第 ${index + 1} 次投稿返修截止日期" value="${SubmissionDeadlines.dateOnly(history.revisionDueAt)}" onchange="setHistoryRevisionDueAt('${p._key}', ${index}, this.value)"></label></div>` : ""}
       <div class="submission-materials"><span class="muted">本轮材料</span>${renderSubmissionFileButtons(p, index)}</div>
+      ${currentRevisionHistoryIndex(p) === index ? '<div class="muted">本轮返修清单见卡片上方</div>' : renderSubmissionRevision(p, index)}
       <details class="submission-status-dates" data-submission-times="${escapeHtml(p._key)}:${index}">
         <summary>各状态时间</summary>
         <div class="submission-date-grid">${SUBMITTED_STATUS_OPTIONS.map(([status, label]) => `<label>${label}<input class="submission-date" type="date" aria-label="第 ${index + 1} 次投稿${label}日期" value="${submissionDateValue(submissionHistoryStatusDate(history, status))}" onchange="setHistoryStatusDate('${p._key}', ${index}, '${status}', this.value)"></label>`).join("")}</div>
@@ -1613,6 +1628,7 @@ function refreshSubmissionStatus() {
   const status = document.getElementById("statusFilter")?.value || "";
   const openDates = new Set([...document.querySelectorAll("[data-submission-times][open]")].map(el => el.dataset.submissionTimes));
   const openFileArchives = new Set([...document.querySelectorAll("[data-submission-file-archive][open]")].map(el => el.dataset.submissionFileArchive));
+  const revisionPanels = new Map([...document.querySelectorAll("[data-submission-revision]")].map(el => [el.dataset.submissionRevision, el.open]));
   render();
   if (currentPage === "submitted") {
     const searchInput = document.getElementById("searchInput");
@@ -1623,6 +1639,9 @@ function refreshSubmissionStatus() {
     document.querySelectorAll("[data-submission-times]").forEach(el => { el.open = openDates.has(el.dataset.submissionTimes); });
     document.querySelectorAll("[data-submission-file-archive]").forEach(el => { el.open = openFileArchives.has(el.dataset.submissionFileArchive); });
   }
+  document.querySelectorAll("[data-submission-revision]").forEach(el => {
+    if (revisionPanels.has(el.dataset.submissionRevision)) el.open = revisionPanels.get(el.dataset.submissionRevision);
+  });
   updateStatusBar();
   if (window.parent && window.parent !== window) window.parent.postMessage({ type: "academic-research-hub-submissions-changed" }, location.origin);
 }
@@ -1720,7 +1739,7 @@ function beginResubmission(p, history, nextJournal) {
   if (isCurrentSubmissionHistory(p, history, index) && previous.manuscriptId) history[index].manuscriptId = previous.manuscriptId;
   if (isCurrentSubmissionHistory(p, history, index)) history[index].revisionDueAt = previous.revisionDueAt;
   // 手动 ＋ 刚新建的空白一轮可直接用于重投，不再重复增加一条。
-  const draft = index >= 0 && history[index].status === "submitted" && !history[index].journal && !history[index].date && !history[index].manuscriptId && !history[index].revisionDueAt && !Object.values(history[index].statusDates || {}).some(Boolean);
+  const draft = index >= 0 && history[index].status === "submitted" && !history[index].journal && !history[index].date && !history[index].manuscriptId && !history[index].revisionDueAt && !history[index].revisionRoundId && !Object.values(history[index].statusDates || {}).some(Boolean);
   if (!history.length || (!draft && !isCurrentSubmissionHistory(p, history, index) && (previous.journal || previous.date))) {
     history.push(previous);
   }
@@ -2149,6 +2168,7 @@ function deleteHistory(key, index) {
   const hist = JSON.parse(JSON.stringify(getPaperField(p, "history") || []));
   if (!hist[index]) return;
   if (!confirm(`确定删除投稿记录“${hist[index].journal}（${hist[index].date}）”吗？`)) return;
+  setPaperField(p, "submissionRevisionRounds", getSubmissionRevisionRounds(p));
   hist.splice(index, 1);
   setPaperField(p, "history", hist);
   setPaperField(p, "lastUpdate", nowMinute());
@@ -2246,6 +2266,7 @@ function moveToPublished(key) {
   const title = getPaperField(p, "title") || "未命名论文";
   if (!confirm(`确定将“${title}”从在投论文转移到已发表论文吗？\n将继承标题、作者、当前期刊（转为期刊名）、文件夹路径与附件，其余信息需在已发表页面手动补充。`)) return;
   const submissionFileRounds = getSubmissionFileRounds(p);
+  const submissionRevisionRounds = getSubmissionRevisionRounds(p);
   const st = getCardStore();
   st.submitted = st.submitted || {};
   if (st.submitted.added && st.submitted.added[key]) delete st.submitted.added[key];
@@ -2262,11 +2283,12 @@ function moveToPublished(key) {
   np._key = nk;
   np.attachmentKey = kept.attachmentKey || p.attachmentKey || key;
   np.submissionFileRounds = submissionFileRounds;
+  np.submissionRevisionRounds = submissionRevisionRounds;
   np.title = kept.title != null ? kept.title : (p.title || "");
   np.authors = kept.authors != null ? [...kept.authors] : (p.authors || []);
   np.journal = kept.currentJournal != null ? kept.currentJournal : (p.currentJournal || "");
   np.filePath = kept.filePath != null ? kept.filePath : (p.filePath || "");
-  fs[nk] = { title: np.title, authors: np.authors, journal: np.journal, filePath: np.filePath, attachmentKey: np.attachmentKey, submissionFileRounds };
+  fs[nk] = { title: np.title, authors: np.authors, journal: np.journal, filePath: np.filePath, attachmentKey: np.attachmentKey, submissionFileRounds, submissionRevisionRounds };
   try { localStorage.setItem(FIELD_STORE_KEY, JSON.stringify(fs)); } catch (e) {}
   st.published = st.published || {};
   st.published.added = st.published.added || {};
@@ -2447,6 +2469,159 @@ function openKnowledgeBaseFromPaper() {
   window.location.hash = "knowledge-base";
 }
 
+const REVISION_ITEM_STATUSES = [["pending", "未处理"], ["working", "修改中"], ["done", "已完成"]];
+const REVISION_ITEM_FIELDS = { comment: "审稿意见", change: "修改内容", position: "稿件位置（页码／行号／章节）", response: "回复文字" };
+
+function currentRevisionHistoryIndex(p) {
+  if (!(DATA.submitted || []).some(paper => pkey(paper) === pkey(p))) return -1;
+  const journal = String(getPaperField(p, "currentJournal") || "").trim();
+  if (!journal) return -1;
+  const date = getPaperField(p, "submissionDate") || "";
+  const history = getPaperField(p, "history") || [];
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (String(history[i].journal || "").trim() === journal && (!date || history[i].date === date)) return i;
+  }
+  return -1;
+}
+
+// Keep a separate catalog so deleting a history row never silently deletes its replies.
+function getSubmissionRevisionRounds(p) {
+  const stored = getPaperField(p, "submissionRevisionRounds");
+  const history = getPaperField(p, "history") || [];
+  const seen = new Set();
+  return (Array.isArray(stored) ? stored : []).filter(round => {
+    if (!round || !validSubmissionFileRoundId(round.id) || seen.has(round.id)) return false;
+    seen.add(round.id); return true;
+  }).map(round => {
+    const record = history.find(entry => entry.revisionRoundId === round.id);
+    const itemIds = new Set();
+    const items = (Array.isArray(round.items) ? round.items : []).filter(item => {
+      if (!item || !validSubmissionFileRoundId(item.id) || itemIds.has(item.id)) return false;
+      itemIds.add(item.id); return true;
+    }).map(item => ({
+      id: item.id, status: REVISION_ITEM_STATUSES.some(([value]) => value === item.status) ? item.status : "pending",
+      ...Object.fromEntries(Object.keys(REVISION_ITEM_FIELDS).map(field => [field, String(item[field] || "")]))
+    }));
+    return Object.assign({}, round, record ? { journal: record.journal || "", date: record.date || "", dueAt: record.revisionDueAt || "" } : {}, { items });
+  });
+}
+
+function submissionRevisionContext(p, reference) {
+  const rounds = getSubmissionRevisionRounds(p);
+  if (typeof reference === "string") {
+    const round = rounds.find(entry => entry.id === reference);
+    return round ? { round, rounds } : null;
+  }
+  if (!(DATA.submitted || []).some(paper => pkey(paper) === pkey(p))) return null;
+  const index = reference === null ? currentRevisionHistoryIndex(p) : reference;
+  const history = JSON.parse(JSON.stringify(getPaperField(p, "history") || []));
+  if (!Number.isInteger(index) || index < 0 || !history[index]) return null;
+  const record = history[index];
+  return { index, history, rounds, round: rounds.find(entry => entry.id === record.revisionRoundId) || {
+    id: "", number: index + 1, journal: record.journal || "", date: record.date || "", dueAt: record.revisionDueAt || "", items: []
+  } };
+}
+
+function revisionProgress(items) {
+  const total = items.length, done = items.filter(item => item.status === "done").length;
+  return { total, done, percent: total ? Math.round(done * 100 / total) : 0 };
+}
+
+function renderSubmissionRevision(p, reference) {
+  const context = submissionRevisionContext(p, reference);
+  const round = context ? context.round : { items: [] };
+  const progress = revisionProgress(round.items);
+  const ref = reference === null ? "null" : Number.isInteger(reference) ? String(reference) : `'${escapeHtml(reference)}'`;
+  const token = reference === null ? "current" : String(reference);
+  const label = reference === null ? "本轮返修清单" : `第 ${round.number || "—"} 次投稿返修清单`;
+  const deadline = SubmissionDeadlines.evaluate("major_revision", round.dueAt);
+  return `<details class="submission-revision" data-submission-revision="${escapeHtml(p._key + ':' + token)}" ${reference === null ? "open" : ""} ondragstart="event.stopPropagation()">
+    <summary>${escapeHtml(label)} · ${progress.done}/${progress.total} 已完成（${progress.percent}%）</summary>
+    <div class="revision-body">
+      <div class="muted">${escapeHtml(round.journal || "请先填写当前期刊，并记录到投稿历史")} · ${escapeHtml(round.date || "未填写投稿日期")}${deadline ? ` · 返修截止 ${escapeHtml(round.dueAt)}（${escapeHtml(deadline.label)}）` : ""}。输入即自动保存；按投稿轮次独立保留。</div>
+      <progress class="revision-progress" max="100" value="${progress.percent}" aria-label="返修完成进度"></progress>
+      ${round.items.map((item, index) => `<div class="revision-item">
+        <div class="revision-item-head"><strong>意见 ${index + 1}</strong><select class="select" aria-label="意见 ${index + 1} 处理状态" onchange="updateRevisionItem('${p._key}', '${round.id}', '${item.id}', 'status', this.value)">${REVISION_ITEM_STATUSES.map(([value, text]) => `<option value="${value}" ${item.status === value ? "selected" : ""}>${text}</option>`).join("")}</select><button type="button" class="stage-tool" aria-label="删除意见 ${index + 1}" onclick="deleteRevisionItem('${p._key}', '${round.id}', '${item.id}')">✕</button></div>
+        ${Object.entries(REVISION_ITEM_FIELDS).map(([field, text]) => `<label>${text}<textarea aria-label="意见 ${index + 1} ${text}" oninput="updateRevisionItem('${p._key}', '${round.id}', '${item.id}', '${field}', this.value)">${escapeHtml(item[field])}</textarea></label>`).join("")}
+      </div>`).join("") || '<div class="muted">暂无意见，点击“新建审稿意见”后可一次填写全部内容。</div>'}
+      <div class="revision-actions"><button type="button" class="btn" onmousedown="event.preventDefault()" onclick="addRevisionItem('${p._key}', ${ref})">＋ 新建审稿意见</button><button type="button" class="btn" onclick="exportRevisionChecklist('${p._key}', ${ref})" ${progress.total ? "" : "disabled"}>导出回复清单</button></div>
+    </div>
+  </details>`;
+}
+
+function renderRevisionArchive(p) {
+  const linked = new Set((getPaperField(p, "history") || []).map(entry => entry.revisionRoundId));
+  const submitted = (DATA.submitted || []).some(paper => pkey(paper) === pkey(p));
+  const rounds = getSubmissionRevisionRounds(p).filter(round => !submitted || !linked.has(round.id));
+  if (!rounds.length) return "";
+  return `<div class="revision-archive"><span class="muted">返修清单归档（删除投稿历史后仍保留）</span>${rounds.map(round => renderSubmissionRevision(p, round.id)).join("")}</div>`;
+}
+
+function addRevisionItem(key, reference) {
+  const p = findPaperByKey(key);
+  if (!p) return;
+  const context = submissionRevisionContext(p, reference);
+  if (!context) { alert("请先填写当前期刊，并点击“记录当前投稿到历史”，再新建返修意见。"); return; }
+  const { rounds, round, history, index } = context;
+  if (!round.id) {
+    do { round.id = newSubmissionFileRoundId(); } while (rounds.some(entry => entry.id === round.id));
+    history[index].revisionRoundId = round.id;
+    setPaperField(p, "history", history);
+    rounds.push(round);
+  }
+  let id;
+  do { id = newSubmissionFileRoundId(); } while (round.items.some(item => item.id === id));
+  round.items.push({ id, comment: "", change: "", position: "", response: "", status: "pending" });
+  setPaperField(p, "submissionRevisionRounds", rounds);
+  refreshSubmissionStatus();
+}
+
+function updateRevisionItem(key, roundId, itemId, field, value) {
+  if (field !== "status" && !Object.prototype.hasOwnProperty.call(REVISION_ITEM_FIELDS, field)) return;
+  if (field === "status" && !REVISION_ITEM_STATUSES.some(([status]) => status === value)) return;
+  const p = findPaperByKey(key);
+  if (!p) return;
+  const rounds = getSubmissionRevisionRounds(p);
+  const item = rounds.find(round => round.id === roundId)?.items.find(entry => entry.id === itemId);
+  if (!item) return;
+  item[field] = String(value);
+  setPaperField(p, "submissionRevisionRounds", rounds);
+  // Text input never redraws the editor, so focus/caret and unsaved IME text stay put.
+  if (field === "status") refreshSubmissionStatus();
+}
+
+function deleteRevisionItem(key, roundId, itemId) {
+  const p = findPaperByKey(key);
+  if (!p) return;
+  const rounds = getSubmissionRevisionRounds(p);
+  const round = rounds.find(entry => entry.id === roundId);
+  if (!round || !round.items.some(item => item.id === itemId) || !confirm("确定删除这一条审稿意见及其修改、回复内容吗？")) return;
+  round.items = round.items.filter(item => item.id !== itemId);
+  setPaperField(p, "submissionRevisionRounds", rounds);
+  refreshSubmissionStatus();
+}
+
+function buildRevisionChecklistMarkdown(p, round) {
+  const progress = revisionProgress(round.items);
+  return [`# ${getPaperField(p, "title") || "论文"} — 返修回复清单`,
+    `第 ${round.number} 次投稿 · ${round.journal || "未填写期刊"} · ${round.date || "未填写投稿日期"}`,
+    `返修截止：${round.dueAt || "未设置"}；进度：${progress.done}/${progress.total}（${progress.percent}%）`,
+    ...round.items.map((item, index) => [`## 意见 ${index + 1}（${REVISION_ITEM_STATUSES.find(([status]) => status === item.status)?.[1] || "未处理"}）`,
+      ...Object.entries(REVISION_ITEM_FIELDS).map(([field, text]) => `### ${text}\n\n${item[field] || "（未填写）"}`)].join("\n\n"))].join("\n\n") + "\n";
+}
+
+function exportRevisionChecklist(key, reference) {
+  const p = findPaperByKey(key);
+  const context = p && submissionRevisionContext(p, reference);
+  if (!context || !context.round.items.length) { alert("本轮暂无可导出的返修意见。"); return; }
+  const blob = new Blob([buildRevisionChecklistMarkdown(p, context.round)], { type: "text/markdown;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url; link.download = `返修回复清单-第${context.round.number}次投稿.md`;
+  document.body.appendChild(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function validSubmissionFileRoundId(value) {
   return /^r[A-Za-z0-9_-]{8,64}$/.test(String(value || ""));
 }
@@ -2558,7 +2733,7 @@ function showNotes(id) {
   alert((p.notes || "暂无备注") + (p.filePath ? "\n\n文件夹：\n" + p.filePath : ""));
 }
 </script>
-<script src="pipeline-save.js?v=20261020-01"></script>
+<script src="pipeline-save.js?v=20261020-02"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 /* Public client key only. Row Level Security protects every workspace row. */

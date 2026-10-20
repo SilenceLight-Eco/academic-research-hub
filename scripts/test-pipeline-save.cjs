@@ -113,7 +113,7 @@ test('account change cannot report a save to the old account as current success'
   await assert.rejects(saving, /账号已切换/); assert.equal(h.statuses.length, 0);
 });
 test('module is loaded before cloud adapter and shared save is present across pipeline pages', () => {
-  assert.match(html, /pipeline-save\.js\?v=20261020-01/);
+  assert.match(html, /pipeline-save\.js\?v=20261020-02/);
   assert.ok(html.indexOf('pipeline-save.js') < html.indexOf('/* Public client key only.'));
   assert.match(html, /pipelineCommitted === "1"/);
 });
@@ -156,9 +156,12 @@ test('cloud adapter propagates errors and serializes overlapping saves', async (
 });
 test('standalone mode preserves other payload fields and throws failed upserts instead of claiming success', async () => {
   const h = cloudHarness({ embedded: false }); h.localStorage.setItem('research-hub-cards-v1', '{"submitted":{}}');
+  const revisionFields = JSON.stringify({ paper1: { submissionRevisionRounds: [{ id: 'rrevision123', items: [{ comment: '审稿意见', response: '修订回复', status: 'done' }] }] } });
+  h.localStorage.setItem('research-hub-fields-v1', revisionFields);
   assert.equal((await h.save()).scope, 'cloud');
   const write = h.calls.find(call => call.type === 'write'); assert.equal(write.row.payload.untouched, 'Keep other modules');
   assert.equal(write.row.payload.researchHub['research-hub-cards-v1'], '{"submitted":{}}');
+  assert.equal(write.row.payload.researchHub['research-hub-fields-v1'], revisionFields);
   const failed = cloudHarness({ embedded: false, writeError: new Error('Storage denied') }); await assert.rejects(failed.save(), /Storage denied/);
   const guest = cloudHarness({ embedded: false, user: null }); assert.equal((await guest.save()).scope, 'local');
   assert.ok(!guest.calls.some(call => call.type === 'write'));
