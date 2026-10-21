@@ -8,7 +8,7 @@
   <link rel="apple-touch-icon" href="icon-180.png">
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#174e4a">
-  <link rel="stylesheet" href="style.css?v=20261021-01">
+  <link rel="stylesheet" href="style.css?v=20261021-02">
   <style>.sidebar-nav .retired-content{display:none!important}</style>
 </head>
 <body>
@@ -323,7 +323,7 @@
       <!-- Research Hub paper pipeline -->
       <section class="panel" id="panel-research-hub">
         <div class="research-hub-frame-wrap">
-          <iframe class="research-hub-frame" src="paper-pipeline-v2.html?v=20261021-01" title="Research Hub paper pipeline" loading="lazy"></iframe>
+          <iframe class="research-hub-frame" src="paper-pipeline-v2.html?v=20261021-02" title="Research Hub paper pipeline" loading="lazy"></iframe>
         </div>
       </section>
 
@@ -415,7 +415,7 @@
       <section class="panel" id="panel-variable-library">
         <div class="variable-head"><div><div class="card-dot"></div><div class="card-label">变量库</div><p>按研究角色整理变量定义、计量方式、数据来源与关联研究，支持自动同步。</p></div><div class="variable-actions"><button type="button" id="variableImport">导入 CSV</button><button type="button" id="variableTemplate" title="模板含一条示例记录，导入前请修改或删除">下载 CSV 模板</button><button type="button" id="variableExport">导出 CSV</button><button type="button" id="variableImportUndo" disabled title="尚无可撤销的 CSV 导入">CSV 导入历史</button><button type="button" id="variableTrash">回收站</button><button type="button" id="variableSave">立即保存</button><input id="variableImportFile" type="file" accept=".csv,text/csv" hidden></div></div>
         <div class="variable-workspace">
-          <aside class="variable-list-pane"><label class="variable-search"><span>检索变量</span><input id="variableSearch" type="search" placeholder="名称、定义、来源或参考文献"></label><div id="variableCategories" class="variable-category-list"></div><div id="variableList" class="variable-list"></div></aside>
+          <aside class="variable-list-pane"><div class="variable-search"><label for="variableSearch">查找已有变量</label><input id="variableSearch" type="search" placeholder="输入变量名称或符号" aria-describedby="variableSearchSummary"><div class="variable-search-controls"><select id="variableSearchMode" aria-label="变量搜索方式"><option value="name">名称包含</option><option value="exact">名称精确匹配</option><option value="all">全部内容</option></select><button id="variableSearchClear" type="button" hidden>清空</button></div><p id="variableSearchSummary" class="variable-search-summary" role="status" aria-live="polite">输入名称检查变量是否已存在。</p></div><div id="variableCategories" class="variable-category-list"></div><div id="variableList" class="variable-list"></div></aside>
           <section class="variable-editor" id="variableEditor">
             <div class="variable-title-row"><input id="variableName" placeholder="变量名称（双击新建）" aria-label="变量名称；双击新建同角色变量" title="双击此处新建同角色变量"><button id="variableDuplicate" class="variable-duplicate-button" type="button" title="基于当前变量新建一份相同副本">复制变量</button><button id="variableDelete" type="button" title="移入回收站">×</button></div>
             <label class="variable-field">概念定义<textarea id="variableDefinition" placeholder="变量的理论含义与研究语境；双击新建同角色变量" title="双击此处新建同角色变量"></textarea></label>
@@ -1572,10 +1572,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-<script src="static-api.js?v=20261021-01"></script>
+<script src="static-api.js?v=20261021-02"></script>
 <script src="reference-export.js?v=20260927-01"></script>
 <script src="submission-deadlines.js?v=20261007-12"></script>
-  <script src="app.js?v=20261021-01"></script>
-  <script src="attachments.js?v=20261021-01"></script>
+  <script src="app.js?v=20261021-02"></script>
+  <script src="attachments.js?v=20261021-02"></script>
 </body>
 </html>

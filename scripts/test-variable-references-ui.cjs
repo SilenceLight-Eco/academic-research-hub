@@ -35,7 +35,7 @@ function harness() {
     window: { addEventListener() {} }, document: { addEventListener() {} },
     api() { throw new Error('Reference-library API must not be called'); }
   });
-  for (const name of ['referenceCitationLabel', 'latestVariableReferences', 'renderVariableMeasureReferences', 'readVariableMeasureReferences', 'addVariableReferenceOnly', 'removeVariableReferenceOnly']) vm.runInContext(functionSource(name), context);
+  for (const name of ['referenceCitationLabel', 'latestVariableReferences', 'variableRecentReferenceOptions', 'openVariableRecentReferences', 'renderVariableMeasureReferences', 'readVariableMeasureReferences', 'addVariableReferenceOnly', 'removeVariableReferenceOnly']) vm.runInContext(functionSource(name), context);
   const start = source.indexOf("    $('#variableMeasureReferences').addEventListener('input'");
   const end = source.indexOf("    $('#refNew').addEventListener", start);
   vm.runInContext(source.slice(start, end), context);
@@ -53,6 +53,7 @@ test('reference inputs no longer render a library association selector or linked
   assert.match(html, /value="Saved citation"/);
   assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
   assert.match(html, /data-variable-reference-new="0"/);
+  assert.match(html, /data-variable-reference-recent-show/);
   assert.match(html, /data-variable-reference-remove-paper="0"/);
   assert.equal((html.match(/data-variable-reference-pick=/g) || []).length, 6);
   assert.ok(!html.includes('>Older paper</button>'));
@@ -107,4 +108,33 @@ test('new reference adds only an inline input and deletion preserves remaining c
   assert.deepEqual(entries[0].papers, ['First', 'Third', '']);
   assert.deepEqual(entries[0].paperReferenceIds, ['r1', 'r3']);
   assert.equal(rendered, entries); assert.equal(h.saves(), 2);
+});
+test('focusing any reference field opens the latest three saved references, including a newly saved record', () => {
+  const h = harness(), menu = { hidden: true }, field = citationField('Manual text');
+  const row = { find: () => menu, classList: { add() {} } };
+  field.closest = selector => selector === '[data-variable-paper]' ? field : row;
+  h.context.state.referenceLibrary.items.push({ id: 'r5', title: 'Most recent', updated: '2026-10-22' });
+  h.events['#variableMeasureReferences:focusin']({ target: field });
+  assert.equal(menu.hidden, false); assert.equal(field.value, 'Manual text');
+  assert.equal((menu.innerHTML.match(/data-variable-reference-pick=/g) || []).length, 3);
+  assert.ok(menu.innerHTML.indexOf('Most recent') < menu.innerHTML.indexOf('New paper'));
+  assert.ok(!menu.innerHTML.includes('Old paper')); assert.equal(h.saves(), 0);
+});
+test('explicit recent-reference button opens the picker without reintroducing an association selector', () => {
+  const h = harness(), field = citationField('Existing'), menu = { hidden: true };
+  const row = { find: selector => selector === '[data-variable-paper]' ? field : menu, classList: { add() {} } };
+  field.closest = () => row;
+  const button = { closest: () => row };
+  h.events['#variableMeasureReferences:click']({ target: { closest: selector => selector === '[data-variable-reference-recent-show]' ? button : null } });
+  assert.equal(menu.hidden, false); assert.equal(field.focused, true); assert.equal(field.value, 'Existing'); assert.equal(h.saves(), 0);
+  assert.doesNotMatch(menu.innerHTML, /<select|关联文献库条目/);
+});
+test('blank library and disabled fields remain safe and recent suggestions stay in normal layout flow', () => {
+  const h = harness(), field = citationField('Existing');
+  h.context.state.referenceLibrary.items = [];
+  assert.match(h.context.variableRecentReferenceOptions(), /可直接手动填写/);
+  field.disabled = true; field.closest = () => { throw Error('Disabled field must not open'); };
+  h.context.openVariableRecentReferences(field);
+  const css = fs.readFileSync(path.join(__dirname, '../web/style.css'), 'utf8');
+  assert.match(css, /\.variable-reference-recent \{ position:relative;/);
 });
