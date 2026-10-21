@@ -78,6 +78,38 @@
       : [String(entry && entry.instrumentVariable || '').slice(0, 20000)];
     return values.length ? values : [''];
   }
+  function variableCitationKey(value) {
+    return String(value || '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
+  }
+  function variableReferenceValues(item) {
+    var entries = item && Array.isArray(item.measureReferences) && item.measureReferences.length ? item.measureReferences : [{ paper: item && item.paper }];
+    var values = [];
+    entries.forEach(function (entry) {
+      entry = entry || {};
+      var papers = Array.isArray(entry.papers) && entry.papers.length ? entry.papers.slice() : [entry.paper || ''];
+      if (!papers[0] && entry.paper) papers[0] = entry.paper;
+      papers.forEach(function (paper) { var text = String(paper || '').trim().slice(0, 500); if (text) values.push(text); });
+    });
+    return values;
+  }
+  function rememberVariableReferences(library, before, excludedId) {
+    var history = Array.isArray(library.referenceRecents) ? library.referenceRecents : [];
+    var additions = [];
+    library.items.forEach(function (item) {
+      if (excludedId != null && String(item.id) === String(excludedId)) return;
+      var previous = before.get(String(item.id)) || new Set();
+      variableReferenceValues(item).forEach(function (text) {
+        if (!previous.has(text)) additions.push({ text: text, savedAt: new Date().toISOString() });
+      });
+    });
+    if (!additions.length) return;
+    var seen = new Set();
+    library.referenceRecents = additions.reverse().concat(history).filter(function (entry) {
+      var key = variableCitationKey(entry && entry.text);
+      if (!key || seen.has(key)) return false;
+      seen.add(key); return true;
+    }).slice(0, 50);
+  }
   function samePayload(left, right) { return JSON.stringify(left) === JSON.stringify(right); }
   function payloadModifiedAt(payload) {
     var latest = 0;
@@ -790,6 +822,7 @@
         variableLibrary.items = Array.isArray(variableLibrary.items) ? variableLibrary.items : [];
         variableLibrary.trash = Array.isArray(variableLibrary.trash) ? variableLibrary.trash : [];
         if (method === 'GET') return response({ ok: true, variableLibrary: variableLibrary });
+        var previousVariableReferences = new Map(['save', 'duplicate', 'import'].indexOf(body.action) >= 0 ? variableLibrary.items.map(function (item) { return [String(item.id), new Set(variableReferenceValues(item))]; }) : []);
         var variableRoles = ['被解释变量', '核心解释变量', '控制变量', '机制变量', '调节变量', '经济后果变量', '异质性分析变量', '其他'];
         var duplicateId = null;
         var importedIds = [];
@@ -952,6 +985,7 @@
         }
         if (body.action === 'purge') variableLibrary.trash = variableLibrary.trash.filter(function (entry) { return String(entry.id) !== String(body.id); });
         if (body.action === 'purge-all') variableLibrary.trash = [];
+        if (['save', 'duplicate', 'import'].indexOf(body.action) >= 0) rememberVariableReferences(variableLibrary, previousVariableReferences, body.action === 'duplicate' ? duplicateId : null);
         await saveWorkspace(data, dataRevision);
         return response({ ok: true, variableLibrary: variableLibrary, duplicateId: duplicateId, importedIds: importedIds, undone: undoneCounts || null });
       }

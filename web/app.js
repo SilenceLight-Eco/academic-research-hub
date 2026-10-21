@@ -8266,9 +8266,9 @@
       if (recentPick) {
         var recentItem = recentPick.closest('.variable-reference-paper-item');
         var recentInput = recentItem && $('[data-variable-paper]', recentItem);
-        var reference = ((state.referenceLibrary && state.referenceLibrary.items) || []).find(function (item) { return String(item.id) === String(recentPick.dataset.variableReferencePick); });
+        var reference = latestVariableReferences().find(function (item) { return item.key === recentPick.dataset.variableReferencePick; });
         if (recentInput && !recentInput.disabled && reference) {
-          recentInput.value = referenceCitationLabel(reference);
+          recentInput.value = reference.text;
           delete recentInput.dataset.variablePaperReferenceId;
           delete recentInput.dataset.variablePaperLinkedText;
           queueVariableAutoSave();
@@ -11270,21 +11270,30 @@
     var fallbackRole = normalizeVariableRoles(item.role), fallbackSource = String(item.source || '');
     return entries.map(function (entry, index) { entry = entry || {}; var measures = Array.isArray(entry.measures) ? entry.measures.map(function (measure) { return String(measure || ''); }) : [String(entry.measure || '')]; if (!measures.length) measures = ['']; var instruments = Array.isArray(entry.instrumentVariables) ? entry.instrumentVariables.map(function (value) { return String(value || ''); }) : [String(entry.instrumentVariable || '')]; if (!instruments.length) instruments = ['']; var papers = Array.isArray(entry.papers) ? entry.papers.map(function (paper) { return String(paper || ''); }) : [String(entry.paper || '')]; if (!papers.length) papers = ['']; if (!papers[0] && entry.paper) papers[0] = String(entry.paper); var paperReferenceIds = Array.isArray(entry.paperReferenceIds) ? entry.paperReferenceIds.map(function (id) { return String(id || ''); }) : []; while (paperReferenceIds.length < papers.length) paperReferenceIds.push(''); paperReferenceIds = paperReferenceIds.slice(0, papers.length); return { role: normalizeVariableRoles(entry.role || fallbackRole), source: String(entry.source != null ? entry.source : (index === 0 ? fallbackSource : '')), measure: measures[0], measures: measures, instrumentVariable: instruments[0], instrumentVariables: instruments, paper: papers[0] || '', papers: papers, paperReferenceIds: paperReferenceIds }; });
   }
-  function referenceCitationLabel(reference) {
-    if (!reference) return '';
-    var authors = String(reference.authors || '').trim(), year = String(reference.year || '').trim(), title = String(reference.title || '').trim();
-    var attribution = [authors, year ? '(' + year + ')' : ''].filter(Boolean).join(' ');
-    return [attribution, title].filter(Boolean).join('. ') || title || '未命名文献';
+  function variableCitationKey(value) {
+    return String(value || '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
   }
   function latestVariableReferences() {
-    return ((state.referenceLibrary && state.referenceLibrary.items) || []).filter(function (reference) { return reference && reference.title; }).map(function (reference, index) {
-      var timestamp = Date.parse(String(reference.updated || reference.updatedAt || reference.createdAt || reference.created || ''));
-      return { reference: reference, index: index, timestamp: isNaN(timestamp) ? 0 : timestamp };
-    }).sort(function (left, right) { return right.timestamp - left.timestamp || left.index - right.index; }).slice(0, 3).map(function (entry) { return entry.reference; });
+    var library = state.variableLibrary || {}, candidates = [];
+    (library.items || []).forEach(function (item, index) {
+      var timestamp = Date.parse(String(item.updated || item.updatedAt || item.createdAt || ''));
+      normalizedVariableMeasureReferences(item).forEach(function (entry) {
+        entry.papers.forEach(function (paper) {
+          var text = String(paper || '').trim();
+          if (text) candidates.push({ key: variableCitationKey(text), text: text, timestamp: isNaN(timestamp) ? 0 : timestamp, index: index });
+        });
+      });
+    });
+    // Old records have only variable-level dates; new saves retain exact citation order.
+    candidates.sort(function (left, right) { return right.timestamp - left.timestamp || left.index - right.index; });
+    var activeKeys = new Set(candidates.map(function (entry) { return entry.key; }));
+    var ordered = (Array.isArray(library.referenceRecents) ? library.referenceRecents : []).filter(function (entry) { return entry && activeKeys.has(variableCitationKey(entry.text)); }).map(function (entry) { return { key: variableCitationKey(entry.text), text: entry.text }; }).concat(candidates);
+    var seen = new Set();
+    return ordered.filter(function (entry) { if (seen.has(entry.key)) return false; seen.add(entry.key); return true; }).slice(0, 3);
   }
   function variableRecentReferenceOptions() {
     var references = latestVariableReferences();
-    return '<span>最近保存的参考文献（最多三条）</span>' + (references.length ? references.map(function (reference) { return '<button type="button" data-variable-reference-pick="' + escapeHtml(reference.id) + '">' + escapeHtml(referenceCitationLabel(reference)) + '</button>'; }).join('') : '<em>文献库暂无记录，可直接手动填写。</em>');
+    return '<span>变量库最近保存的参考文献（最多三条）</span>' + (references.length ? references.map(function (reference) { return '<button type="button" data-variable-reference-pick="' + escapeHtml(reference.key) + '">' + escapeHtml(reference.text) + '</button>'; }).join('') : '<em>变量库暂无已保存的参考文献，可直接手动填写。</em>');
   }
   function openVariableRecentReferences(input) {
     if (!input || input.disabled || state.variableTrashOpen) return;

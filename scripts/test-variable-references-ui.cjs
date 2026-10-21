@@ -19,7 +19,12 @@ function harness() {
   };
   let saves = 0;
   const context = vm.createContext({
-    state: { variableId: 'v1', referenceLibrary: { items: [
+    state: { variableId: 'v1', variableLibrary: { items: [
+      { id: 'v1', paper: 'Old paper', updated: '2026-10-19' },
+      { id: 'v2', paper: 'Smith (2026). New paper', updated: '2026-10-21' },
+      { id: 'v3', paper: 'Third paper', updated: '2026-10-20' },
+      { id: 'v4', paper: 'Older paper', updated: '2026-10-18' }
+    ], trash: [] }, referenceLibrary: { items: [
       { id: 'r1', title: 'Old paper', updated: '2026-10-19' },
       { id: 'r2', title: 'New paper', authors: 'Smith', year: '2026', updated: '2026-10-21' },
       { id: 'r3', title: 'Third paper', updated: '2026-10-20' },
@@ -35,7 +40,7 @@ function harness() {
     window: { addEventListener() {} }, document: { addEventListener() {} },
     api() { throw new Error('Reference-library API must not be called'); }
   });
-  for (const name of ['referenceCitationLabel', 'latestVariableReferences', 'variableRecentReferenceOptions', 'openVariableRecentReferences', 'renderVariableMeasureReferences', 'readVariableMeasureReferences', 'addVariableReferenceOnly', 'removeVariableReferenceOnly']) vm.runInContext(functionSource(name), context);
+  for (const name of ['normalizedVariableMeasureReferences', 'variableCitationKey', 'latestVariableReferences', 'variableRecentReferenceOptions', 'openVariableRecentReferences', 'renderVariableMeasureReferences', 'readVariableMeasureReferences', 'addVariableReferenceOnly', 'removeVariableReferenceOnly']) vm.runInContext(functionSource(name), context);
   const start = source.indexOf("    $('#variableMeasureReferences').addEventListener('input'");
   const end = source.indexOf("    $('#refNew').addEventListener", start);
   vm.runInContext(source.slice(start, end), context);
@@ -68,7 +73,7 @@ test('disabled and empty reference editors keep their existing protections', () 
 test('recent reference selection copies citation text, autosaves and does not create an association', () => {
   const h = harness(), field = citationField('Old text', 'r1'), menu = { hidden: false };
   const row = { find: selector => selector === '[data-variable-paper]' ? field : menu, classList: { remove() {} } };
-  const pick = { dataset: { variableReferencePick: 'r2' }, closest: () => row };
+  const pick = { dataset: { variableReferencePick: 'smith (2026). new paper' }, closest: () => row };
   h.events['#variableMeasureReferences:click']({ target: { closest: selector => selector === '[data-variable-reference-pick]' ? pick : null } });
   assert.equal(field.value, 'Smith (2026). New paper');
   assert.equal(field.dataset.variablePaperReferenceId, undefined);
@@ -113,7 +118,7 @@ test('focusing any reference field opens the latest three saved references, incl
   const h = harness(), menu = { hidden: true }, field = citationField('Manual text');
   const row = { find: () => menu, classList: { add() {} } };
   field.closest = selector => selector === '[data-variable-paper]' ? field : row;
-  h.context.state.referenceLibrary.items.push({ id: 'r5', title: 'Most recent', updated: '2026-10-22' });
+  h.context.state.variableLibrary.items.push({ id: 'v5', paper: 'Most recent', updated: '2026-10-22' });
   h.events['#variableMeasureReferences:focusin']({ target: field });
   assert.equal(menu.hidden, false); assert.equal(field.value, 'Manual text');
   assert.equal((menu.innerHTML.match(/data-variable-reference-pick=/g) || []).length, 3);
@@ -131,10 +136,32 @@ test('explicit recent-reference button opens the picker without reintroducing an
 });
 test('blank library and disabled fields remain safe and recent suggestions stay in normal layout flow', () => {
   const h = harness(), field = citationField('Existing');
-  h.context.state.referenceLibrary.items = [];
+  h.context.state.variableLibrary.items = [];
   assert.match(h.context.variableRecentReferenceOptions(), /可直接手动填写/);
   field.disabled = true; field.closest = () => { throw Error('Disabled field must not open'); };
   h.context.openVariableRecentReferences(field);
   const css = fs.readFileSync(path.join(__dirname, '../web/style.css'), 'utf8');
   assert.match(css, /\.variable-reference-recent \{ position:relative;/);
+});
+test('recent suggestions come from variable citations, not the separate reference library', () => {
+  const h = harness();
+  h.context.state.referenceLibrary.items.unshift({ id: 'external', title: 'WRONG SOURCE', updated: '2099-01-01' });
+  const texts = Array.from(h.context.latestVariableReferences(), entry => entry.text);
+  assert.deepEqual(texts, ['Smith (2026). New paper', 'Third paper', 'Old paper']);
+  assert.ok(!h.context.variableRecentReferenceOptions().includes('WRONG SOURCE'));
+});
+test('durable citation save order takes priority over minute timestamps and deduplicates citations', () => {
+  const h = harness();
+  h.context.state.variableLibrary.items.forEach(item => { item.updated = '2026-10-21 12:00'; });
+  h.context.state.variableLibrary.referenceRecents = [
+    { text: 'Third paper', savedAt: '2026-10-21T04:00:00.002Z' },
+    { text: 'OLD PAPER', savedAt: '2026-10-21T04:00:00.001Z' },
+    { text: 'Old paper', savedAt: '2026-10-21T04:00:00.000Z' }
+  ];
+  assert.deepEqual(Array.from(h.context.latestVariableReferences(), entry => entry.text), ['Third paper', 'OLD PAPER', 'Smith (2026). New paper']);
+});
+test('references in later groups are included while deleted and blank citations are excluded', () => {
+  const h = harness();
+  h.context.state.variableLibrary = { items: [{ id: 'v1', measureReferences: [{ papers: ['A', 'B', ''] }, { papers: ['C', 'A'] }] }], trash: [{ item: { paper: 'Deleted' } }], referenceRecents: [{ text: 'Deleted' }, { text: 'C' }, { text: 'B' }, { text: 'A' }] };
+  assert.deepEqual(Array.from(h.context.latestVariableReferences(), entry => entry.text), ['C', 'B', 'A']);
 });

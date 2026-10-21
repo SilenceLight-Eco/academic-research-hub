@@ -113,6 +113,45 @@ function createApiHarness(payload, options = {}) {
   };
 }
 
+test('variable citation recency follows actual successful saves and survives reload independently of reference-library records', async () => {
+  const h = createApiHarness({ variableLibrary: { items: [
+    { id: 'v1', name: 'First', measureReferences: [], paper: '' },
+    { id: 'v2', name: 'Second', measureReferences: [], paper: '' }
+  ], trash: [] }, referenceLibrary: { items: [{ id: 'wrong', title: 'Wrong source', updated: '2099-01-01' }], trash: [] } });
+  const save = async (id, papers) => {
+    const response = await h.request({ action: 'save', id, name: id, role: ['控制变量'], measureReferences: [{ role: ['控制变量'], papers }] }, '/api/variable-library');
+    assert.equal(response.status, 200); return response.json();
+  };
+  await save('v1', ['A']); await save('v2', ['B']);
+  const result = await save('v1', ['A', 'C']);
+  assert.deepEqual(result.variableLibrary.referenceRecents.map(entry => entry.text), ['C', 'B', 'A']);
+  await save('v1', ['A', 'C']);
+  assert.deepEqual(h.readWorkspace().variableLibrary.referenceRecents.map(entry => entry.text), ['C', 'B', 'A']);
+  const reloaded = createApiHarness(h.readWorkspace());
+  const refreshed = await (await reloaded.get('/api/variable-library')).json();
+  assert.deepEqual(refreshed.variableLibrary.referenceRecents.map(entry => entry.text), ['C', 'B', 'A']);
+  assert.ok(refreshed.variableLibrary.referenceRecents.every(entry => !isNaN(Date.parse(entry.savedAt))));
+  assert.equal(h.readWorkspace().referenceLibrary.items.length, 1);
+});
+test('variable citation changes deduplicate prior recents, ignore blanks and leave history unchanged on unrelated edits', async () => {
+  const h = createApiHarness({ variableLibrary: { items: [{ id: 'v1', measureReferences: [], paper: '' }, { id: 'v2', measureReferences: [], paper: '' }], trash: [] } });
+  const save = async (id, papers, extras = {}) => (await h.request({ action: 'save', id, name: 'Variable', role: ['控制变量'], measureReferences: [{ papers }], ...extras }, '/api/variable-library')).json();
+  await save('v1', ['A', 'B']); await save('v2', ['a', '', 'C']);
+  const before = h.readWorkspace().variableLibrary.referenceRecents;
+  assert.deepEqual(before.map(entry => entry.text), ['C', 'a', 'B']);
+  await save('v1', ['A', 'B'], { definition: 'Changed definition only' });
+  assert.deepEqual(h.readWorkspace().variableLibrary.referenceRecents, before);
+  await h.request({ action: 'reorder', ids: ['v2', 'v1'] }, '/api/variable-library');
+  assert.deepEqual(h.readWorkspace().variableLibrary.referenceRecents, before);
+  await h.request({ action: 'duplicate', id: 'v1' }, '/api/variable-library');
+  assert.deepEqual(h.readWorkspace().variableLibrary.referenceRecents, before);
+});
+test('failed variable saves do not persist a new citation recent', async () => {
+  const h = createApiHarness({ variableLibrary: { items: [{ id: 'v1', measureReferences: [], paper: '' }], trash: [] } }, { failWrites: true });
+  const res = await h.request({ action: 'save', id: 'v1', name: 'Variable', role: ['控制变量'], measureReferences: [{ papers: ['Not saved'] }] }, '/api/variable-library');
+  assert.equal(res.ok, false);
+  assert.equal(h.readWorkspace().variableLibrary.referenceRecents, undefined);
+});
 test('browser preference edits are written to the cloud workspace', async () => {
   const harness = createApiHarness({ todos: [], browser: {} });
   harness.setLocalItem('academic-workbench-theme', 'dark');
