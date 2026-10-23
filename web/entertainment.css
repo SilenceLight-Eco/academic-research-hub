@@ -1,21 +1,129 @@
-#panel-entertainment { --game-wood:#e9c992; --game-ink:#463221; }
-.entertainment-head h2 { margin:0 0 8px; color:var(--text); font-size:23px; }
-.entertainment-head p,.game-storage-note { color:var(--text-muted); font-size:12px; line-height:1.8; }
-.game-tabs { display:flex; gap:10px; flex-wrap:wrap; margin:22px 0 16px; }
-.game-tabs button,.game-controls button,.game-controls select { padding:9px 15px; border:1px solid var(--hairline); border-radius:8px; background:var(--glass-strong); color:var(--text); font:inherit; font-size:13px; cursor:pointer; }
-.game-tabs button.is-active { color:var(--accent); border-color:var(--accent); background:var(--accent-dim); }
-.game-stage { border:1px solid var(--hairline); border-radius:14px; background:var(--glass-strong); padding:clamp(14px,3vw,28px); }
-.game-stage h3 { font-size:19px; margin:0 0 18px; color:var(--text); }
-.game-controls { display:flex; align-items:center; flex-wrap:wrap; gap:9px; }
-.game-controls label { color:var(--text-secondary); font-size:12px; }
-.game-controls button:disabled { opacity:.45; cursor:default; }
-.game-controls button:not(:disabled):hover { border-color:var(--accent); color:var(--accent); }
-.game-status { margin:16px 0; color:var(--accent); min-height:22px; font-size:14px; font-weight:600; }
-.game-notice { color:var(--text-secondary); font-size:13px; line-height:1.6; min-height:21px; margin-bottom:0; }
-.game-help { color:var(--text-secondary); font-size:12px; line-height:1.9; margin:18px 0 0; max-width:850px; }
-.game-help summary { cursor:pointer; color:var(--accent); }
+#panel-entertainment { --game-wood:#ebcd98; --game-ink:#463221; }
+#entertainmentRoot { color:#24435b; padding:clamp(16px,2.5vw,28px); border:1px solid #dceaf0; border-radius:24px; background:radial-gradient(ellipse at 90% 0,#fff4c5 0,transparent 40%),linear-gradient(145deg,#edf8ff,#f7fbfc 55%,#f8f4e9); }
+.entertainment-head { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:4px 4px 20px; }
+.game-eyebrow { color:#60889b; font:700 9px/1.5 system-ui,sans-serif; letter-spacing:2.6px; }
+.entertainment-head h2 { display:flex; align-items:center; gap:12px; margin:6px 0 5px; color:#25475e; font:800 clamp(24px,3vw,32px)/1.3 "Noto Sans SC",sans-serif; letter-spacing:1px; }
+.entertainment-head h2 > span { color:#e9ad4c; font:32px Georgia,serif; transform:rotate(12deg); }
+.entertainment-head p { margin:0; color:#76909f; font-size:12px; }
+.game-local-badge { display:inline-flex; align-items:center; gap:7px; padding:8px 12px; border:1px solid #cde5e2; border-radius:20px; background:#ffffffba; color:#488177; font-size:10px; white-space:nowrap; }
+.game-online-dot { display:inline-block; width:6px; height:6px; border-radius:50%; background:#77c997; box-shadow:0 0 0 3px #83c89d20; }
+.game-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin-bottom:18px; }
+.game-tabs > button { display:flex; align-items:center; gap:12px; padding:14px; min-width:0; border:1px solid #e0e9ed; border-radius:15px; background:#ffffffd9; color:#476277; cursor:pointer; text-align:left; transition:transform .15s,border-color .15s,box-shadow .15s; }
+.game-tabs > button:hover { transform:translateY(-2px); border-color:#dcb96d; }
+.game-tabs > button.is-active { border-color:#e5bc69; background:linear-gradient(120deg,#fff9e6,#fffefa); box-shadow:0 4px 12px #c5a45119,inset 0 0 0 1px #ffe9b1; }
+.game-tab-icon { display:flex; width:44px; height:44px; flex-shrink:0; align-items:center; justify-content:center; border-radius:12px; background:#e7f3f4; color:#2a7a85; font:30px/1 Georgia,serif; }
+.game-tab-chess .game-tab-icon { background:#fff0dd; color:#b27834; font:bold 23px/1 SimSun,serif; border-radius:50%; border:1px solid #e8cca0; box-shadow:inset 0 0 0 3px #fff8eb; }
+.game-tab-gomoku .game-tab-icon { color:#445571; background:#e8edf5; text-shadow:5px 4px 0 white; font-size:29px; }
+.game-tabs b { display:block; font:750 15px/1.5 "Noto Sans SC",sans-serif; white-space:nowrap; }
+.game-tabs small { display:block; margin-top:4px; color:#9aa9b3; font-size:10px; white-space:nowrap; }
+.game-tab-arrow { margin-left:auto; color:#bccbd3; font-size:20px; }
+.game-tabs .is-active .game-tab-arrow { color:#d4a14b; }
+.game-stage { overflow:hidden; border:1px solid #eadfc9; border-radius:19px; background:#fffdf8; padding:clamp(14px,2vw,22px); box-shadow:0 10px 26px #2849570a; }
+.game-stage-title { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+.game-stage-title h3 { color:#335269; font:750 17px/1.4 "Noto Sans SC",sans-serif; margin:0; }
+.game-stage-title > span { color:#a9adb0; font:700 9px/1.4 system-ui,sans-serif; letter-spacing:1.6px; }
+.game-controls { display:flex; justify-content:center; align-items:center; flex-wrap:wrap; gap:9px; }
+.game-controls label { color:#7c796b; font-size:12px; }
+.game-controls button,.game-controls select { padding:8px 14px; border:1px solid #ded1b8; border-radius:9px; background:#fff9ec; color:#836638; font:600 12px/1.5 "Noto Sans SC",sans-serif; cursor:pointer; }
+.game-controls:not(.landlord-actions) button:not(:disabled):hover { background:#fff0c9; border-color:#d3ad60; }
+.game-controls button:disabled { opacity:.42; cursor:default; }
+.game-status { margin:13px 0; color:#568273; text-align:center; min-height:22px; font-size:13px; font-weight:650; }
+.game-notice { margin:10px 0 0; color:#9a7835; text-align:center; font-size:12px; line-height:1.7; }
+.game-notice:empty { display:none; }
+.game-help { color:#84919a; font-size:11px; line-height:1.9; margin:16px 0 0; }
+.game-help summary { cursor:pointer; color:#6e8da0; }
 .game-help p { margin:8px 0; }
-.game-storage-note { margin-top:15px; }
+.game-storage-note { margin:16px 2px 0; color:#8a9da9; font-size:10px; line-height:1.8; text-align:center; }
+.game-stage-landlord { border:0; padding:18px 20px 13px; background:radial-gradient(ellipse at 50% -10%,#74aabe,#3e7799 52%,#2d5577); box-shadow:0 12px 25px #23577325,inset 0 1px 0 #ffffff66; }
+.game-stage-landlord .game-stage-title { margin-bottom:7px; }
+.game-stage-landlord .game-stage-title h3 { color:#fff5d2; text-shadow:0 2px 0 #224e6a; }
+.game-stage-landlord .game-stage-title > span { color:#c3dde4; }
+.landlord-room-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:4px; }
+.landlord-room-head > span { color:#cce8e9; font-size:10px; display:flex; align-items:center; gap:8px; }
+.landlord-room-head > button { padding:5px 10px; border:1px solid #d0e6e44d; border-radius:16px; background:#234a6733; color:#e4f0f1; font-size:10px; cursor:pointer; }
+.landlord-table { position:relative; isolation:isolate; padding-top:4px; }
+.table-felt { position:absolute; z-index:-1; inset:48px 30px 108px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; border:5px solid #d8b874; border-radius:46% / 35%; background:radial-gradient(ellipse at 50% 30%,#388c79,#216c5d 75%); box-shadow:0 10px 0 #183e4e40,0 14px 20px #1c405855,inset 0 0 24px #164f4f55; }
+.table-felt::before { content:""; position:absolute; inset:8px; border:1px solid #f5dfa94d; border-radius:inherit; }
+.table-felt > span { opacity:.12; color:#d3f7d7; font:bold 30px/1.3 "Noto Sans SC",sans-serif; letter-spacing:8px; transform:rotate(-6deg); }
+.table-felt > small { opacity:.12; color:#d3f7d7; font:700 9px/1.4 system-ui,sans-serif; letter-spacing:5px; }
+.landlord-reserve { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px; position:relative; z-index:2; }
+.landlord-reserve > span { color:#e0f1e6; font-size:9px; letter-spacing:1px; }
+.landlord-reserve > div { display:flex; gap:5px; padding:6px 12px; border:1px solid #ffffff24; border-radius:10px; background:#204f6266; box-shadow:0 4px 12px #123c4933; }
+.card-back { display:inline-block; position:relative; width:31px; height:43px; border:2px solid #fff1ce; border-radius:4px; background:repeating-linear-gradient(45deg,#4c819b,#4c819b 2px,#3e688d 2px,#3e688d 5px); box-shadow:0 2px 2px #122b3944; }
+.card-back::after { content:"✦"; display:flex; align-items:center; justify-content:center; position:absolute; inset:5px; border:1px solid #c9dde1aa; border-radius:2px; color:#e5f1e6; font:19px Georgia,serif; }
+.landlord-opponents { display:flex; justify-content:space-between; gap:24px; min-height:137px; margin-top:-12px; }
+.landlord-seat { position:relative; display:flex; flex-direction:column; align-items:flex-start; width:44%; min-width:0; }
+.landlord-seat.seat-2 { align-items:flex-end; }
+.seat-profile { display:flex; align-items:center; gap:10px; border-radius:14px; padding:6px; background:#20486052; color:#eff7fa; }
+.seat-2 .seat-profile { flex-direction:row-reverse; text-align:right; }
+.player-portrait { position:relative; flex-shrink:0; width:64px; height:64px; border:3px solid #d5e9ea; border-radius:19px; background:#d2e5ff; box-shadow:0 3px 0 #143f5555; }
+.player-avatar { display:block; width:100%; height:100%; border-radius:15px; }
+.is-turn .player-portrait { border-color:#ffe29b; box-shadow:0 0 0 4px #ffdd7d33,0 4px 0 #3c6353; }
+.player-portrait.is-landlord { border-color:#edc265; }
+.landlord-crown { position:absolute; right:-10px; top:-17px; color:#ffd76e; font:bold 27px/1 Georgia,serif; text-shadow:0 2px 0 #895c2a; transform:rotate(15deg); }
+.seat-profile h4 { margin:0 0 4px; color:#eff7fa; font:650 12px/1.4 "Noto Sans SC",sans-serif; white-space:nowrap; }
+.seat-role { display:inline-block; padding:2px 8px; border-radius:5px; color:#ffe5a0; background:#123b534d; font-size:9px; }
+.seat-profile p { display:flex; align-items:center; gap:4px; color:#d0e9eb; font-size:9px; margin:5px 0 0; white-space:nowrap; }
+.seat-2 .seat-profile p { justify-content:flex-end; }
+.seat-profile p b { color:#ffe3a4; font-size:12px; }
+.mini-card-back { display:inline-block; width:9px; height:12px; border:1px solid #e8f5ea; border-radius:2px; background:#4b81a6; margin-right:3px; }
+.landlord-play { display:flex; justify-content:flex-start; flex-wrap:wrap; gap:2px; width:100%; padding-top:12px; padding-left:32px; box-sizing:border-box; }
+.seat-2 .landlord-play { justify-content:flex-end; padding-left:0; padding-right:32px; }
+.seat-wait { color:#daeee1b3; font-size:10px; padding:6px 10px; }
+.pass-bubble { display:inline-block; color:#ffdd8a; font:bold 20px/1.3 "Noto Sans SC",sans-serif; text-shadow:0 2px 0 #285c4d; padding:4px 10px; }
+.playing-card { position:relative; z-index:var(--card-order,0); display:block; box-sizing:border-box; width:59px; height:83px; padding:0; border:1px solid #d8d9ce; border-radius:7px; background:linear-gradient(135deg,#fffef7,#fff 58%,#f3f5ed); color:#26394b; box-shadow:1px 3px 3px #16394533,inset 0 0 0 2px #fff; font-family:Georgia,"Times New Roman",serif; }
+.playing-card.card-red { color:#cc4046; }
+.playing-card:disabled { opacity:1; cursor:default; }
+.card-corner { position:absolute; left:5px; top:4px; display:flex; flex-direction:column; align-items:center; gap:0; line-height:1; }
+.card-corner b { font-size:22px; line-height:1.02; }
+.card-corner i { font-size:18px; font-style:normal; }
+.card-corner-bottom { left:auto; top:auto; right:5px; bottom:4px; transform:rotate(180deg); }
+.card-face { position:absolute; top:31%; left:22%; font-size:37px; line-height:1; opacity:.84; }
+.card-joker .card-corner b { font:700 11px/1.2 "Noto Sans SC",sans-serif; writing-mode:vertical-rl; letter-spacing:1px; }
+.card-joker .card-corner i { display:none; }
+.card-joker .card-face { font-size:34px; left:20%; top:35%; }
+.landlord-reserve .playing-card,.landlord-play .playing-card { width:32px; height:45px; border-radius:4px; }
+.landlord-reserve .card-corner,.landlord-play .card-corner { left:3px; top:3px; }
+.landlord-reserve .card-corner b,.landlord-play .card-corner b { font-size:13px; }
+.landlord-reserve .card-corner i,.landlord-play .card-corner i { font-size:10px; }
+.landlord-reserve .card-face,.landlord-play .card-face { font-size:21px; left:28%; top:43%; }
+.landlord-reserve .card-corner-bottom,.landlord-play .card-corner-bottom { display:none; }
+.landlord-my-play { display:flex; justify-content:center; flex-wrap:wrap; gap:3px; min-height:25px; padding:0 65px; }
+.landlord-my-play .playing-card { width:35px; height:49px; }
+.landlord-my-play .card-corner b { font-size:13px; }
+.landlord-my-play .card-corner i { font-size:11px; }
+.landlord-my-play .card-face { font-size:20px; left:27%; top:45%; }
+.landlord-my-play .card-corner-bottom { display:none; }
+.landlord-turn-message .game-status { color:#eff7da; font:600 11px/1.7 "Noto Sans SC",sans-serif; margin:7px 0 9px; text-shadow:0 1px 1px #164f55; }
+.landlord-actions { min-height:41px; margin-bottom:8px; }
+.landlord-actions button { min-width:73px; border:1px solid #e9ba5a; border-radius:20px; background:linear-gradient(#ffe297,#f5bc51); box-shadow:0 3px 0 #b77e32,0 5px 7px #153f4d4d,inset 0 1px 0 #fff7ce; color:#86531e; font-weight:750; padding:7px 18px; font-size:13px; }
+.landlord-actions button[data-game-action="play"],.landlord-actions button[data-bid="3"] { min-width:102px; color:#fffaf0; background:linear-gradient(#ffb752,#f08a31); border-color:#f4a446; box-shadow:0 3px 0 #b85d25,0 5px 7px #153f4d4d,inset 0 1px 0 #ffd69d; font-size:16px; }
+.landlord-actions button[data-game-action="clear"] { min-width:0; padding:7px 10px; color:#d6e8e5; background:#245967; border-color:#ffffff30; box-shadow:0 2px 0 #173c4d; font-size:10px; }
+.landlord-actions button[data-game-action="pass"],.landlord-actions button[data-bid="0"] { color:#ecf3f5; background:linear-gradient(#7399b6,#547f9c); border-color:#8eb4ca; box-shadow:0 3px 0 #365d7b,inset 0 1px 0 #a5c1d1; }
+.landlord-actions button:not(:disabled):hover { filter:brightness(1.08); border-color:#fff1bb; }
+.landlord-actions button:disabled { opacity:.45; filter:saturate(.5); box-shadow:0 2px 0 #365d7b; }
+.landlord-human { padding:10px 12px 8px; margin:0 -7px; border-radius:15px; background:linear-gradient(180deg,#173f5726,#103b5855); border:1px solid #ffffff12; }
+.human-profile { display:flex; align-items:center; justify-content:center; gap:9px; min-height:36px; color:#cfe6e9; }
+.human-profile .player-portrait { width:32px; height:32px; border-width:2px; border-radius:10px; }
+.human-profile .player-avatar { border-radius:7px; }
+.human-profile .landlord-crown { font-size:17px; top:-11px; right:-8px; }
+.human-profile h4 { margin:0; color:#f3f7ec; font:650 11px/1.5 "Noto Sans SC",sans-serif; }
+.human-profile > div > span { color:#abced7; font-size:9px; }
+.landlord-hand { display:grid; grid-template-columns:repeat(var(--hand-count),minmax(0,34px)); justify-content:center; min-height:100px; padding:18px 43px 4px 12px; }
+.landlord-hand .playing-card[data-card] { cursor:pointer; }
+.landlord-hand .playing-card.is-selected { transform:translateY(-13px); border-color:#f6cb6b; background:#fff6d6; box-shadow:0 0 0 2px #ffd86f,0 5px 8px #133b4655; }
+.landlord-hand .playing-card[data-card]:hover { transform:translateY(-5px); }
+.landlord-hand .playing-card.is-selected:hover { transform:translateY(-13px); }
+.landlord-log { margin-top:10px; font-size:10px; color:#cee1e8; }
+.landlord-log summary { cursor:pointer; color:#d8e9ee; }
+.landlord-log p { font-size:10px; margin:5px 0; overflow-wrap:anywhere; }
+.game-stage-landlord .game-help { margin-top:8px; color:#bdd7e1; }
+.game-stage-landlord .game-help summary { color:#cee3e9; font-size:10px; }
+.game-stage-landlord .game-notice { color:#ffe6a7; }
+.is-result { display:flex; align-items:center; justify-content:center; gap:8px; }
+.is-result .game-status { font-size:19px; color:#ffe19a; }
+.game-result-mark { font-size:30px; color:#ffd375; }
+#entertainmentRoot button:focus-visible,#entertainmentRoot select:focus-visible { outline:3px solid #e9b957; outline-offset:3px; }
 .gomoku-board { width:min(100%,600px); aspect-ratio:1; display:grid; grid-template-columns:repeat(15,minmax(0,1fr)); border:10px solid #b88b50; box-sizing:border-box; border-radius:7px; background:var(--game-wood); box-shadow:0 4px 22px #4c30141a; }
 .gomoku-cell { position:relative; padding:0; min-width:0; border:0; background:linear-gradient(#936e3d,#936e3d) center/1px 100% no-repeat,linear-gradient(#936e3d,#936e3d) center/100% 1px no-repeat; aspect-ratio:1; cursor:pointer; }
 .gomoku-cell:disabled { cursor:default; opacity:1; }
@@ -36,23 +144,9 @@
 .chess-cell.is-selected { outline:3px solid #d17019; outline-offset:-3px; border-radius:8px; background:#fff5; }
 .chess-cell.is-last:not(.is-selected) { box-shadow:inset 0 0 0 2px #27866caa; border-radius:7px; }
 .chess-move-dot { position:absolute; width:19%; height:19%; top:41%; left:41%; border-radius:50%; background:#157054; box-shadow:0 0 0 3px #e6ffe3b3; }
-.landlord-table { border:1px solid var(--hairline); border-radius:12px; padding:18px; background:linear-gradient(135deg,#26785812,#33998a09); }
-.landlord-reserve { display:flex; align-items:center; justify-content:center; gap:15px; flex-wrap:wrap; color:var(--text-secondary); font-size:12px; }
-.landlord-reserve > div { display:flex; gap:4px; }
-.landlord-opponents { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:20px 0; }
-.landlord-seat { min-width:0; padding:14px; border:1px solid var(--hairline); border-radius:9px; }
-.landlord-seat.is-turn { border-color:var(--accent); background:var(--accent-dim); }
-.landlord-seat h4,.landlord-human h4 { margin:0 0 8px; color:var(--text); font-size:14px; }
-.landlord-seat p { color:var(--text-secondary); font-size:12px; }
-.landlord-play,.landlord-hand { display:flex; flex-wrap:wrap; gap:5px; align-items:center; min-height:62px; }
-.landlord-play > span { color:var(--text-muted); font-size:12px; }
-.playing-card { min-width:39px; height:58px; padding:5px; border:1px solid #c4c8ce; border-radius:6px; color:#202835; background:#fffef9; font:bold 15px/1.2 Georgia,serif; box-shadow:0 2px 3px #0001; }
-.playing-card.card-red { color:#b92a36; }
-.playing-card:disabled { opacity:1; cursor:default; }
-.landlord-hand .playing-card[data-card] { cursor:pointer; }
-.playing-card.is-selected { transform:translateY(-8px); border:2px solid var(--accent); background:#e3f9ee; box-shadow:0 0 0 2px #52a28544; }
-.card-back { display:inline-flex; width:39px; height:58px; align-items:center; justify-content:center; border:1px solid #ffffff77; border-radius:5px; background:repeating-linear-gradient(45deg,#365e97,#365e97 3px,#4f75ab 3px,#4f75ab 6px); color:white; }
-.landlord-log { margin-top:20px; padding-top:12px; border-top:1px solid var(--hairline); }
-.landlord-log p { color:var(--text-muted); font-size:11px; margin:5px 0; overflow-wrap:anywhere; }
-#entertainmentRoot button:focus-visible,#entertainmentRoot select:focus-visible { outline:3px solid var(--accent); outline-offset:2px; }
-@media(max-width:640px) { .landlord-table { padding:10px; }.landlord-opponents { gap:8px; }.landlord-seat { padding:9px; }.playing-card { min-width:32px; height:48px; font-size:13px; }.chess-board,.gomoku-board { border-width:6px; }.game-controls button { padding:8px 10px; } }
+
+.gomoku-board,.chess-board { margin:18px auto; border-color:#c79b5e; box-shadow:0 4px 0 #a47c45,0 12px 26px #6e512027; }
+@media(min-width:1200px) { .landlord-opponents { min-height:145px; }.landlord-hand .playing-card { width:64px; height:88px; }.landlord-hand { grid-template-columns:repeat(var(--hand-count),minmax(0,36px)); } }
+@media(max-width:760px) { #entertainmentRoot { padding:14px; border-radius:16px; }.game-tabs { gap:7px; }.game-tabs > button { padding:9px; gap:7px; }.game-tab-icon { width:32px; height:36px; font-size:25px; }.game-tabs b { font-size:12px; }.game-tabs small { font-size:8px; }.game-tab-arrow { display:none; }.game-local-badge { display:none; }.game-stage-landlord { padding:14px 10px; }.landlord-opponents { gap:12px; }.player-portrait { width:48px; height:48px; border-radius:15px; }.player-avatar { border-radius:11px; }.table-felt { inset:45px 8px 112px; }.landlord-play { padding-left:6px; }.seat-2 .landlord-play { padding-right:6px; }.game-stage-title > span { font-size:8px; letter-spacing:1px; }.landlord-hand { padding-right:40px; } }
+@media(max-width:480px) { .game-tabs small { display:none; }.game-tabs > button { flex-direction:column; align-items:center; }.entertainment-head h2 { font-size:24px; }.game-stage-title > span { display:none; }.landlord-reserve { margin-bottom:14px; }.landlord-opponents { margin-top:0; min-height:145px; }.seat-profile { gap:5px; padding:4px; }.player-portrait { width:38px; height:38px; border-width:2px; }.seat-profile h4 { font-size:10px; }.seat-profile p { font-size:8px; }.seat-role { padding:1px 5px; font-size:8px; }.landlord-actions { gap:7px; }.landlord-actions button { min-width:55px; padding:7px 10px; font-size:11px; }.landlord-actions button[data-game-action="play"],.landlord-actions button[data-bid="3"] { min-width:72px; font-size:13px; }.landlord-hand { padding:15px 33px 0 4px; min-height:78px; }.landlord-hand .playing-card { width:44px; height:66px; border-radius:5px; }.landlord-hand .card-corner { left:3px; top:4px; }.landlord-hand .card-corner b { font-size:17px; }.landlord-hand .card-corner i { font-size:14px; }.landlord-hand .card-corner-bottom { display:none; }.landlord-hand .card-face { font-size:27px; top:48%; left:26%; }.landlord-hand .card-joker .card-corner b { font-size:9px; }.landlord-my-play { padding:0 12px; }.chess-board,.gomoku-board { border-width:6px; }.game-storage-note { font-size:9px; }.table-felt > span { font-size:20px; }.game-controls button { padding:7px 9px; } }
+@media(prefers-reduced-motion:reduce) { #entertainmentRoot *,#entertainmentRoot *::before,#entertainmentRoot *::after { animation:none!important; transition:none!important; scroll-behavior:auto!important; } }

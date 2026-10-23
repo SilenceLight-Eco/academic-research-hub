@@ -15,6 +15,7 @@ function harness() {
   return { root, timers, document, docEvents, window,
     tab(game) { click('[data-game-tab]', { gameTab: game }); },
     action(gameAction, extra = {}) { click('[data-game-action]', { gameAction, ...extra }); },
+    card(id) { click('[data-card]', { card: String(id) }); },
     gomoku(at) { click('[data-gomoku-cell]', { gomokuCell: String(at) }); },
     chess(at) { click('[data-chess-cell]', { chessCell: String(at) }); },
     mode(value) { events.change({ target: { id: 'entertainmentMode', value } }); },
@@ -25,6 +26,29 @@ test('entertainment mounts once, exposes three games and does not duplicate even
   const h = harness(); assert.match(h.root.innerHTML, /斗地主.*中国象棋.*五子棋/);
   const original = h.root.innerHTML; h.window.AcademicEntertainment.panelChanged('entertainment'); assert.equal(h.root.innerHTML, original);
   assert.equal(h.timers.size, 0);
+});
+
+test('card club preserves accessible game names and starts with collapsed optional details', () => {
+  const h = harness();
+  assert.match(h.root.innerHTML, /休闲棋牌室/);
+  for (const name of ['斗地主', '中国象棋', '五子棋']) assert.ok(h.root.innerHTML.includes('role="tab" aria-label="' + name + '"'));
+  assert.equal((h.root.innerHTML.match(/class="player-avatar"/g) || []).length, 3);
+  assert.match(h.root.innerHTML, /<details class="landlord-log"><summary>本局出牌记录/);
+  assert.match(h.root.innerHTML, /<details class="game-help"><summary>/);
+  assert.doesNotMatch(h.root.innerHTML, /<img|https?:\/\//);
+});
+
+test('decorated overlapping hand preserves independent selection and shows the human trick', () => {
+  const h = harness(); h.action('bid', { bid: '3' });
+  const ids = [...h.root.innerHTML.matchAll(/data-card="(\d+)"/g)].map(match => Number(match[1]));
+  assert.equal(ids.length, 20);
+  h.card(ids[0]); h.card(ids[1]);
+  assert.match(h.root.innerHTML, /已选择 2 张/);
+  assert.equal((h.root.innerHTML.match(/aria-pressed="true"/g) || []).length, 2);
+  h.card(ids[1]); h.action('play');
+  assert.match(h.root.innerHTML, /class="landlord-my-play" aria-label="你最近出的牌"><button/);
+  assert.equal((h.root.innerHTML.match(/data-card="/g) || []).length, 0);
+  assert.equal(h.timers.size, 1);
 });
 test('landlord hint and play advance to the bots, leaving the panel cancels and re-entering resumes', () => {
   const h = harness(); h.action('bid', { bid: '3' }); assert.match(h.root.innerHTML, /地主（20 张）/);
