@@ -149,4 +149,75 @@
 @media(min-width:1200px) { .landlord-opponents { min-height:145px; }.landlord-hand .playing-card { width:64px; height:88px; }.landlord-hand { grid-template-columns:repeat(var(--hand-count),minmax(0,36px)); } }
 @media(max-width:760px) { #entertainmentRoot { padding:14px; border-radius:16px; }.game-tabs { gap:7px; }.game-tabs > button { padding:9px; gap:7px; }.game-tab-icon { width:32px; height:36px; font-size:25px; }.game-tabs b { font-size:12px; }.game-tabs small { font-size:8px; }.game-tab-arrow { display:none; }.game-local-badge { display:none; }.game-stage-landlord { padding:14px 10px; }.landlord-opponents { gap:12px; }.player-portrait { width:48px; height:48px; border-radius:15px; }.player-avatar { border-radius:11px; }.table-felt { inset:45px 8px 112px; }.landlord-play { padding-left:6px; }.seat-2 .landlord-play { padding-right:6px; }.game-stage-title > span { font-size:8px; letter-spacing:1px; }.landlord-hand { padding-right:40px; } }
 @media(max-width:480px) { .game-tabs small { display:none; }.game-tabs > button { flex-direction:column; align-items:center; }.entertainment-head h2 { font-size:24px; }.game-stage-title > span { display:none; }.landlord-reserve { margin-bottom:14px; }.landlord-opponents { margin-top:0; min-height:145px; }.seat-profile { gap:5px; padding:4px; }.player-portrait { width:38px; height:38px; border-width:2px; }.seat-profile h4 { font-size:10px; }.seat-profile p { font-size:8px; }.seat-role { padding:1px 5px; font-size:8px; }.landlord-actions { gap:7px; }.landlord-actions button { min-width:55px; padding:7px 10px; font-size:11px; }.landlord-actions button[data-game-action="play"],.landlord-actions button[data-bid="3"] { min-width:72px; font-size:13px; }.landlord-hand { padding:15px 33px 0 4px; min-height:78px; }.landlord-hand .playing-card { width:44px; height:66px; border-radius:5px; }.landlord-hand .card-corner { left:3px; top:4px; }.landlord-hand .card-corner b { font-size:17px; }.landlord-hand .card-corner i { font-size:14px; }.landlord-hand .card-corner-bottom { display:none; }.landlord-hand .card-face { font-size:27px; top:48%; left:26%; }.landlord-hand .card-joker .card-corner b { font-size:9px; }.landlord-my-play { padding:0 12px; }.chess-board,.gomoku-board { border-width:6px; }.game-storage-note { font-size:9px; }.table-felt > span { font-size:20px; }.game-controls button { padding:7px 9px; } }
+.game-tabs { grid-template-columns:repeat(5,minmax(0,1fr)); gap:9px; }
+.game-tabs > button { flex-direction:column; align-items:center; gap:7px; padding:12px 6px; text-align:center; }
+.game-tabs b { font-size:14px; }
+.game-tabs small { font-size:9px; }
+.game-tab-arrow { display:none; }
+.game-tab-mahjong .game-tab-icon { color:#31846a; background:#e6f1d8; font:bold 27px/1 SimSun,serif; border-radius:8px; box-shadow:0 3px 0 #68a48a; }
+.game-tab-reversi .game-tab-icon { color:#d9f1d9; background:#338573; text-shadow:none; }
+.reversi-board { display:grid; grid-template-columns:repeat(8,minmax(0,1fr)); width:min(100%,520px); aspect-ratio:1; margin:18px auto; border:10px solid #866b43; border-radius:8px; overflow:hidden; box-sizing:border-box; background:#33856b; box-shadow:0 5px 0 #654e30,0 12px 26px #6e512027; }
+.reversi-cell { position:relative; aspect-ratio:1; min-width:0; border:1px solid #164c3c55; padding:0; background:transparent; cursor:pointer; }
+.reversi-cell:disabled { opacity:1; cursor:default; }
+.reversi-cell:not(:disabled):hover { background:#ffffff25; }
+.reversi-move-dot { position:absolute; inset:39%; border-radius:50%; background:#b4dfb0aa; }
+.reversi-cell.is-last .gomoku-stone::after { content:''; position:absolute; inset:37%; border:2px solid #f4bd62; border-radius:50%; }
+.reversi-score { display:flex; justify-content:center; gap:24px; color:#425e58; font-size:14px; }
+.reversi-score span { display:flex; align-items:center; gap:8px; }
+.game-pass-note { color:#99773c; text-align:center; font-size:12px; }
+.game-stage-mahjong { background:radial-gradient(ellipse at 50% 0,#5eaa91,#286c60 75%); border-color:#e4c98c; box-shadow:0 12px 25px #28574125,inset 0 1px 0 #ffffff66; }
+.game-stage-mahjong .game-stage-title h3 { color:#fff0c8; }
+.game-stage-mahjong .game-stage-title > span { color:#c0dfd1; }
+.mahjong-room-top { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; color:#e1eedc; font-size:11px; }
+.mahjong-room-top > button { padding:5px 12px; border:1px solid #d4e3c666; border-radius:18px; color:#fff0c8; background:#234e4766; cursor:pointer; }
+.mahjong-room-top b { color:#ffe3a4; }
+.mahjong-table { position:relative; min-height:245px; margin:10px 0 12px; border:5px solid #d3b77f; border-radius:32px; box-shadow:inset 0 0 0 7px #4b826555,0 5px 0 #164c4566; background:radial-gradient(ellipse at center,#3a9579,#286751); }
+.mahjong-seat { position:absolute; width:27%; }
+.mahjong-seat-1 { left:12px; top:92px; }
+.mahjong-seat-2 { left:36%; top:10px; width:28%; text-align:center; }
+.mahjong-seat-3 { right:12px; top:92px; }
+.mahjong-seat-2 .seat-profile { justify-content:center; }
+.mahjong-seat-3 .seat-profile { flex-direction:row-reverse; text-align:right; }
+.mahjong-seat .player-portrait { width:40px; height:40px; border-radius:13px; }
+.mahjong-seat .player-avatar { border-radius:9px; }
+.mahjong-seat .seat-profile { padding:5px; gap:7px; background:#144e443d; }
+.mahjong-seat .seat-profile p { margin:3px 0 0; }
+.mahjong-opponent-backs { display:flex; justify-content:center; gap:2px; margin-top:7px; }
+.mahjong-back { display:inline-block; width:19px; height:27px; border:2px solid #fff6d8; border-radius:4px; background:linear-gradient(135deg,#3f9d87,#217361); box-shadow:0 3px 0 #154a3e; }
+.mahjong-center { position:absolute; left:33%; right:33%; top:139px; display:flex; flex-direction:column; align-items:center; gap:5px; }
+.mahjong-center > span { color:#c5e5ca66; font:bold 20px/1.2 SimSun,serif; letter-spacing:5px; }
+.mahjong-center > small { color:#d9e9ce; font-size:9px; }
+.mahjong-center .mahjong-tile { width:32px; height:44px; padding:3px; border-radius:4px; }
+.mahjong-center .mahjong-tile b { font-size:18px; }
+.mahjong-center .mahjong-tile span { font-size:14px; }
+.mahjong-tile { display:flex; flex-direction:column; align-items:center; justify-content:center; position:relative; flex:0 0 auto; width:48px; height:66px; box-sizing:border-box; border:1px solid #d6d9c2; border-radius:6px; padding:5px; color:#b53e37; background:linear-gradient(130deg,#fffde9,#fffdf4 55%,#e5e9d7); box-shadow:0 5px 0 #3b8c72,1px 6px 3px #173e3955,inset 0 0 0 2px #ffffff99; cursor:pointer; }
+.mahjong-tile b { font:bold 27px/1 SimSun,serif; }
+.mahjong-tile span { font:bold 21px/1.2 SimSun,serif; }
+.mahjong-tile.tile-suit-1 { color:#315b95; }
+.mahjong-tile.tile-suit-2 { color:#28855d; }
+.mahjong-tile:disabled { opacity:1; cursor:default; }
+.mahjong-tile.is-selected { transform:translateY(-10px); background:#fff1bd; border-color:#ffda86; outline:2px solid #f9cf76; }
+.mahjong-tile[data-mahjong-tile]:hover { background:#fff6cf; }
+.mahjong-human { padding:12px; border-radius:15px; background:#123d3855; }
+.mahjong-human h4,.mahjong-winning-hand h4 { color:#e9efda; font-size:12px; margin:0 0 10px; text-align:center; }
+.mahjong-hand { display:flex; justify-content:center; flex-wrap:wrap; gap:4px; padding:10px 0 8px; }
+.mahjong-melds { display:flex; justify-content:center; gap:10px; flex-wrap:wrap; }
+.mahjong-meld { display:inline-flex; gap:1px; margin-top:5px; }
+.mahjong-meld .mahjong-tile,.mahjong-discard-row .mahjong-tile { width:22px; height:32px; border-radius:3px; padding:2px; box-shadow:0 2px 0 #3b8c72; }
+.mahjong-meld .mahjong-tile b,.mahjong-discard-row .mahjong-tile b { font-size:14px; }
+.mahjong-meld .mahjong-tile span,.mahjong-discard-row .mahjong-tile span { font-size:11px; }
+.mahjong-room .game-status { color:#f1f2d9; font-size:12px; }
+.mahjong-actions { min-height:42px; margin:9px 0 15px; }
+.mahjong-actions button { border-radius:19px; background:linear-gradient(#ffe49b,#efbc5a); color:#82551f; border-color:#e0bc74; box-shadow:0 3px 0 #9b722e; }
+.mahjong-actions button[data-game-action="mahjong-discard"],.mahjong-actions button[data-game-action="mahjong-win"],.mahjong-actions button[data-claim="win"] { background:linear-gradient(#ffb95d,#ed8c37); color:#fff9ed; min-width:87px; font-size:14px; }
+.mahjong-discards { margin:13px 0 8px; color:#d2e5ce; font-size:11px; }
+.mahjong-discards summary { cursor:pointer; }
+.mahjong-discards > div { margin-top:10px; display:flex; gap:8px; align-items:flex-start; }
+.mahjong-discards strong { flex:0 0 45px; font-size:10px; }
+.mahjong-discard-row { display:flex; flex-wrap:wrap; gap:4px; }
+.mahjong-room .game-help,.mahjong-room .game-help summary { color:#c4dbce; }
+.game-stage-mahjong .game-notice { color:#ffe19b; }
+.mahjong-winning-hand { margin-top:12px; }
+@media(max-width:950px) { .game-tabs { grid-template-columns:repeat(3,minmax(0,1fr)); }.game-tabs small { font-size:9px; } }
+@media(max-width:600px) { .mahjong-tile { width:36px; height:51px; }.mahjong-tile b { font-size:22px; }.mahjong-tile span { font-size:17px; }.mahjong-seat { width:30%; }.mahjong-seat-1 { left:4px; }.mahjong-seat-3 { right:4px; }.mahjong-seat-2 { left:33%; width:34%; }.mahjong-seat .seat-profile { flex-direction:column; text-align:center; gap:4px; }.mahjong-seat-3 .seat-profile { flex-direction:column; text-align:center; }.mahjong-seat .seat-profile p { justify-content:center; }.mahjong-table { min-height:295px; }.mahjong-center { top:162px; }.mahjong-opponent-backs .mahjong-back { width:12px; height:21px; border-width:1px; }.mahjong-seat .mahjong-meld { flex-wrap:wrap; max-width:70px; }.game-tabs b { font-size:12px; } }
 @media(prefers-reduced-motion:reduce) { #entertainmentRoot *,#entertainmentRoot *::before,#entertainmentRoot *::after { animation:none!important; transition:none!important; scroll-behavior:auto!important; } }
