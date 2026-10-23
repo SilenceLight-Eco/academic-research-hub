@@ -113,7 +113,7 @@ test('account change cannot report a save to the old account as current success'
   await assert.rejects(saving, /账号已切换/); assert.equal(h.statuses.length, 0);
 });
 test('module is loaded before cloud adapter and shared save is present across pipeline pages', () => {
-  assert.match(html, /pipeline-save\.js\?v=20261023-03/);
+  assert.match(html, /pipeline-save\.js\?v=20261023-04/);
   assert.ok(html.indexOf('pipeline-save.js') < html.indexOf('/* Public client key only.'));
   assert.match(html, /pipelineCommitted === "1"/);
 });

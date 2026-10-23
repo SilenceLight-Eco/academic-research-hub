@@ -149,22 +149,45 @@
 @media(min-width:1200px) { .landlord-opponents { min-height:145px; }.landlord-hand .playing-card { width:64px; height:88px; }.landlord-hand { grid-template-columns:repeat(var(--hand-count),minmax(0,36px)); } }
 @media(max-width:760px) { #entertainmentRoot { padding:14px; border-radius:16px; }.game-tabs { gap:7px; }.game-tabs > button { padding:9px; gap:7px; }.game-tab-icon { width:32px; height:36px; font-size:25px; }.game-tabs b { font-size:12px; }.game-tabs small { font-size:8px; }.game-tab-arrow { display:none; }.game-local-badge { display:none; }.game-stage-landlord { padding:14px 10px; }.landlord-opponents { gap:12px; }.player-portrait { width:48px; height:48px; border-radius:15px; }.player-avatar { border-radius:11px; }.table-felt { inset:45px 8px 112px; }.landlord-play { padding-left:6px; }.seat-2 .landlord-play { padding-right:6px; }.game-stage-title > span { font-size:8px; letter-spacing:1px; }.landlord-hand { padding-right:40px; } }
 @media(max-width:480px) { .game-tabs small { display:none; }.game-tabs > button { flex-direction:column; align-items:center; }.entertainment-head h2 { font-size:24px; }.game-stage-title > span { display:none; }.landlord-reserve { margin-bottom:14px; }.landlord-opponents { margin-top:0; min-height:145px; }.seat-profile { gap:5px; padding:4px; }.player-portrait { width:38px; height:38px; border-width:2px; }.seat-profile h4 { font-size:10px; }.seat-profile p { font-size:8px; }.seat-role { padding:1px 5px; font-size:8px; }.landlord-actions { gap:7px; }.landlord-actions button { min-width:55px; padding:7px 10px; font-size:11px; }.landlord-actions button[data-game-action="play"],.landlord-actions button[data-bid="3"] { min-width:72px; font-size:13px; }.landlord-hand { padding:15px 33px 0 4px; min-height:78px; }.landlord-hand .playing-card { width:44px; height:66px; border-radius:5px; }.landlord-hand .card-corner { left:3px; top:4px; }.landlord-hand .card-corner b { font-size:17px; }.landlord-hand .card-corner i { font-size:14px; }.landlord-hand .card-corner-bottom { display:none; }.landlord-hand .card-face { font-size:27px; top:48%; left:26%; }.landlord-hand .card-joker .card-corner b { font-size:9px; }.landlord-my-play { padding:0 12px; }.chess-board,.gomoku-board { border-width:6px; }.game-storage-note { font-size:9px; }.table-felt > span { font-size:20px; }.game-controls button { padding:7px 9px; } }
-.game-tabs { grid-template-columns:repeat(5,minmax(0,1fr)); gap:9px; }
+.game-tabs { grid-template-columns:repeat(6,minmax(0,1fr)); gap:9px; }
 .game-tabs > button { flex-direction:column; align-items:center; gap:7px; padding:12px 6px; text-align:center; }
 .game-tabs b { font-size:14px; }
 .game-tabs small { font-size:9px; }
 .game-tab-arrow { display:none; }
 .game-tab-mahjong .game-tab-icon { color:#31846a; background:#e6f1d8; font:bold 27px/1 SimSun,serif; border-radius:8px; box-shadow:0 3px 0 #68a48a; }
-.game-tab-reversi .game-tab-icon { color:#d9f1d9; background:#338573; text-shadow:none; }
-.reversi-board { display:grid; grid-template-columns:repeat(8,minmax(0,1fr)); width:min(100%,520px); aspect-ratio:1; margin:18px auto; border:10px solid #866b43; border-radius:8px; overflow:hidden; box-sizing:border-box; background:#33856b; box-shadow:0 5px 0 #654e30,0 12px 26px #6e512027; }
-.reversi-cell { position:relative; aspect-ratio:1; min-width:0; border:1px solid #164c3c55; padding:0; background:transparent; cursor:pointer; }
-.reversi-cell:disabled { opacity:1; cursor:default; }
-.reversi-cell:not(:disabled):hover { background:#ffffff25; }
-.reversi-move-dot { position:absolute; inset:39%; border-radius:50%; background:#b4dfb0aa; }
-.reversi-cell.is-last .gomoku-stone::after { content:''; position:absolute; inset:37%; border:2px solid #f4bd62; border-radius:50%; }
-.reversi-score { display:flex; justify-content:center; gap:24px; color:#425e58; font-size:14px; }
-.reversi-score span { display:flex; align-items:center; gap:8px; }
-.game-pass-note { color:#99773c; text-align:center; font-size:12px; }
+.game-tab-guandan .game-tab-icon { color:#b65f32; background:#ffedcf; font:bold 27px/1 SimSun,serif; }
+.game-tab-fivetenk .game-tab-icon { color:#a34059; background:#f8e3e8; }
+.game-stage-cards { border:0; background:radial-gradient(ellipse at 50% -10%,#74aabe,#3e7799 52%,#2d5577); box-shadow:0 12px 25px #23577325,inset 0 1px 0 #ffffff66; }
+.game-stage-cards .game-stage-title h3 { color:#fff5d2; text-shadow:0 2px 0 #224e6a; }
+.game-stage-cards .game-stage-title > span { color:#c3dde4; }
+.game-stage-cards .game-help,.game-stage-cards .game-help summary { color:#c4dfe7; }
+.game-stage-cards .game-notice { color:#ffe6a7; }
+.landlord-room-head { flex-wrap:wrap; }
+.poker-mode-choice { display:flex; align-items:center; flex-wrap:wrap; gap:7px; color:#e4eee0; font-size:11px; }
+.poker-mode-choice select,.poker-pattern-choice select { border:1px solid #f0d7a9; border-radius:7px; padding:4px 8px; color:#705832; background:#fff7df; max-width:100%; font-size:11px; }
+.poker-wild-notice { color:#ffdd92; font-size:11px; }
+.poker-team-note,.poker-finish-order { text-align:center; color:#d9e8dc; font-size:10px; margin:8px 0; line-height:1.7; }
+.poker-scorebar { color:#dce9de; font-size:12px; }
+.poker-scorebar b { color:#ffe2a2; font-size:15px; }
+.poker-partner { width:100%; align-items:center; min-height:80px; margin:10px 0 -35px; }
+.poker-partner .player-portrait { width:38px; height:38px; border-radius:12px; }
+.poker-partner .player-avatar { border-radius:8px; }
+.poker-partner .landlord-play { justify-content:center; padding:5px 0; }
+.poker-team-room .landlord-opponents { margin-top:0; min-height:142px; }
+.poker-team-room .landlord-play .playing-card { width:27px; height:39px; }
+.poker-team-room .landlord-human h4 { text-align:center; color:#f2f1db; font-size:12px; margin:2px 0 7px; }
+.poker-team-room .landlord-human { overflow-x:auto; padding-top:16px; }
+.poker-team-room .landlord-hand { grid-template-columns:repeat(var(--hand-count),minmax(26px,28px)); min-width:calc(var(--hand-count) * 26px + 55px); box-sizing:border-box; }
+.poker-team-room .landlord-hand .playing-card { width:50px; height:80px; }
+.poker-team-room .landlord-hand .card-corner b { font-size:20px; }
+.poker-team-room .landlord-hand .card-joker .card-corner b { font-size:10px; }
+.card-joker .card-corner-bottom { display:none; }
+.poker-team-room .landlord-hand .card-face { font-size:30px; }
+.poker-last-pattern { text-align:center; color:#ffe0a2; font-size:10px; margin:4px 0 9px; line-height:1.7; }
+.poker-pattern-choice { display:flex; justify-content:center; align-items:center; flex-wrap:wrap; gap:7px; color:#ffe0a2; font-size:11px; margin:4px 0 15px; }
+.card-wild { border-color:#e2b651; background:linear-gradient(135deg,#fff5c4,#fffdf3); }
+.card-wild-mark { position:absolute; left:5px; bottom:4px; padding:2px; border-radius:3px; background:#cb8e2d; color:white; font:700 9px/1 sans-serif; }
+.landlord-play .card-wild-mark,.landlord-reserve .card-wild-mark,.landlord-my-play .card-wild-mark { font-size:7px; right:1px; top:1px; }
 .game-stage-mahjong { background:radial-gradient(ellipse at 50% 0,#5eaa91,#286c60 75%); border-color:#e4c98c; box-shadow:0 12px 25px #28574125,inset 0 1px 0 #ffffff66; }
 .game-stage-mahjong .game-stage-title h3 { color:#fff0c8; }
 .game-stage-mahjong .game-stage-title > span { color:#c0dfd1; }

@@ -1,16 +1,16 @@
 (function () {
   'use strict';
   var rules = window.AcademicGames, root = null, current = 'landlord', active = false, timer = null, epoch = 0, notice = '';
-  var modes = { chess: 'ai', gomoku: 'ai', reversi: 'ai' }, difficulties = { chess: 'normal', gomoku: 'normal', reversi: 'normal' }, sessions = {}, selectedCards = new Set(), chessSelected = null, mahjongSelected = null;
-  var titles = { landlord: '斗地主', mahjong: '休闲麻将', chess: '中国象棋', gomoku: '五子棋', reversi: '黑白棋' };
+  var modes = { chess: 'ai', gomoku: 'ai' }, difficulties = { chess: 'normal', gomoku: 'normal' }, sessions = {}, selectedCards = new Set(), chessSelected = null, mahjongSelected = null, pokerChoice = null, landlordVariant = 'classic', guandanLevel = 15;
+  var titles = { landlord: '斗地主', guandan: '掼蛋', fivetenk: '5·10·K', mahjong: '休闲麻将', chess: '中国象棋', gomoku: '五子棋' };
   var names = { rK: '帅', rA: '仕', rE: '相', rH: '马', rR: '车', rC: '炮', rP: '兵', bK: '将', bA: '士', bE: '象', bH: '马', bR: '车', bC: '炮', bP: '卒' };
   function escape(value) { return String(value).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function cancelAI() { if (timer !== null) clearTimeout(timer); timer = null; epoch++; }
   function reset(game) {
-    cancelAI(); notice = ''; chessSelected = null; mahjongSelected = null; selectedCards.clear();
-    if (game === 'landlord') { sessions[game] = rules.landlord.create(); sessions[game].log = ['已发牌：你先叫分，最高分者成为地主。']; }
+    cancelAI(); notice = ''; chessSelected = null; mahjongSelected = null; pokerChoice = null; selectedCards.clear();
+    if (game === 'landlord') { sessions[game] = landlordVariant === 'laizi' ? rules.poker.create('laizi') : rules.landlord.create(); if (!sessions[game].log) sessions[game].log = ['已发牌：你先叫分，最高分者成为地主。']; }
+    if (game === 'guandan' || game === 'fivetenk') sessions[game] = rules.poker.create(game, null, guandanLevel);
     if (game === 'gomoku') sessions[game] = { board: Array(225).fill(0), turn: 1, winner: null, history: [], last: null };
-    if (game === 'reversi') sessions[game] = { board: rules.reversi.initial(), turn: 1, winner: null, history: [], last: null, passed: null };
     if (game === 'mahjong') sessions[game] = rules.mahjong.create();
     if (game === 'chess') { var board = rules.chess.initial(); sessions[game] = { board: board, turn: 'r', winner: null, history: [], last: null, quiet: 0, positions: [board.join(',') + ':r'] }; }
   }
@@ -49,12 +49,40 @@
     }).join('') + '</div><details class="game-help"><summary>走子说明与休闲规则</summary><p>先选己方棋子，再点击目标位置，圆点表示可走位置。支持蹩马腿、塞象眼、炮隔子吃子与将帅照面检查；不能走使己方被将军的棋。无合法走法时判负。</p><p>红方先走；人机模式你执红方。三次相同局面，或连续 60 回合未吃子，按和棋处理；此休闲版本不作竞赛级长将长捉裁定。</p></details>';
   }
   function playingCard(id, selectable, order) {
-    var red = id < 52 && (id % 4 === 1 || id % 4 === 3) || id === 53;
-    var rank = rules.landlord.rank(id), suit = id >= 52 ? '★' : ['♠', '♥', '♣', '♦'][id % 4];
-    var value = id >= 52 ? id === 52 ? '小王' : '大王' : ({ 11: 'J', 12: 'Q', 13: 'K', 14: 'A', 15: '2' }[rank] || rank);
-    return '<button type="button" aria-label="' + escape(rules.landlord.label(id)) + '" class="playing-card' + (red ? ' card-red' : '') + (id >= 52 ? ' card-joker' : '') + (selectedCards.has(id) && selectable ? ' is-selected' : '') + '" style="--card-order:' + (Number(order) || 0) + '"' + (selectable ? ' data-card="' + id + '" aria-pressed="' + selectedCards.has(id) + '"' : ' disabled') + '><span class="card-corner"><b>' + value + '</b><i>' + suit + '</i></span><span class="card-face" aria-hidden="true">' + suit + '</span><span class="card-corner card-corner-bottom" aria-hidden="true"><b>' + value + '</b><i>' + suit + '</i></span></button>';
+    var printed = id % 54, red = printed < 52 && (printed % 4 === 1 || printed % 4 === 3) || printed === 53;
+    var rank = rules.landlord.rank(printed), suit = printed >= 52 ? '★' : ['♠', '♥', '♣', '♦'][printed % 4], game = sessions[current];
+    var isWild = game && game.kind && rules.poker.wild(game,id), value = printed >= 52 ? printed === 52 ? '小王' : '大王' : ({ 11: 'J', 12: 'Q', 13: 'K', 14: 'A', 15: '2' }[rank] || rank);
+    return '<button type="button" aria-label="' + escape(rules.landlord.label(printed) + (isWild ? '，百搭牌' : '')) + '" class="playing-card' + (red ? ' card-red' : '') + (printed >= 52 ? ' card-joker' : '') + (isWild ? ' card-wild' : '') + (selectedCards.has(id) && selectable ? ' is-selected' : '') + '" style="--card-order:' + (Number(order) || 0) + '"' + (selectable ? ' data-card="' + id + '" aria-pressed="' + selectedCards.has(id) + '"' : ' disabled') + '><span class="card-corner"><b>' + value + '</b><i>' + suit + '</i></span><span class="card-face" aria-hidden="true">' + suit + '</span><span class="card-corner card-corner-bottom" aria-hidden="true"><b>' + value + '</b><i>' + suit + '</i></span>' + (isWild ? '<small class="card-wild-mark" aria-hidden="true">' + (game.kind === 'laizi' ? '癞' : '配') + '</small>' : '') + '</button>';
   }
   function seatName(seat) { return seat === 0 ? '你' : '电脑 ' + seat; }
+  function isCardGame(game) { return ['landlord','guandan','fivetenk'].includes(game); }
+  function pokerPatternChooser(game) {
+    var text = game.kind && game.last ? '<p class="poker-last-pattern">上一手：' + escape(rules.poker.describe(game.last)) + '</p>' : '';
+    if (!game.kind || game.phase !== 'play' || game.turn !== 0 || !selectedCards.size) return text;
+    var choices = rules.poker.patterns(Array.from(selectedCards),game,game.last);
+    if (!choices.length) return text + '<p class="poker-last-pattern">所选牌暂不能出，请调整或使用提示。</p>';
+    if (!choices.some(function(choice){return choice.pattern.key === pokerChoice;})) pokerChoice = choices[0].pattern.key;
+    return text + '<label class="poker-pattern-choice">出牌方式 <select id="pokerPatternChoice" aria-label="出牌方式">' + choices.map(function(choice){return '<option value="' + choice.pattern.key + '"' + (choice.pattern.key === pokerChoice ? ' selected' : '') + '>' + escape(rules.poker.describe(choice.pattern)) + '</option>';}).join('') + '</select></label>';
+  }
+  function landlordSettings(game) {
+    return '<label class="poker-mode-choice">玩法 <select id="landlordVariant" aria-label="斗地主玩法"><option value="classic"' + (landlordVariant === 'classic' ? ' selected' : '') + '>经典斗地主</option><option value="laizi"' + (landlordVariant === 'laizi' ? ' selected' : '') + '>癞子斗地主</option></select></label>' + (game.kind === 'laizi' ? '<span class="poker-wild-notice">本局癞子：' + rules.poker.face(game.wildRank) + '（四张）</span>' : '');
+  }
+  function pokerRules(game) {
+    if (!game.kind) return '';
+    if (game.kind === 'laizi') return '<p>癞子组合时可代表 3 至 2，不可代替大小王；单张按本来点数。王炸＞纯癞子炸＞硬炸＞软炸，同档炸弹比点数；普通组合按经典斗地主比较。选牌后可在“出牌方式”选择合法解释，实际打出的牌型与百搭解释会显示在牌桌和记录中。</p>';
+    if (game.kind === 'guandan') return '<p>单局掼蛋练习：108 张，每人 27 张，你与电脑 2 为搭档。可选择当局级牌（切换将重新开局），红桃级牌为逢人配，可代替非王牌的点数及花色，单张按级牌本值。普通大小为大王＞小王＞级牌＞A 至 2。</p><p>支持单、对、三、三带二、固定五张顺子、三连对、两连三张（钢板）、同花顺、4 至 10 张炸弹和四王。连牌按自然点数，不提高级牌；A 可作最低端或最高端，不可循环连接。同花顺大于四／五张炸弹，小于六张及以上炸弹，四王最大。同型同张数比较，炸弹先比张数。</p><p>出完牌后跳过该座位；该玩家最后一手无人压时由仍有牌的对家接风。头游方获胜，显示名次；此版本每局独立，不包含跨局升级、进贡、还贡。</p>';
+    return '<p>本项目双副牌固定搭档抓分休闲规则：108 张，每人 27 张，你与电脑 2 为搭档。5 计 5 分，10、K 各计 10 分，全局 200 分。一圈无人再压时，最后出牌者一方取得桌面分。</p><p>支持单、对、三、三带二、顺子（至少五张）、连对（至少三对）、连三张（至少两组）、同点炸弹和 5·10·K。四王＞同点炸弹（先比张数再比点数）＞同花 5·10·K（♠＞♥＞♣＞♦）＞杂花 5·10·K＞普通牌型。杂花 5·10·K 之间相等，不互压；普通点数 3 至 2、小王、大王依次增大，不设三带一或四带二。</p><p>三家出完后结算：最后一圈桌面分归该圈最后出牌方，末家剩余分牌给头游方；总分高方获胜，100∶100 时头游方胜。不含找朋友、扣底或双扣等地方规则，不涉及金钱。</p>';
+  }
+  function teamPokerView() {
+    var game = sessions[current], human = game.turn === 0 && game.phase === 'play' && game.hands[0].length, text = game.phase === 'over' ? (game.winner === 0 ? '我方获胜！' : '对方获胜。') : !game.hands[0].length ? '你已出完 · 继续观战，搭档是电脑 2。' : human ? '你出牌 · 点选手牌后出牌，也可使用提示。' : seatName(game.turn) + '出牌 · 电脑思考中…';
+    var settings = game.kind === 'guandan' ? '<label class="poker-mode-choice">本局级牌 <select id="guandanLevel" aria-label="掼蛋级牌">' + [15,3,4,5,6,7,8,9,10,11,12,13,14].map(function(rank){return '<option value="' + rank + '"' + (game.level === rank ? ' selected' : '') + '>' + rules.poker.face(rank) + '</option>';}).join('') + '</select> · 红桃' + rules.poker.face(game.level) + '百搭</label>' : '<span class="poker-scorebar">我方 <b>' + game.scores[0] + '</b> 分 · 对方 <b>' + game.scores[1] + '</b> 分 · 桌面 <b>' + game.pot + '</b> 分</span>';
+    function opponent(seat, top) {
+      var play = game.plays[seat], finished = game.finish.includes(seat);
+      return '<section class="landlord-seat ' + (top ? 'poker-partner' : seat === 1 ? 'seat-1' : 'seat-2') + (game.turn === seat && game.phase !== 'over' ? ' is-turn' : '') + '"><div class="seat-profile"><div class="player-portrait">' + avatar(seat%3) + '</div><div><h4>' + seatName(seat) + (seat === 2 ? ' · 搭档' : ' · 对手') + '</h4><p>' + (finished ? '第 ' + (game.finish.indexOf(seat)+1) + ' 名出完' : '剩余 <b>' + game.hands[seat].length + '</b> 张') + '</p></div></div><div class="landlord-play">' + (play ? play.length ? play.map(function(id){return playingCard(id,false);}).join('') : '<span class="pass-bubble">不出</span>' : '<span class="seat-wait">' + (finished ? '已出完' : '等候出牌') + '</span>') + '</div></section>';
+    }
+    var actions = game.phase === 'over' ? button('restart','再来一局') : button('pass','不出',!human || !game.last) + button('hint','提示',!human) + button('play','出牌',!human) + button('clear','取消选择',!selectedCards.size);
+    return '<div class="poker-team-room"><div class="landlord-room-head">' + settings + button('restart','重新发牌') + '</div><p class="poker-team-note">你与电脑 2 为我方 · 电脑 1、3 为对方' + (game.kind === 'guandan' ? ' · 单局练习，无升级进贡' : ' · 固定搭档抓分休闲规则') + '</p><div class="landlord-table"><div class="table-felt" aria-hidden="true"><span>默契出牌</span></div>' + opponent(2,true) + '<div class="landlord-opponents">' + opponent(1,false) + opponent(3,false) + '</div><div class="landlord-my-play" aria-label="你最近出的牌">' + (game.plays[0] || []).map(function(id){return playingCard(id,false);}).join('') + '</div><div class="landlord-turn-message">' + status(text) + '</div><div class="game-controls landlord-actions">' + actions + '</div>' + pokerPatternChooser(game) + '<div class="landlord-human"><h4>你的手牌 · ' + game.hands[0].length + ' 张' + (selectedCards.size ? ' · 已选择 ' + selectedCards.size + ' 张' : '') + '</h4><div class="landlord-hand" style="--hand-count:' + Math.max(1,game.hands[0].length) + '">' + game.hands[0].map(function(id,index){return playingCard(id,human,index);}).join('') + '</div></div></div>' + (game.finish.length ? '<p class="poker-finish-order">出完顺序：' + game.finish.map(function(seat,index){return (index+1) + '. ' + seatName(seat);}).join(' → ') + '</p>' : '') + '<details class="landlord-log"><summary>本局出牌记录</summary>' + game.log.slice(-8).map(function(line){return '<p>' + escape(line) + '</p>';}).join('') + '</details><details class="game-help"><summary>玩法与牌型说明（休闲版）</summary>' + pokerRules(game) + '</details></div>';
+  }
   function avatar(seat) {
     var coat = ['#6089dc', '#e0a34d', '#b77eaf'][seat], hair = seat === 2 ? '#533d55' : '#493b35';
     return '<svg class="player-avatar" viewBox="0 0 80 80" aria-hidden="true"><circle cx="40" cy="40" r="39" fill="' + ['#d2e5ff', '#ffe5b5', '#f2d5ee'][seat] + '"/><path d="M9 79c2-19 17-25 31-25s29 6 31 25" fill="' + coat + '"/><path d="M32 51h16v14l-8 7-8-7" fill="#edb28e"/><ellipse cx="40" cy="34" rx="24" ry="27" fill="' + hair + '"/><ellipse cx="40" cy="38" rx="21" ry="23" fill="#ffd1aa"/><path d="' + (seat === 2 ? 'M18 36C12 12 28 6 41 9c20-2 29 16 22 31-3-9-11-12-17-22-6 11-16 16-28 18' : 'M18 31C13 14 24 7 37 9c12-9 33 1 27 27-6-3-9-11-14-17-4 12-18 17-32 12') + '" fill="' + hair + '"/><path d="M28 35h7m10 0h7" stroke="' + hair + '" stroke-width="2.5" stroke-linecap="round"/><ellipse cx="32" cy="40" rx="2" ry="3" fill="#3c3340"/><ellipse cx="48" cy="40" rx="2" ry="3" fill="#3c3340"/><path d="M34 50q6 7 12 0" fill="white" stroke="#b96a60" stroke-width="1.5"/><circle cx="25" cy="47" r="4" fill="#ef9d8c" opacity=".45"/><circle cx="55" cy="47" r="4" fill="#ef9d8c" opacity=".45"/><path d="M24 63l10 15 6-8 6 8 10-15" fill="#ffffffbc"/></svg>';
@@ -77,17 +105,10 @@
     if (game.phase === 'play') actions += button('pass', '不出', !humanTurn || !game.last) + button('hint', '提示', !humanTurn) + button('play', '出牌', !humanTurn) + button('clear', '取消选择', !selectedCards.size);
     if (game.phase === 'over' || game.phase === 'redeal') actions += button('restart', '再来一局');
     var ownPlay = game.plays[0], won = game.phase === 'over' && ((game.winner === game.landlord) === (game.landlord === 0));
-    return '<div class="landlord-room-head"><span><i class="game-online-dot"></i>经典三人 · 人机练习</span>' + button('restart', '重新发牌') + '</div><div class="landlord-table' + (game.phase === 'over' ? ' is-finished' : '') + '"><div class="table-felt" aria-hidden="true"><span>轻松一局</span><small>LOCAL CARD CLUB</small></div><div class="landlord-reserve"><span>底牌' + (game.landlord === null ? ' · 叫分后揭晓' : ' · ' + seatName(game.landlord) + '是地主') + '</span><div>' + (game.landlord === null ? '<span class="card-back" aria-hidden="true"></span>'.repeat(3) : game.reserve.map(function (id) { return playingCard(id, false); }).join('')) + '</div></div><div class="landlord-opponents">' + [1, 2].map(function (seat) {
+    return '<div class="landlord-room-head"><span><i class="game-online-dot"></i>经典三人 · 人机练习</span>' + landlordSettings(game) + button('restart', '重新发牌') + '</div><div class="landlord-table' + (game.phase === 'over' ? ' is-finished' : '') + '"><div class="table-felt" aria-hidden="true"><span>轻松一局</span><small>LOCAL CARD CLUB</small></div><div class="landlord-reserve"><span>底牌' + (game.landlord === null ? ' · 叫分后揭晓' : ' · ' + seatName(game.landlord) + '是地主') + '</span><div>' + (game.landlord === null ? '<span class="card-back" aria-hidden="true"></span>'.repeat(3) : game.reserve.map(function (id) { return playingCard(id, false); }).join('')) + '</div></div><div class="landlord-opponents">' + [1, 2].map(function (seat) {
       var play = game.plays[seat];
       return '<section class="landlord-seat seat-' + seat + (game.turn === seat && game.phase !== 'over' ? ' is-turn' : '') + '"><div class="seat-profile">' + seatPortrait(game, seat) + '<div><h4>' + seatName(seat) + '</h4><span class="seat-role">' + seatRole(game, seat) + '</span><p><span class="mini-card-back" aria-hidden="true"></span>剩余 <b>' + game.hands[seat].length + '</b> 张</p></div></div><div class="landlord-play">' + (play ? play.length ? play.map(function (id) { return playingCard(id, false); }).join('') : '<span class="pass-bubble">不出</span>' : '<span class="seat-wait">' + (game.phase === 'bid' ? '等候叫分' : '等候出牌') + '</span>') + '</div></section>';
-    }).join('') + '</div><div class="landlord-my-play" aria-label="你最近出的牌">' + (ownPlay && ownPlay.length ? ownPlay.map(function (id) { return playingCard(id, false); }).join('') : '') + '</div><div class="landlord-turn-message' + (game.phase === 'over' ? ' is-result' : '') + '">' + (game.phase === 'over' ? '<span class="game-result-mark" aria-hidden="true">' + (won ? '✦' : '♠') + '</span>' : '') + status(text) + '</div><div class="game-controls landlord-actions">' + actions + '</div><div class="landlord-human"><div class="human-profile">' + seatPortrait(game, 0) + '<div><h4>你的手牌' + (game.landlord === 0 ? ' · 地主' : game.landlord !== null ? ' · 农民' : '') + '（' + game.hands[0].length + ' 张）</h4><span>' + (selectedCards.size ? '已选择 ' + selectedCards.size + ' 张' : humanTurn && game.phase === 'play' ? '点击手牌，向上选中' : '好牌在手，轻松开局') + '</span></div></div><div class="landlord-hand" style="--hand-count:' + Math.max(1, game.hands[0].length) + '">' + game.hands[0].map(function (id, index) { return playingCard(id, humanTurn && game.phase === 'play', index); }).join('') + '</div></div></div><details class="landlord-log"><summary>本局出牌记录</summary><div aria-label="最近出牌记录">' + game.log.slice(-5).map(function (line) { return '<p>' + escape(line) + '</p>'; }).join('') + '</div></details><details class="game-help"><summary>玩法与牌型说明</summary><p>54 张牌，每人 17 张，地主另得 3 张底牌。最高叫分者成为地主，无人叫分则重新发牌。地主独立对抗两位农民，任一方先出完获胜。</p><p>支持单张、对子、三张、三带一／对、顺子、连对、飞机及带单／对翅膀、四带二、炸弹和王炸。顺子、连对、飞机不能包含 2 和大小王。飞机单翅允许带对子，四带二单张允许带一对。相同牌型需张数一致且主牌更大；炸弹可压普通牌，王炸最大。连续两人不出后，上一位出牌者重新领出。</p><p>纯本地休闲练习，无金钱、下注、积分或联网匹配。</p></details>';
-  }
-  function reversiView() {
-    var session = sessions.reversi, legal = rules.reversi.moves(session.board, session.turn);
-    var black = session.board.filter(function (s) { return s === 1; }).length, white = session.board.filter(function (s) { return s === 2; }).length;
-    return controls('reversi') + status(boardStatus('reversi', session)) + '<div class="reversi-score"><span>● 黑棋 <b>' + black + '</b></span><span>○ 白棋 <b>' + white + '</b></span></div>' + (session.passed && !session.winner ? '<p class="game-pass-note">' + sideName(session.passed, 'reversi') + '无合法落点，自动让行。</p>' : '') + '<div class="reversi-board" role="group" aria-label="八路黑白棋棋盘">' + session.board.map(function (stone, at) {
-      return '<button type="button" class="reversi-cell' + (session.last === at ? ' is-last' : '') + '" data-reversi-cell="' + at + '" aria-label="第' + (Math.floor(at / 8) + 1) + '行第' + (at % 8 + 1) + '列，' + (stone ? sideName(stone, 'reversi') : legal.includes(at) ? '可落子' : '空位') + '"' + (session.winner || !legal.includes(at) || modes.reversi === 'ai' && session.turn === 2 ? ' disabled' : '') + '>' + (stone ? '<span class="gomoku-stone stone-' + stone + '"></span>' : legal.includes(at) ? '<span class="reversi-move-dot"></span>' : '') + '</button>';
-    }).join('') + '</div><details class="game-help"><summary>黑白棋规则</summary><p>黑棋先行。落子必须在横、竖或斜线夹住至少一枚对方棋子，被夹住的棋子全部翻转。圆点提示合法落点。无棋可下时自动让行，双方都无棋可下时按棋子数判胜，数量相同为和棋。</p></details>';
+    }).join('') + '</div><div class="landlord-my-play" aria-label="你最近出的牌">' + (ownPlay && ownPlay.length ? ownPlay.map(function (id) { return playingCard(id, false); }).join('') : '') + '</div><div class="landlord-turn-message' + (game.phase === 'over' ? ' is-result' : '') + '">' + (game.phase === 'over' ? '<span class="game-result-mark" aria-hidden="true">' + (won ? '✦' : '♠') + '</span>' : '') + status(text) + '</div><div class="game-controls landlord-actions">' + actions + '</div>' + pokerPatternChooser(game) + '<div class="landlord-human"><div class="human-profile">' + seatPortrait(game, 0) + '<div><h4>你的手牌' + (game.landlord === 0 ? ' · 地主' : game.landlord !== null ? ' · 农民' : '') + '（' + game.hands[0].length + ' 张）</h4><span>' + (selectedCards.size ? '已选择 ' + selectedCards.size + ' 张' : humanTurn && game.phase === 'play' ? '点击手牌，向上选中' : '好牌在手，轻松开局') + '</span></div></div><div class="landlord-hand" style="--hand-count:' + Math.max(1, game.hands[0].length) + '">' + game.hands[0].map(function (id, index) { return playingCard(id, humanTurn && game.phase === 'play', index); }).join('') + '</div></div></div><details class="landlord-log"><summary>本局出牌记录</summary><div aria-label="最近出牌记录">' + game.log.slice(-5).map(function (line) { return '<p>' + escape(line) + '</p>'; }).join('') + '</div></details><details class="game-help"><summary>玩法与牌型说明</summary><p>54 张牌，每人 17 张，地主另得 3 张底牌。最高叫分者成为地主，无人叫分则重新发牌。地主独立对抗两位农民，任一方先出完获胜。</p><p>支持单张、对子、三张、三带一／对、顺子、连对、飞机及带单／对翅膀、四带二、炸弹和王炸。顺子、连对、飞机不能包含 2 和大小王。飞机单翅允许带对子，四带二单张允许带一对。相同牌型需张数一致且主牌更大；炸弹可压普通牌，王炸最大。连续两人不出后，上一位出牌者重新领出。</p>' + pokerRules(game) + '<p>纯本地休闲练习，无金钱、下注、积分或联网匹配。</p></details>';
   }
   function mahjongTile(tile, index, enabled) {
     var label = rules.mahjong.label(tile), suit = Math.floor(tile / 9);
@@ -113,24 +134,20 @@
       return '<section class="mahjong-seat mahjong-seat-' + seat + (game.turn === seat && game.phase !== 'over' ? ' is-turn' : '') + '"><div class="seat-profile"><div class="player-portrait">' + avatar(seat % 3) + '</div><div><h4>电脑 ' + seat + '</h4><span class="seat-role">' + ['东 · 庄家', '南家', '西家', '北家'][seat] + '</span><p>手牌 ' + game.hands[seat].length + ' 张</p></div></div><div class="mahjong-opponent-backs" aria-hidden="true">' + '<span class="mahjong-back"></span>'.repeat(Math.min(5, game.hands[seat].length)) + '</div>' + mahjongMelds(game, seat) + '</section>';
     }).join('') + '<div class="mahjong-center"><span>清雅一桌</span>' + (game.lastDiscard ? '<small>' + seatName(game.lastDiscard.seat) + '最近打出</small>' + mahjongTile(game.lastDiscard.tile, -1, false) : '<small>碰杠自摸 · 轻松开局</small>') + '</div></div>' + status(text) + '<div class="game-controls mahjong-actions">' + actions + '</div><div class="mahjong-human"><h4>你的手牌 · 东家' + (game.phase === 'discard' && human && game.lastDraw !== null ? ' · 刚摸入' + rules.mahjong.label(game.lastDraw) : '') + '</h4>' + mahjongMelds(game, 0) + '<div class="mahjong-hand">' + game.hands[0].map(function (tile, index) { return mahjongTile(tile, index, human && game.phase === 'discard'); }).join('') + '</div></div>' + (game.phase === 'over' && game.winner !== 'draw' && game.winner !== 0 ? '<div class="mahjong-winning-hand"><h4>胡牌方手牌</h4><div class="mahjong-hand">' + game.hands[game.winner].map(function (tile) { return mahjongTile(tile, -1, false); }).join('') + '</div></div>' : '') + '<details class="mahjong-discards"><summary>各家弃牌</summary>' + game.discards.map(function (tiles, seat) { return '<div><strong>' + seatName(seat) + '</strong><div class="mahjong-discard-row">' + tiles.map(function (tile) { return mahjongTile(tile, -1, false); }).join('') + '</div></div>'; }).join('') + '</details><details class="landlord-log"><summary>本局记录</summary>' + game.log.map(function (line) { return '<p>' + escape(line) + '</p>'; }).join('') + '</details><details class="game-help"><summary>麻将规则（休闲版）</summary><p>108 张万、筒、条，四人对局，你为东家庄家。庄家 14 张先出牌，其余各 13 张。点击选牌后“打出”。支持碰、明杠、暗杠与杠后补牌，不吃牌、不加杠、不抢杠，不计番。</p><p>胡牌为四组顺子／刻子加一对将，或未副露时七对（四张相同牌算两对）。可自摸或点炮胡，胡牌优先于碰杠；多家可胡时按出牌者之后的顺序，先响应者胜，不设一炮多响。牌墙耗尽流局。</p><p>“理牌提示”只建议一张弃牌；不是听牌或胡牌保证。三位电脑仅按各自手牌作决定，不读取你的暗牌。无金钱、下注或联网匹配。</p></details></div>';
   }
-  function gameView() { return { landlord: landlordView, mahjong: mahjongView, chess: chessView, gomoku: gomokuView, reversi: reversiView }[current](); }
-  function gameSubtitle(game) { return { landlord: '经典三人 · 欢乐开局', mahjong: '四人牌桌 · 碰杠自摸', chess: '楚河汉界 · 运筹帷幄', gomoku: '黑白交锋 · 五子连珠', reversi: '落子翻转 · 占角争先' }[game]; }
+  function gameView() { return { landlord: landlordView, guandan: teamPokerView, fivetenk: teamPokerView, mahjong: mahjongView, chess: chessView, gomoku: gomokuView }[current](); }
+  function gameSubtitle(game) { return { landlord: '经典三人 · 欢乐开局', guandan: '双副搭档 · 逢人百搭', fivetenk: '五十K炸 · 抓分争先', mahjong: '四人牌桌 · 碰杠自摸', chess: '楚河汉界 · 运筹帷幄', gomoku: '黑白交锋 · 五子连珠' }[game]; }
   function render() {
     if (!root) return;
-    var focus = document.activeElement, locator = focus && root.contains(focus) ? ['data-gomoku-cell', 'data-chess-cell', 'data-reversi-cell', 'data-mahjong-tile', 'data-card'].find(function (key) { return focus.hasAttribute(key); }) : null;
+    var focus = document.activeElement, locator = focus && root.contains(focus) ? ['data-gomoku-cell', 'data-chess-cell', 'data-mahjong-tile', 'data-card'].find(function (key) { return focus.hasAttribute(key); }) : null;
     var focusValue = locator ? focus.getAttribute(locator) : null;
-    root.innerHTML = '<div class="entertainment-head"><div><span class="game-eyebrow">TAKE A LITTLE BREAK</span><h2>休闲棋牌室<span aria-hidden="true">♠</span></h2><p>把研究放一放，让快乐先出牌。</p></div><span class="game-local-badge"><i class="game-online-dot"></i>本地畅玩 · 无需联网</span></div><div class="game-tabs" role="tablist" aria-label="选择游戏">' + Object.keys(titles).map(function (game) { return '<button type="button" role="tab" aria-label="' + titles[game] + '" aria-selected="' + (game === current) + '" data-game-tab="' + game + '" class="' + (game === current ? 'is-active ' : '') + 'game-tab-' + game + '"><span class="game-tab-icon" aria-hidden="true">' + ({ landlord: '♠', mahjong: '發', chess: '将', gomoku: '●', reversi: '◐' }[game]) + '</span><span><b>' + titles[game] + '</b><small>' + gameSubtitle(game) + '</small></span><span class="game-tab-arrow" aria-hidden="true">↗</span></button>'; }).join('') + '</div><section class="game-stage game-stage-' + current + '" aria-label="' + titles[current] + '"><div class="game-stage-title"><h3>' + titles[current] + '</h3><span>' + (current === 'landlord' ? 'CLASSIC · 3 PLAYERS' : current === 'mahjong' ? 'MAHJONG · 4 PLAYERS' : 'BOARD GAME · RELAX & PLAY') + '</span></div>' + gameView() + '<p class="game-notice" role="status" aria-live="polite">' + escape(notice) + '</p></section><p class="game-storage-note">休闲有度，研究有序。对局仅在当前页面保留；切换模块可继续，刷新后重新开局，不上传云端。</p>';
+    root.innerHTML = '<div class="entertainment-head"><div><span class="game-eyebrow">TAKE A LITTLE BREAK</span><h2>休闲棋牌室<span aria-hidden="true">♠</span></h2><p>把研究放一放，让快乐先出牌。</p></div><span class="game-local-badge"><i class="game-online-dot"></i>本地畅玩 · 无需联网</span></div><div class="game-tabs" role="tablist" aria-label="选择游戏">' + Object.keys(titles).map(function (game) { return '<button type="button" role="tab" aria-label="' + titles[game] + '" aria-selected="' + (game === current) + '" data-game-tab="' + game + '" class="' + (game === current ? 'is-active ' : '') + 'game-tab-' + game + '"><span class="game-tab-icon" aria-hidden="true">' + ({ landlord: '♠', guandan: '掼', fivetenk: 'K', mahjong: '發', chess: '将', gomoku: '●' }[game]) + '</span><span><b>' + titles[game] + '</b><small>' + gameSubtitle(game) + '</small></span><span class="game-tab-arrow" aria-hidden="true">↗</span></button>'; }).join('') + '</div><section class="game-stage game-stage-' + current + (isCardGame(current) ? ' game-stage-cards' : '') + '" aria-label="' + titles[current] + '"><div class="game-stage-title"><h3>' + titles[current] + '</h3><span>' + (current === 'landlord' ? 'CLASSIC · 3 PLAYERS' : current === 'mahjong' ? 'MAHJONG · 4 PLAYERS' : 'BOARD GAME · RELAX & PLAY') + '</span></div>' + gameView() + '<p class="game-notice" role="status" aria-live="polite">' + escape(notice) + '</p></section><p class="game-storage-note">休闲有度，研究有序。对局仅在当前页面保留；切换模块可继续，刷新后重新开局，不上传云端。</p>';
     if (locator) { var nextFocus = root.querySelector('[' + locator + '="' + focusValue + '"]'); if (nextFocus && !nextFocus.disabled) nextFocus.focus({ preventScroll: true }); }
     scheduleAI();
   }
   function boardMove(game, from, to) {
     var session = sessions[game];
     if (session.winner) return false;
-    if (game === 'reversi') {
-      var changed = rules.reversi.move(session.board, to, session.turn); if (!changed) return false;
-      session.history.push({ board: session.board, turn: session.turn, last: session.last, winner: session.winner, passed: session.passed });
-      session.board = changed.board; session.turn = changed.turn; session.winner = changed.winner; session.passed = changed.passed; session.last = to;
-    } else if (game === 'gomoku') {
+    if (game === 'gomoku') {
       var result = rules.gomoku.move(session.board, to, session.turn);
       if (!result) return false;
       session.history.push({ board: session.board, turn: session.turn, last: session.last, winner: session.winner });
@@ -148,10 +165,10 @@
     notice = ''; return true;
   }
   function cardPlay(cards) {
-    var game = sessions.landlord, seat = game.turn;
-    if (!rules.landlord.play(game, seat, cards)) { notice = '所选牌型无效或不能压过上一手，请重新选择或使用提示。'; return false; }
-    game.log.push(seatName(seat) + (cards.length ? '：' + rules.landlord.sort(cards).map(rules.landlord.label).join(' ') : '：不出'));
-    game.log = game.log.slice(-20); selectedCards.clear(); notice = ''; return true;
+    var game = sessions[current], seat = game.turn;
+    if (!(game.kind ? rules.poker.play(game,seat,cards,pokerChoice) : rules.landlord.play(game,seat,cards))) { notice = '所选牌型无效或不能压过上一手，请重新选择出牌方式或使用提示。'; return false; }
+    if (!game.kind) game.log.push(seatName(seat) + (cards.length ? '：' + rules.landlord.sort(cards).map(rules.landlord.label).join(' ') : '：不出'));
+    game.log = game.log.slice(-24); selectedCards.clear(); pokerChoice = null; notice = ''; return true;
   }
   function makeBid(value) {
     var game = sessions.landlord, seat = game.turn;
@@ -160,22 +177,26 @@
   function scheduleAI() {
     if (!active || document.hidden || timer !== null) return;
     var session = sessions[current], game = current, token = epoch;
-    var needed = game === 'landlord' ? (session.phase === 'bid' || session.phase === 'play') && session.turn !== 0 : game === 'mahjong' ? session.phase !== 'over' && session.turn !== 0 : modes[game] === 'ai' && !session.winner && (session.turn === 'b' || session.turn === 2);
+    var needed = isCardGame(game) ? (session.phase === 'bid' || session.phase === 'play') && session.turn !== 0 : game === 'mahjong' ? session.phase !== 'over' && session.turn !== 0 : modes[game] === 'ai' && !session.winner && (session.turn === 'b' || session.turn === 2);
     if (!needed) return;
     timer = setTimeout(function () {
       timer = null;
       if (token !== epoch || !active || current !== game || document.hidden || sessions[game] !== session) return;
       try {
-        if (game === 'landlord') { if (session.phase === 'bid') makeBid(rules.landlord.bidAI(session, session.turn)); else cardPlay(rules.landlord.ai(session, session.turn)); }
+        if (isCardGame(game)) {
+          if (session.phase === 'bid') makeBid(rules.landlord.bidAI(session, session.turn));
+          else if (session.kind) { var choice = rules.poker.ai(session,session.turn); pokerChoice = choice.key; cardPlay(choice.cards); }
+          else cardPlay(rules.landlord.ai(session, session.turn));
+        }
         else if (game === 'mahjong') { rules.mahjong.ai(session); mahjongSelected = null; }
-        else if (game === 'gomoku' || game === 'reversi') {
-          var candidates = game === 'reversi' ? rules.reversi.moves(session.board, 2) : session.board.map(function (_, at) { return at; }).filter(function (at) { return !session.board[at]; });
+        else if (game === 'gomoku') {
+          var candidates = session.board.map(function (_, at) { return at; }).filter(function (at) { return !session.board[at]; });
           var at = difficulties[game] === 'easy' ? candidates[Math.floor(Math.random() * candidates.length)] : rules[game].ai(session.board, 2);
           if (Number.isInteger(at) && at >= 0) boardMove(game, null, at);
         } else { var moves = difficulties.chess === 'easy' ? rules.chess.moves(session.board, 'b') : null; var move = moves ? moves[Math.floor(Math.random() * moves.length)] : rules.chess.ai(session.board, 'b'); if (move) boardMove(game, move.from, move.to); }
         render();
       } catch (_) { notice = '本局电脑走子遇到问题，请重新开局。'; renderError(); }
-    }, game === 'landlord' || game === 'mahjong' ? 650 : 380);
+    }, isCardGame(game) || game === 'mahjong' ? 650 : 380);
   }
   function renderError() { var message = root.querySelector('.game-notice'); if (message) message.textContent = notice; }
   function undo() {
@@ -188,7 +209,7 @@
   function bind() {
     root.addEventListener('click', function (event) {
       var tab = event.target.closest('[data-game-tab]');
-      if (tab && titles[tab.dataset.gameTab]) { cancelAI(); current = tab.dataset.gameTab; chessSelected = null; mahjongSelected = null; notice = ''; render(); return; }
+      if (tab && titles[tab.dataset.gameTab]) { cancelAI(); current = tab.dataset.gameTab; chessSelected = null; mahjongSelected = null; pokerChoice = null; selectedCards.clear(); notice = ''; render(); return; }
       var action = event.target.closest('[data-game-action]');
       if (action && !action.disabled) {
         if (action.dataset.gameAction === 'restart') reset(current);
@@ -203,22 +224,20 @@
             if (kind === 'mahjong-kong') { rules.mahjong.kong(mahjong, 0, Number(action.dataset.tile)); mahjongSelected = null; }
           }
         }
-        if (current === 'landlord') {
-          var game = sessions.landlord;
+        if (isCardGame(current)) {
+          var game = sessions[current];
           if (action.dataset.gameAction === 'bid' && game.turn === 0) makeBid(Number(action.dataset.bid));
           if (action.dataset.gameAction === 'play' && game.turn === 0) { if (selectedCards.size) cardPlay(Array.from(selectedCards)); else notice = '请先选择要出的手牌。'; }
           if (action.dataset.gameAction === 'pass' && game.turn === 0) cardPlay([]);
-          if (action.dataset.gameAction === 'clear') selectedCards.clear();
-          if (action.dataset.gameAction === 'hint' && game.turn === 0) { selectedCards = new Set(rules.landlord.ai(game, 0, true)); notice = selectedCards.size ? '已选出一组可出的牌，可调整后点击“出牌”。' : '没有可压牌，可以选择“不出”。'; }
+          if (action.dataset.gameAction === 'clear') { selectedCards.clear(); pokerChoice = null; }
+          if (action.dataset.gameAction === 'hint' && game.turn === 0 && game.phase === 'play') { var suggested = game.kind ? rules.poker.ai(game,0,true) : {cards:rules.landlord.ai(game,0,true),key:null}; selectedCards = new Set(suggested.cards); pokerChoice = suggested.key; notice = selectedCards.size ? '已选出一组可出的牌，可调整后点击“出牌”。' : '没有可压牌，可以选择“不出”。'; }
         }
         render(); return;
       }
       var card = event.target.closest('[data-card]');
-      if (card && !card.disabled) { var id = Number(card.dataset.card); if (selectedCards.has(id)) selectedCards.delete(id); else selectedCards.add(id); render(); return; }
+      if (card && !card.disabled) { var id = Number(card.dataset.card); if (selectedCards.has(id)) selectedCards.delete(id); else selectedCards.add(id); pokerChoice = null; render(); return; }
       var tile = event.target.closest('[data-mahjong-tile]');
       if (tile && !tile.disabled && current === 'mahjong' && sessions.mahjong.turn === 0 && sessions.mahjong.phase === 'discard') { var index = Number(tile.dataset.mahjongTile); mahjongSelected = mahjongSelected === index ? null : index; render(); return; }
-      var reversi = event.target.closest('[data-reversi-cell]');
-      if (reversi && !reversi.disabled) { boardMove('reversi', null, Number(reversi.dataset.reversiCell)); render(); return; }
       var stone = event.target.closest('[data-gomoku-cell]');
       if (stone && !stone.disabled) { boardMove('gomoku', null, Number(stone.dataset.gomokuCell)); render(); return; }
       var square = event.target.closest('[data-chess-cell]');
@@ -230,15 +249,18 @@
       }
     });
     root.addEventListener('change', function (event) {
+      if (event.target.id === 'landlordVariant' && ['classic','laizi'].includes(event.target.value)) { landlordVariant = event.target.value; reset('landlord'); render(); return; }
+      if (event.target.id === 'guandanLevel' && Number(event.target.value) >= 3 && Number(event.target.value) <= 15) { guandanLevel = Number(event.target.value); reset('guandan'); render(); return; }
+      if (event.target.id === 'pokerPatternChoice') { pokerChoice = event.target.value; render(); return; }
       if (!Object.prototype.hasOwnProperty.call(modes, current)) return;
       if (event.target.id === 'entertainmentMode' && ['ai', 'local'].includes(event.target.value)) { modes[current] = event.target.value; reset(current); render(); }
       if (event.target.id === 'entertainmentDifficulty' && ['easy', 'normal'].includes(event.target.value)) { difficulties[current] = event.target.value; notice = '电脑难度已更新，下次电脑行动时生效。'; render(); }
     });
     root.addEventListener('keydown', function (event) {
-      var cell = event.target.closest('[data-chess-cell],[data-gomoku-cell],[data-reversi-cell]'), shifts = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -1, ArrowDown: 1 };
+      var cell = event.target.closest('[data-chess-cell],[data-gomoku-cell]'), shifts = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -1, ArrowDown: 1 };
       if (!cell || !Object.prototype.hasOwnProperty.call(shifts, event.key)) return;
       event.preventDefault();
-      var chess = cell.hasAttribute('data-chess-cell'), reversi = cell.hasAttribute('data-reversi-cell'), attr = chess ? 'data-chess-cell' : reversi ? 'data-reversi-cell' : 'data-gomoku-cell', width = chess ? 9 : reversi ? 8 : 15, index = Number(cell.getAttribute(attr));
+      var chess = cell.hasAttribute('data-chess-cell'), attr = chess ? 'data-chess-cell' : 'data-gomoku-cell', width = chess ? 9 : 15, index = Number(cell.getAttribute(attr));
       var next = index + shifts[event.key] * (event.key === 'ArrowUp' || event.key === 'ArrowDown' ? width : 1);
       if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && Math.floor(index / width) !== Math.floor(next / width)) return;
       var target = root.querySelector('[' + attr + '="' + next + '"]'); if (target && !target.disabled) target.focus();

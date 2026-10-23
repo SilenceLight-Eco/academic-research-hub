@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const { mahjong: mj, reversi: rv } = require('../web/entertainment-extra.js');
+const { mahjong: mj } = require('../web/entertainment-extra.js');
 function rng(seed) { return () => ((seed = Math.imul(seed, 1664525) + 1013904223 >>> 0) / 4294967296); }
 function fixture(hands) { const g = mj.create(rng(3)); g.hands = hands; g.melds = [[],[],[],[]]; g.discards = [[],[],[],[]]; g.wall = [20,21,22,23]; g.turn = 0; g.phase = 'discard'; g.lastDraw = hands[0].at(-1); return g; }
 function inventory(g) {
@@ -70,27 +70,4 @@ test('60 deterministic full mahjong games terminate and conserve every copy of e
     assert.equal(g.phase, 'over', `seed ${seed} stalled`); inventory(g);
     if (g.winner !== 'draw') assert.equal(mj.winning(g.hands[g.winner], g.melds[g.winner].length), true);
   }
-});
-test('reversi initial legal moves flip a stone without mutating the input', () => {
-  const b = rv.initial(); assert.deepEqual(rv.moves(b, 1), [19,26,37,44]);
-  const result = rv.move(b, 19, 1); assert.equal(result.captured, 1); assert.equal(result.board[27], 1); assert.equal(b[27], 2); assert.equal(result.turn, 2);
-  for (const at of [-1,64,27,0,1.1]) assert.equal(rv.move(b, at, 1), null);
-});
-test('reversi flips all eight directions and never wraps across edges', () => {
-  const b = Array(64).fill(0), at = 27;
-  for (const step of [-9,-8,-7,-1,1,7,8,9]) { b[at+step] = 2; b[at+step*2] = 1; }
-  assert.equal(rv.flips(b, at, 1).length, 8);
-  const edge = Array(64).fill(0); edge[8] = 2; edge[9] = 1; assert.deepEqual(rv.flips(edge, 7, 1), []);
-});
-test('reversi auto-passes a blocked player and scores a terminal board', () => {
-  let b = Array(64).fill(1); b[0] = b[63] = 0; b[1] = b[62] = 2;
-  const pass = rv.move(b, 0, 1); assert.equal(pass.passed, 2); assert.equal(pass.turn, 1); assert.equal(pass.winner, null);
-  const end = rv.move(pass.board, 63, 1); assert.equal(end.winner, 1);
-  b = Array(64).fill(2); b[0] = 0; b[1] = 1; assert.equal(rv.move(b, 0, 2).winner, 2);
-});
-test('reversi computer chooses a legal corner, full games finish and terminal boards have no move', () => {
-  const b = Array(64).fill(0); b[1] = 2; b[2] = 1; assert.equal(rv.ai(b, 1), 0);
-  let board = rv.initial(), side = 1, end = null, steps = 0;
-  while (!end && steps++ < 61) { const at = rv.ai(board, side); assert.ok(rv.moves(board, side).includes(at)); const move = rv.move(board, at, side); board = move.board; side = move.turn; end = move.winner; }
-  assert.ok(end); assert.ok(steps <= 60); assert.equal(rv.ai(board, 1), -1); assert.equal(rv.ai(board, 2), -1);
 });

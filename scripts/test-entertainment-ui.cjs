@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const rules = { ...require('../web/entertainment-rules.js'), ...require('../web/entertainment-extra.js') };
+const rules = { ...require('../web/entertainment-rules.js'), ...require('../web/entertainment-extra.js'), poker: require('../web/entertainment-poker.js') };
 const source = fs.readFileSync(path.join(__dirname, '../web/entertainment.js'), 'utf8');
 function harness(mahjongGame) {
   const events = {}, docEvents = {}, timers = new Map(); let timerId = 0;
@@ -18,15 +18,17 @@ function harness(mahjongGame) {
     card(id) { click('[data-card]', { card: String(id) }); },
     gomoku(at) { click('[data-gomoku-cell]', { gomokuCell: String(at) }); },
     chess(at) { click('[data-chess-cell]', { chessCell: String(at) }); },
-    reversi(at) { click('[data-reversi-cell]', { reversiCell: String(at) }); },
     tile(index) { click('[data-mahjong-tile]', { mahjongTile: String(index) }); },
     difficulty(value) { events.change({ target: { id: 'entertainmentDifficulty', value } }); },
     mode(value) { events.change({ target: { id: 'entertainmentMode', value } }); },
+    variant(value) { events.change({ target: { id: 'landlordVariant', value } }); },
+    level(value) { events.change({ target: { id: 'guandanLevel', value: String(value) } }); },
+    interpretation(value) { events.change({ target: { id: 'pokerPatternChoice', value } }); },
     run() { const first = timers.entries().next().value; if (first) { timers.delete(first[0]); first[1](); } }
   };
 }
-test('entertainment mounts once, exposes five games and does not duplicate event listeners', () => {
-  const h = harness(); assert.match(h.root.innerHTML, /斗地主.*休闲麻将.*中国象棋.*五子棋.*黑白棋/);
+test('entertainment mounts once, exposes six games without reversi and does not duplicate event listeners', () => {
+  const h = harness(); assert.match(h.root.innerHTML, /斗地主.*掼蛋.*5·10·K.*休闲麻将.*中国象棋.*五子棋/); assert.doesNotMatch(h.root.innerHTML, /黑白棋|reversi/);
   const original = h.root.innerHTML; h.window.AcademicEntertainment.panelChanged('entertainment'); assert.equal(h.root.innerHTML, original);
   assert.equal(h.timers.size, 0);
 });
@@ -34,7 +36,7 @@ test('entertainment mounts once, exposes five games and does not duplicate event
 test('card club preserves accessible game names and starts with collapsed optional details', () => {
   const h = harness();
   assert.match(h.root.innerHTML, /休闲棋牌室/);
-  for (const name of ['斗地主', '休闲麻将', '中国象棋', '五子棋', '黑白棋']) assert.ok(h.root.innerHTML.includes('role="tab" aria-label="' + name + '"'));
+  for (const name of ['斗地主', '掼蛋', '5·10·K', '休闲麻将', '中国象棋', '五子棋']) assert.ok(h.root.innerHTML.includes('role="tab" aria-label="' + name + '"'));
   assert.equal((h.root.innerHTML.match(/class="player-avatar"/g) || []).length, 3);
   assert.match(h.root.innerHTML, /<details class="landlord-log"><summary>本局出牌记录/);
   assert.match(h.root.innerHTML, /<details class="game-help"><summary>/);
@@ -119,19 +121,10 @@ test('mahjong skip draws into the next turn and a legal concealed kong redraws a
   kong.action('mahjong-kong', { tile: '0' }); assert.match(kong.root.innerHTML, /aria-label="暗杠一万"/);
   assert.equal((kong.root.innerHTML.match(/data-mahjong-tile=/g) || []).length, 11);
 });
-test('reversi renders legal destinations, replies and undoes a whole round', () => {
-  const h = harness(); h.tab('reversi'); assert.match(h.root.innerHTML, /八路黑白棋棋盘/);
-  assert.equal((h.root.innerHTML.match(/reversi-move-dot/g) || []).length, 4);
-  h.reversi(19); assert.equal(h.timers.size, 1); h.run(); assert.equal(h.timers.size, 0);
-  assert.equal((h.root.innerHTML.match(/gomoku-stone stone-/g) || []).length, 6);
-  h.action('undo'); assert.equal((h.root.innerHTML.match(/gomoku-stone stone-/g) || []).length, 4);
-  h.mode('local'); h.reversi(19); assert.equal(h.timers.size, 0); assert.match(h.root.innerHTML, /白棋行棋/);
-});
 test('board difficulty applies on the next AI turn without resetting moves', () => {
-  for (const game of ['gomoku','chess','reversi']) {
+  for (const game of ['gomoku','chess']) {
     const h = harness(); h.tab(game); h.difficulty('easy'); assert.match(h.root.innerHTML, /value="easy" selected/);
     if (game === 'gomoku') h.gomoku(112);
-    else if (game === 'reversi') h.reversi(19);
     else { h.chess(54); h.chess(45); }
     assert.equal(h.timers.size, 1); h.difficulty('normal'); assert.equal(h.timers.size, 1);
     h.difficulty('easy'); h.run(); assert.doesNotMatch(h.root.innerHTML, /本局电脑走子遇到问题/); assert.equal(h.timers.size, 0);
@@ -146,4 +139,28 @@ test('mahjong opponent concealed kongs hide tile identity and bot claims do not 
   assert.match(h.root.innerHTML, /aria-label="暗杠（牌面隐藏）"/);
   assert.doesNotMatch(h.root.innerHTML, /aria-label="暗杠五条"|再来一局/);
   assert.equal(h.timers.size, 1);
+});
+
+test('landlord variant switches to real laizi play and exposes valid interpretations', () => {
+  const h = harness(); h.variant('laizi'); assert.match(h.root.innerHTML, /本局癞子/); assert.match(h.root.innerHTML, /value="laizi" selected/);
+  h.action('bid',{bid:'3'}); h.action('hint'); assert.match(h.root.innerHTML, /id="pokerPatternChoice"/);
+  const key=h.root.innerHTML.match(/<option value="([^"]+)" selected>/)[1]; h.interpretation(key); h.action('play'); assert.equal(h.timers.size,1);
+  h.window.AcademicEntertainment.panelChanged('dashboard'); assert.equal(h.timers.size,0); h.window.AcademicEntertainment.panelChanged('entertainment');
+  h.run(); h.run(); assert.doesNotMatch(h.root.innerHTML,/本局电脑走子遇到问题/);
+  h.variant('classic'); assert.doesNotMatch(h.root.innerHTML,/本局癞子/); assert.match(h.root.innerHTML,/轮到你叫分/); assert.equal(h.timers.size,0);
+});
+test('guandan and 5-10-K expose 27 selectable cards with distinct IDs, real hints and paused bot turns', () => {
+  for (const kind of ['guandan','fivetenk']) {
+    const h=harness(); h.tab(kind); const ids=[...h.root.innerHTML.matchAll(/data-card="(\d+)"/g)].map(m=>Number(m[1]));
+    assert.equal(ids.length,27); assert.equal(new Set(ids).size,27); assert.match(h.root.innerHTML,/电脑 2 · 搭档/);
+    h.action('hint'); assert.match(h.root.innerHTML,/已选出一组可出的牌/); h.action('play'); assert.equal(h.timers.size,1);
+    h.tab('chess'); assert.equal(h.timers.size,0); h.tab(kind); assert.equal(h.timers.size,1);
+    for (let i=0;i<10&&h.timers.size;i++) h.run(); assert.doesNotMatch(h.root.innerHTML,/本局电脑走子遇到问题/);
+  }
+});
+test('guandan level changes restart only its deal; 5-10-K shows score without a bid control', () => {
+  const h=harness(); h.tab('guandan'); h.action('hint'); h.action('play'); h.level(5);
+  assert.equal(h.timers.size,0); assert.match(h.root.innerHTML,/value="5" selected/); assert.match(h.root.innerHTML,/红桃5百搭/);
+  assert.equal((h.root.innerHTML.match(/data-card="/g)||[]).length,27);
+  h.tab('fivetenk'); assert.match(h.root.innerHTML,/我方 <b>0<\/b> 分/); assert.doesNotMatch(h.root.innerHTML,/data-bid=/);
 });

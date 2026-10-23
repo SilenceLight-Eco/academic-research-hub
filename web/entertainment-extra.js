@@ -108,34 +108,5 @@
     return discard(game, seat, discardHint(game, seat));
   }
 
-  // 黑白棋：夹住对方棋子后翻转；无合法落点自动让行，双方均无落点结算。
-  var dirs = [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
-  function reversiInitial() { var board = Array(64).fill(0); board[27] = board[36] = 2; board[28] = board[35] = 1; return board; }
-  function flips(board, at, side) {
-    if (!Number.isInteger(at) || at < 0 || at >= 64 || board[at] || (side !== 1 && side !== 2)) return [];
-    var result = [], row = Math.floor(at / 8), col = at % 8;
-    dirs.forEach(function (d) {
-      var r = row + d[0], c = col + d[1], line = [];
-      while (r >= 0 && r < 8 && c >= 0 && c < 8 && board[r * 8 + c] === 3 - side) { line.push(r * 8 + c); r += d[0]; c += d[1]; }
-      if (r >= 0 && r < 8 && c >= 0 && c < 8 && board[r * 8 + c] === side) result = result.concat(line);
-    }); return result;
-  }
-  function reversiMoves(board, side) { return board.map(function (_, at) { return at; }).filter(function (at) { return flips(board, at, side).length; }); }
-  function reversiMove(board, at, side) {
-    var captured = flips(board, at, side); if (!captured.length) return null;
-    var next = board.slice(); next[at] = side; captured.forEach(function (index) { next[index] = side; });
-    var turn = 3 - side, passed = null, winner = null;
-    if (!reversiMoves(next, turn).length) { passed = turn; turn = side; if (!reversiMoves(next, turn).length) { var black = next.filter(function (s) { return s === 1; }).length, white = next.filter(function (s) { return s === 2; }).length; winner = black === white ? 'draw' : black > white ? 1 : 2; } }
-    return { board: next, turn: turn, passed: passed, winner: winner, captured: captured.length };
-  }
-  function reversiAI(board, side) {
-    var moves = reversiMoves(board, side), best = -1, bestScore = -Infinity;
-    moves.forEach(function (at) {
-      var next = reversiMove(board, at, side), corner = [0,7,56,63].includes(at), nearCorner = [[0,1,8,9],[7,6,14,15],[56,48,49,57],[63,54,55,62]].some(function (group) { return !board[group[0]] && group.slice(1).includes(at); });
-      var score = (corner ? 1000 : 0) - (nearCorner ? 150 : 0) - reversiMoves(next.board, 3 - side).length * 5 + next.captured;
-      if (next.winner === side) score += 10000;
-      if (score > bestScore) { bestScore = score; best = at; }
-    }); return best;
-  }
-  return { mahjong: { create: newMahjong, label: tileLabel, winning: winning, options: selfOptions, discard: discard, claim: claim, win: selfWin, kong: concealedKong, hint: discardHint, ai: mahjongAI }, reversi: { initial: reversiInitial, flips: flips, moves: reversiMoves, move: reversiMove, ai: reversiAI } };
+  return { mahjong: { create: newMahjong, label: tileLabel, winning: winning, options: selfOptions, discard: discard, claim: claim, win: selfWin, kong: concealedKong, hint: discardHint, ai: mahjongAI } };
 }));
