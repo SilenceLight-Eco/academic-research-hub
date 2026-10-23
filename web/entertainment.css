@@ -1,0 +1,58 @@
+#panel-entertainment { --game-wood:#e9c992; --game-ink:#463221; }
+.entertainment-head h2 { margin:0 0 8px; color:var(--text); font-size:23px; }
+.entertainment-head p,.game-storage-note { color:var(--text-muted); font-size:12px; line-height:1.8; }
+.game-tabs { display:flex; gap:10px; flex-wrap:wrap; margin:22px 0 16px; }
+.game-tabs button,.game-controls button,.game-controls select { padding:9px 15px; border:1px solid var(--hairline); border-radius:8px; background:var(--glass-strong); color:var(--text); font:inherit; font-size:13px; cursor:pointer; }
+.game-tabs button.is-active { color:var(--accent); border-color:var(--accent); background:var(--accent-dim); }
+.game-stage { border:1px solid var(--hairline); border-radius:14px; background:var(--glass-strong); padding:clamp(14px,3vw,28px); }
+.game-stage h3 { font-size:19px; margin:0 0 18px; color:var(--text); }
+.game-controls { display:flex; align-items:center; flex-wrap:wrap; gap:9px; }
+.game-controls label { color:var(--text-secondary); font-size:12px; }
+.game-controls button:disabled { opacity:.45; cursor:default; }
+.game-controls button:not(:disabled):hover { border-color:var(--accent); color:var(--accent); }
+.game-status { margin:16px 0; color:var(--accent); min-height:22px; font-size:14px; font-weight:600; }
+.game-notice { color:var(--text-secondary); font-size:13px; line-height:1.6; min-height:21px; margin-bottom:0; }
+.game-help { color:var(--text-secondary); font-size:12px; line-height:1.9; margin:18px 0 0; max-width:850px; }
+.game-help summary { cursor:pointer; color:var(--accent); }
+.game-help p { margin:8px 0; }
+.game-storage-note { margin-top:15px; }
+.gomoku-board { width:min(100%,600px); aspect-ratio:1; display:grid; grid-template-columns:repeat(15,minmax(0,1fr)); border:10px solid #b88b50; box-sizing:border-box; border-radius:7px; background:var(--game-wood); box-shadow:0 4px 22px #4c30141a; }
+.gomoku-cell { position:relative; padding:0; min-width:0; border:0; background:linear-gradient(#936e3d,#936e3d) center/1px 100% no-repeat,linear-gradient(#936e3d,#936e3d) center/100% 1px no-repeat; aspect-ratio:1; cursor:pointer; }
+.gomoku-cell:disabled { cursor:default; opacity:1; }
+.gomoku-cell:not(:disabled):hover { background-color:#ffffff38; }
+.gomoku-stone { position:absolute; inset:9%; border-radius:50%; box-shadow:1px 2px 3px #0005; }
+.gomoku-stone.stone-1 { background:radial-gradient(circle at 32% 28%,#6e6e6e,#191919 60%,#050505); }
+.gomoku-stone.stone-2 { background:radial-gradient(circle at 30% 25%,#fff,#eee 60%,#bdbdbd); border:1px solid #9998; }
+.gomoku-star { position:absolute; width:13%; height:13%; top:44%; left:44%; border-radius:50%; background:#684620; }
+.gomoku-cell.is-last .gomoku-stone::after { content:''; position:absolute; inset:35%; border:2px solid #e68b3f; border-radius:50%; }
+.chess-board { position:relative; isolation:isolate; display:grid; grid-template-columns:repeat(9,minmax(0,1fr)); width:min(100%,540px); aspect-ratio:9/10; border:10px solid #b88b50; box-sizing:border-box; border-radius:7px; background:var(--game-wood); box-shadow:0 4px 22px #4c30141a; }
+.chess-lines { position:absolute; width:100%; height:100%; z-index:-1; }
+.chess-lines text { font-size:.3px; fill:#825f39; font-family:serif; }
+.chess-cell { position:relative; padding:0; min-width:0; border:0; background:transparent; aspect-ratio:1; cursor:pointer; }
+.chess-cell:disabled { cursor:default; opacity:1; }
+.chess-piece { display:flex; align-items:center; justify-content:center; position:absolute; inset:7%; border:2px solid currentColor; border-radius:50%; background:radial-gradient(circle at 35% 28%,#ffeac4,#edc98e); box-shadow:1px 2px 3px #0004,inset 0 0 0 2px #ffe4b9; font:bold clamp(15px,2.6vw,29px)/1 'Noto Serif SC',SimSun,serif; }
+.chess-piece.side-r { color:#a52222; }
+.chess-piece.side-b { color:#302a25; }
+.chess-cell.is-selected { outline:3px solid #d17019; outline-offset:-3px; border-radius:8px; background:#fff5; }
+.chess-cell.is-last:not(.is-selected) { box-shadow:inset 0 0 0 2px #27866caa; border-radius:7px; }
+.chess-move-dot { position:absolute; width:19%; height:19%; top:41%; left:41%; border-radius:50%; background:#157054; box-shadow:0 0 0 3px #e6ffe3b3; }
+.landlord-table { border:1px solid var(--hairline); border-radius:12px; padding:18px; background:linear-gradient(135deg,#26785812,#33998a09); }
+.landlord-reserve { display:flex; align-items:center; justify-content:center; gap:15px; flex-wrap:wrap; color:var(--text-secondary); font-size:12px; }
+.landlord-reserve > div { display:flex; gap:4px; }
+.landlord-opponents { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:20px 0; }
+.landlord-seat { min-width:0; padding:14px; border:1px solid var(--hairline); border-radius:9px; }
+.landlord-seat.is-turn { border-color:var(--accent); background:var(--accent-dim); }
+.landlord-seat h4,.landlord-human h4 { margin:0 0 8px; color:var(--text); font-size:14px; }
+.landlord-seat p { color:var(--text-secondary); font-size:12px; }
+.landlord-play,.landlord-hand { display:flex; flex-wrap:wrap; gap:5px; align-items:center; min-height:62px; }
+.landlord-play > span { color:var(--text-muted); font-size:12px; }
+.playing-card { min-width:39px; height:58px; padding:5px; border:1px solid #c4c8ce; border-radius:6px; color:#202835; background:#fffef9; font:bold 15px/1.2 Georgia,serif; box-shadow:0 2px 3px #0001; }
+.playing-card.card-red { color:#b92a36; }
+.playing-card:disabled { opacity:1; cursor:default; }
+.landlord-hand .playing-card[data-card] { cursor:pointer; }
+.playing-card.is-selected { transform:translateY(-8px); border:2px solid var(--accent); background:#e3f9ee; box-shadow:0 0 0 2px #52a28544; }
+.card-back { display:inline-flex; width:39px; height:58px; align-items:center; justify-content:center; border:1px solid #ffffff77; border-radius:5px; background:repeating-linear-gradient(45deg,#365e97,#365e97 3px,#4f75ab 3px,#4f75ab 6px); color:white; }
+.landlord-log { margin-top:20px; padding-top:12px; border-top:1px solid var(--hairline); }
+.landlord-log p { color:var(--text-muted); font-size:11px; margin:5px 0; overflow-wrap:anywhere; }
+#entertainmentRoot button:focus-visible,#entertainmentRoot select:focus-visible { outline:3px solid var(--accent); outline-offset:2px; }
+@media(max-width:640px) { .landlord-table { padding:10px; }.landlord-opponents { gap:8px; }.landlord-seat { padding:9px; }.playing-card { min-width:32px; height:48px; font-size:13px; }.chess-board,.gomoku-board { border-width:6px; }.game-controls button { padding:8px 10px; } }

@@ -352,6 +352,7 @@
     dashboard: '概览',
     todos: '待办事项',
     focus: '专注',
+    entertainment: '娱乐',
     news: '资讯动态',
     literature: '文献工具',
     pdf: 'PDF转写',
@@ -1693,6 +1694,7 @@
     if (prev === 'journal-tracker' && panel !== prev) { stopTrackerListPolling(); hideTrackerJournalSearchResults(true); }
     if (prev && prev !== panel) scrollMemory[prev] = window.scrollY || 0;
     state.panel = panel;
+    if (window.AcademicEntertainment) window.AcademicEntertainment.panelChanged(panel);
     $$('.nav-item').forEach(function (btn) {
       btn.classList.toggle('active', btn.dataset.panel === panel);
     });
