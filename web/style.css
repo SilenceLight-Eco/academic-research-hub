@@ -7325,6 +7325,11 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .variable-list-item span { margin-top:5px; color:var(--text-muted); font-size:10px; }
 .variable-list-item .variable-sort-handle { flex:none; margin:0; color:var(--text-muted); cursor:grab; font-size:15px; }
 .variable-list-item i { font-style:normal; }
+.variable-list-item.variable-content-result { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:4px 6px; }
+.variable-content-result > b { grid-column:1; }
+.variable-list-item .variable-search-excerpt { grid-column:1 / -1; margin:0; white-space:normal; overflow-wrap:anywhere; line-height:1.6; }
+.variable-content-result .variable-sort-handle { grid-column:2; grid-row:1; }
+.variable-content-result .variable-search-exact { grid-column:1; justify-self:start; }
 .variable-empty { padding:24px 8px; color:var(--text-muted); font-size:11px; line-height:1.8; text-align:center; }
 .variable-editor { min-width:0; padding:18px clamp(16px,3vw,32px); }
 .variable-title-row { display:flex; align-items:center; gap:8px; padding-bottom:4px; }

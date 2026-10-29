@@ -72,7 +72,7 @@
     variableTrashOpen: false,
     variableCategoryFilter: 'all',
     variableQuery: '',
-    variableSearchMode: 'name',
+    variableSearchMode: 'all',
     variableSearchCollapsedRoles: {},
     dataCodeLibrary: { items: [], trash: [] },
     dataCodeId: null,
@@ -11344,16 +11344,48 @@
   function variableNameMatches(item, query) {
     return [item.name, item.symbol].some(function (name) { return normalizeVariableSearchText(name) === query; });
   }
+  function variableSearchFields(item) {
+    var fields = [];
+    function add(label, value) {
+      var text = String(value == null ? '' : value).normalize('NFKC').trim().replace(/\s+/g, ' ');
+      if (text) fields.push({ label: label, text: text });
+    }
+    add('变量名称', item.name); add('变量符号', item.symbol); add('变量定义', item.definition);
+    normalizedVariableMeasureReferences(item).forEach(function (entry) {
+      add('研究角色', displayVariableRoleText(entry.role));
+      entry.measures.forEach(function (value) { add('衡量方式', value); });
+      add('数据来源', entry.source);
+      entry.instrumentVariables.forEach(function (value) { add('工具变量', value); });
+      entry.papers.forEach(function (value) { add('参考文献', value); });
+    });
+    add('工具变量', item.instrumentVariable);
+    (Array.isArray(item.instrumentVariables) ? item.instrumentVariables : []).forEach(function (value) { add('工具变量', value); });
+    add('备注', item.notes);
+    return fields;
+  }
+  function variableSearchExcerpt(item, query) {
+    var words = normalizeVariableSearchText(query).split(' ').filter(Boolean);
+    if (!words.length) return '';
+    return variableSearchFields(item).filter(function (field) {
+      return field.label !== '变量名称' && field.label !== '变量符号' && words.some(function (word) { return field.text.toLowerCase().includes(word); });
+    }).slice(0, 2).map(function (field) {
+      var lower = field.text.toLowerCase();
+      var index = Math.min.apply(Math, words.map(function (word) { return lower.indexOf(word); }).filter(function (index) { return index >= 0; }));
+      var start = Math.max(0, index - 16), end = Math.min(field.text.length, Math.max(start + 70, index + words[0].length));
+      var excerpt = field.label + '：' + (start ? '…' : '') + field.text.slice(start, end) + (end < field.text.length ? '…' : '');
+      return '<span class="variable-search-excerpt" title="' + escapeHtml(field.label + '：' + field.text) + '">' + escapeHtml(excerpt) + '</span>';
+    }).join('');
+  }
   function searchVariableItems(items, query, mode) {
     query = normalizeVariableSearchText(query);
+    mode = mode || 'all';
     var exact = query ? items.filter(function (item) { return variableNameMatches(item, query); }) : [];
     var exactIds = new Set(exact.map(function (item) { return String(item.id); }));
     var visible = items.filter(function (item) {
       if (!query) return state.variableCategoryFilter === 'all' || normalizedVariableMeasureReferences(item).some(function (entry) { return normalizeVariableRoles(entry.role).indexOf(state.variableCategoryFilter) >= 0; });
       if (mode === 'exact') return exactIds.has(String(item.id));
       if (mode !== 'all') return [item.name, item.symbol].some(function (name) { return normalizeVariableSearchText(name).includes(query); });
-      var pairedSearch = normalizedVariableMeasureReferences(item).map(function (entry) { return [displayVariableRoleText(entry.role), entry.source, entry.measures.join(' '), entry.instrumentVariables.join(' '), entry.papers.join(' ')].join(' '); }).join(' ');
-      var text = normalizeVariableSearchText([item.name, item.symbol, item.definition, pairedSearch, item.notes].join(' '));
+      var text = normalizeVariableSearchText(variableSearchFields(item).map(function (field) { return field.text; }).join(' '));
       return query.split(' ').every(function (word) { return text.includes(word); });
     });
     if (query) visible.sort(function (left, right) { return Number(exactIds.has(String(right.id))) - Number(exactIds.has(String(left.id))); });
@@ -11367,13 +11399,14 @@
   }
   function renderVariableNavigation(chooseActive) {
     var library = state.variableLibrary || { items: [], trash: [] }, items = library.items || [];
-    var result = searchVariableItems(items, state.variableQuery, state.variableSearchMode || 'name');
+    var result = searchVariableItems(items, state.variableQuery, state.variableSearchMode || 'all');
     var query = result.query, visible = result.visible;
     if (chooseActive && !items.some(function (item) { return String(item.id) === String(state.variableId); })) state.variableId = visible[0] ? visible[0].id : null;
     var list = $('#variableList'), categories = $('#variableCategories');
     var summary = $('#variableSearchSummary');
     var trashedExact = query ? (library.trash || []).filter(function (entry) { return entry.item && variableNameMatches(entry.item, query); }).length : 0;
-    summary.textContent = query ? (result.exact.length ? '已存在 ' + result.exact.length + ' 个同名变量' : '现有变量中未找到同名变量') + '；匹配 ' + visible.length + ' 个（所有研究角色）' + (trashedExact ? '。回收站另有 ' + trashedExact + ' 个同名变量。' : '。') : '输入名称检查变量是否已存在；也支持原有变量符号。';
+    var fullContent = (state.variableSearchMode || 'all') === 'all';
+    summary.textContent = query ? (fullContent ? '全部内容匹配 ' + visible.length + ' 个变量（所有研究角色）' + (result.exact.length ? '；其中 ' + result.exact.length + ' 个同名变量' : '') : (result.exact.length ? '已存在 ' + result.exact.length + ' 个同名变量' : '现有变量中未找到同名变量') + '；匹配 ' + visible.length + ' 个（所有研究角色）') + (trashedExact ? '。回收站另有 ' + trashedExact + ' 个同名变量。' : '。') : '可搜索变量名称、定义、衡量方式、数据来源、工具变量和参考文献；多个关键词用空格分隔。';
     summary.dataset.exact = String(result.exact.length > 0);
     $('#variableSearchClear').hidden = !query;
     categories.innerHTML = '<button type="button" class="variable-category is-active" data-variable-category="all">全部变量 <span>' + items.length + '</span></button>';
@@ -11383,7 +11416,8 @@
       var collapsedStore = query ? state.variableSearchCollapsedRoles || {} : variableCollapsedRoles;
       var collapsed = Object.prototype.hasOwnProperty.call(collapsedStore, role) ? !!collapsedStore[role] : !query;
       return '<section class="variable-role-group"><div class="variable-role-heading-row"><button type="button" class="variable-role-title' + (collapsed ? ' is-collapsed' : '') + '" data-variable-collapse="' + escapeHtml(role) + '" title="单击折叠或展开" aria-expanded="' + (!collapsed) + '"><span>' + escapeHtml(role) + '</span><span class="variable-role-count">' + group.length + '</span><span class="variable-role-chevron" aria-hidden="true">⌄</span></button><button type="button" class="variable-role-add" data-variable-role-add="' + escapeHtml(role) + '" aria-label="在' + escapeHtml(role) + '下新建变量" title="新建此研究角色的变量">＋</button></div><div class="variable-role-items"' + (collapsed ? ' hidden' : '') + '>' + (group.length ? group.map(function (item) {
-        return '<button type="button" class="variable-list-item' + (String(item.id) === String(state.variableId) ? ' is-active' : '') + '" draggable="true" data-variable-id="' + escapeHtml(item.id) + '" title="' + escapeHtml(item.name || '未命名变量') + '"><b>' + escapeHtml(item.name || '未命名变量') + '</b>' + (query && result.exactIds.has(String(item.id)) ? '<span class="variable-search-exact">同名</span>' : '') + '<span class="variable-sort-handle" aria-hidden="true">⠿</span></button>';
+        var excerpt = query && fullContent ? variableSearchExcerpt(item, query) : '';
+        return '<button type="button" class="variable-list-item' + (excerpt ? ' variable-content-result' : '') + (String(item.id) === String(state.variableId) ? ' is-active' : '') + '" draggable="true" data-variable-id="' + escapeHtml(item.id) + '" title="' + escapeHtml(item.name || '未命名变量') + '"><b>' + escapeHtml(item.name || '未命名变量') + '</b>' + (query && result.exactIds.has(String(item.id)) ? '<span class="variable-search-exact">同名</span>' : '') + excerpt + '<span class="variable-sort-handle" aria-hidden="true">⠿</span></button>';
       }).join('') : '<div class="variable-role-empty">暂无变量</div>') + '</div></section>';
     }).join('') : '<div class="variable-empty">' + (items.length ? '没有匹配的变量' : '还没有变量记录<br>点击“新建变量”开始整理') + '</div>';
     return visible;
@@ -11400,7 +11434,7 @@
     }
     $('#variableTrash').textContent = state.variableTrashOpen ? '返回变量库' : '回收站' + (trash.length ? ' (' + trash.length + ')' : '');
     $('#variableSearch').value = state.variableQuery || '';
-    $('#variableSearchMode').value = state.variableSearchMode || 'name';
+    $('#variableSearchMode').value = state.variableSearchMode || 'all';
     $('#variableSearch').disabled = $('#variableSearchMode').disabled = Boolean(state.variableTrashOpen);
     if (state.variableTrashOpen) { $('#variableSearchSummary').textContent = '返回变量库后可搜索所有研究角色的变量。'; $('#variableSearchClear').hidden = true; }
     if (state.variableTrashOpen) {

@@ -33,7 +33,7 @@ function harness() {
     escapeHtml: value => String(value).replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;'),
     renderVariableLibrary() { throw Error('Searching must not redraw the editor'); }
   });
-  for (const name of ['normalizeVariableRoles', 'displayVariableRoleText', 'normalizedVariableMeasureReferences', 'normalizeVariableSearchText', 'variableNameMatches', 'searchVariableItems', 'renderVariableNavigation', 'updateVariableSearch', 'toggleVariableRole']) vm.runInContext(functionSource(name), context);
+  for (const name of ['normalizeVariableRoles', 'displayVariableRoleText', 'normalizedVariableMeasureReferences', 'normalizeVariableSearchText', 'variableNameMatches', 'variableSearchFields', 'variableSearchExcerpt', 'searchVariableItems', 'renderVariableNavigation', 'updateVariableSearch', 'toggleVariableRole']) vm.runInContext(functionSource(name), context);
   const start = source.indexOf("    $('#variableSearch').addEventListener('input'");
   vm.runInContext(source.slice(start, source.indexOf("    $('#variableCategories').addEventListener", start)), context);
   return { context, node, events, writes: () => writes, search: (query, mode) => context.searchVariableItems(context.state.variableLibrary.items, query, mode) };
@@ -58,6 +58,40 @@ test('full-content mode includes definitions, data sources, measures, instrument
   for (const query of ['自然对数', 'CSMAR', '港口距离', 'Smith 2026']) assert.deepEqual(ids(h.search(query, 'all')), ['other']);
   assert.deepEqual(ids(h.search('绿色创新', 'all')), ['exact', 'same', 'partial', 'other']);
   assert.equal(h.search('自然对数', 'name').visible.length, 0);
+});
+
+test('full-content search is the initial mode in both UI and state, including missing-mode fallback', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../web/workbench.html'), 'utf8');
+  assert.match(source, /variableSearchMode: 'all'/);
+  assert.match(html, /<option value="all" selected>全部内容/);
+  const h = harness(); delete h.context.state.variableSearchMode;
+  h.context.updateVariableSearch('自然对数');
+  assert.match(h.node('#variableList').innerHTML, /data-variable-id="other"/);
+  assert.match(h.node('#variableSearchSummary').textContent, /全部内容匹配 1 个变量/);
+  assert.doesNotMatch(h.node('#variableSearchSummary').textContent, /未找到同名/);
+  assert.deepEqual(ids(h.search('自然对数')), ['other']);
+});
+
+test('content matches include added rows and legacy values, and combine keywords across fields', () => {
+  const h = harness(), item = h.context.state.variableLibrary.items.find(item => item.id === 'other');
+  item.measureReferences.push({ role: ['控制变量'], measures: ['首项', '行业均值'], source: 'Wind 数据库', papers: ['首篇', '王某（2025）'], instrumentVariables: ['首个', '历史地形'] });
+  item.notes = '补充说明'; item.instrumentVariable = '历史港口';
+  for (const query of ['行业均值', 'Wind', '王某', '历史地形', '历史港口', '补充说明', 'CSMAR 自然对数', 'Wind 王某 历史地形']) assert.deepEqual(ids(h.search(query, 'all')), ['other']);
+  assert.deepEqual(ids(h.search('Wind 不存在', 'all')), []);
+  assert.deepEqual(ids(h.search('仅回收站', 'all')), []);
+});
+
+test('results display the matching field and relevant text, escaping content and preserving selection', () => {
+  const h = harness(); h.context.state.variableSearchMode = 'all';
+  const item = h.context.state.variableLibrary.items.find(item => item.id === 'other');
+  item.measureReferences[0].measures.push('前缀'.repeat(80) + '特殊计算<img src=x onerror=alert(1)>后缀');
+  h.context.state.variableId = 'partial'; h.context.updateVariableSearch('特殊计算');
+  const html = h.node('#variableList').innerHTML;
+  assert.match(html, /衡量方式：…[^<]*特殊计算/);
+  assert.match(html, /&lt;img/); assert.doesNotMatch(html, /<img/);
+  assert.match(html, /data-variable-id="other"/); assert.equal(h.context.state.variableId, 'partial');
+  h.context.updateVariableSearch('Smith'); assert.match(h.node('#variableList').innerHTML, /参考文献：Smith/);
+  h.context.updateVariableSearch(''); assert.doesNotMatch(h.node('#variableList').innerHTML, /variable-search-excerpt/);
 });
 test('lookup reports live exact matches separately from the recycle bin', () => {
   const h = harness(); h.context.updateVariableSearch('绿色创新');

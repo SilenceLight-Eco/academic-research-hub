@@ -37,6 +37,6 @@ test('old saved entertainment selection falls back while academic module history
   }
 });
 test('all entry points and paper pipeline request the new release without entertainment assets', () => {
-  for (const file of ['index.html','web/index.html','web/workbench.html','web/paper-pipeline-v2.html']) assert.match(read(file),/20261029-01/);
-  assert.match(html,/app\.js\?v=20261029-01/);
+  for (const file of ['index.html','web/index.html','web/workbench.html','web/paper-pipeline-v2.html']) assert.match(read(file),/20261029-02/);
+  assert.match(html,/app\.js\?v=20261029-02/);
 });
