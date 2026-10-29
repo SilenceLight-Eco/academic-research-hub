@@ -121,14 +121,13 @@ test('bot candidates are legal owned subsets and complete games terminate withou
     assert.equal(g.hands[g.winner].length, 0);
   }
 });
-test('entertainment is isolated from cloud APIs and every board is mounted once', () => {
+test('retired entertainment is isolated from cloud APIs and not mounted or loaded', () => {
   const js = fs.readFileSync(path.join(__dirname, '../web/entertainment.js'), 'utf8');
   assert.doesNotMatch(js, /fetch\(|localStorage|supabase|\/api\//);
   const html = fs.readFileSync(path.join(__dirname, '../web/workbench.html'), 'utf8');
-  assert.equal((html.match(/id="entertainmentRoot"/g) || []).length, 1);
-  assert.match(html, /data-panel="entertainment"/);
-  assert.ok(html.indexOf('entertainment-rules.js') < html.indexOf('src="entertainment.js'));
+  assert.doesNotMatch(html, /entertainmentRoot|panel-entertainment|data-panel="entertainment"|entertainment[^"\s]*\.(?:js|css)/);
   const app = fs.readFileSync(path.join(__dirname, '../web/app.js'), 'utf8');
-  assert.match(app, /entertainment: '娱乐'/); assert.match(app, /AcademicEntertainment\.panelChanged\(panel\)/);
+  assert.doesNotMatch(app, /entertainment: '娱乐'|AcademicEntertainment/);
+  assert.match(app, /RETIRED_PANELS = \[[^\]]*'entertainment'/);
   new vm.Script(js);
 });

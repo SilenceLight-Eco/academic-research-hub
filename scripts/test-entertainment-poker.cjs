@@ -11,10 +11,10 @@ function cards(rank,n) { return Array.from({length:n},(_,i)=>card(rank,i%4,Math.
 function game(kind, hands) { const g = poker.create(kind,rng(1)); if (kind === 'laizi') { g.wildRank = 7; base.bid(g,0,3); } if (hands) { g.hands=hands; g.turn=0; } return g; }
 function pattern(ids,g,type) { const result = poker.patterns(ids,g).find(c=>!type || c.pattern.type===type); assert.ok(result, `${g.kind} ${type} ${ids}`); return result.pattern; }
 
-test('poker bundle registers beside the original rules and loads before its UI',()=>{
+test('archived poker bundle still registers independently but is not loaded by the workbench',()=>{
   const globalThis={AcademicGames:{landlord:base}}; vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../web/entertainment-poker.js'),'utf8'),{globalThis});
   assert.equal(typeof globalThis.AcademicGames.poker.play,'function');
-  const html=fs.readFileSync(path.join(__dirname,'../web/workbench.html'),'utf8'); assert.ok(html.indexOf('entertainment-rules.js')<html.indexOf('entertainment-poker.js')); assert.ok(html.indexOf('entertainment-poker.js')<html.indexOf('entertainment.js?'));
+  const html=fs.readFileSync(path.join(__dirname,'../web/workbench.html'),'utf8'); assert.doesNotMatch(html,/entertainment-poker\.js|entertainment-rules\.js|entertainment\.js/);
 });
 test('laizi retains 54 unique cards and team games deal 108 distinct IDs equally',()=>{
   const g = poker.create('laizi',rng(1)); assert.equal(g.phase,'bid'); assert.ok(g.wildRank>=3&&g.wildRank<=15); assert.equal(new Set(g.hands.flat().concat(g.reserve)).size,54);

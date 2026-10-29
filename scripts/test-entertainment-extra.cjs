@@ -16,8 +16,7 @@ test('browser bundle extends the original game registry without replacing it', (
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../web/entertainment-extra.js'), 'utf8'), context);
   assert.equal(window.AcademicGames.existing, true); assert.equal(typeof window.AcademicGames.mahjong.create, 'function');
   const html = fs.readFileSync(path.join(__dirname, '../web/workbench.html'), 'utf8');
-  assert.ok(html.indexOf('entertainment-rules.js') < html.indexOf('entertainment-extra.js'));
-  assert.ok(html.indexOf('entertainment-extra.js') < html.indexOf('entertainment.js?'));
+  assert.doesNotMatch(html, /entertainment-extra\.js|entertainment-rules\.js|entertainment\.js/);
 });
 test('mahjong deals a complete 108-tile wall with a 14-tile dealer and three 13-tile hands', () => {
   const g = mj.create(rng(4)); inventory(g); assert.deepEqual(g.hands.map(h => h.length), [14,13,13,13]); assert.equal(g.wall.length, 55);

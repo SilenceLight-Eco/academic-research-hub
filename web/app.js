@@ -352,7 +352,6 @@
     dashboard: '概览',
     todos: '待办事项',
     focus: '专注',
-    entertainment: '娱乐',
     news: '资讯动态',
     literature: '文献工具',
     pdf: 'PDF转写',
@@ -367,7 +366,7 @@
   };
 
   // 浏览器版仅保留研究管理核心功能；已下线的页面即使通过旧书签访问也返回概览。
-  const RETIRED_PANELS = ['literature', 'pdf', 'translations', 'readings', 'frontier', 'hotspots', 'weekly', 'summaries', 'sections', 'news', 'data-code'];
+  const RETIRED_PANELS = ['literature', 'pdf', 'translations', 'readings', 'frontier', 'hotspots', 'weekly', 'summaries', 'sections', 'news', 'data-code', 'entertainment'];
 
   // 板块图标（线性 SVG）
   const SECTION_ICONS = {
@@ -1694,7 +1693,6 @@
     if (prev === 'journal-tracker' && panel !== prev) { stopTrackerListPolling(); hideTrackerJournalSearchResults(true); }
     if (prev && prev !== panel) scrollMemory[prev] = window.scrollY || 0;
     state.panel = panel;
-    if (window.AcademicEntertainment) window.AcademicEntertainment.panelChanged(panel);
     $$('.nav-item').forEach(function (btn) {
       btn.classList.toggle('active', btn.dataset.panel === panel);
     });
@@ -12669,6 +12667,7 @@
     if (!raw) return false;
     var parts = raw.split('/');
     var panel = parts[0];
+    if (RETIRED_PANELS.indexOf(panel) >= 0) { switchPanel('dashboard'); return true; }
     if (!$('.nav-item[data-panel="' + panel + '"]')) return false;
     switchPanel(panel);
     if (parts.length > 1) {
