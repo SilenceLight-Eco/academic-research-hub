@@ -46,6 +46,29 @@
   var saveRetryAttempt = 0;
   var focusKeys = ['academic-workbench-theme', 'wb_pomo_counts', 'wb_focus_preset', 'wb_focus_log', 'wb_focus_state'];
   var researchHubKeys = ['research-hub-crossref-email', 'research-hub-crossref-citations-v1', 'research-hub-stages-v1', 'research-hub-fields-v1', 'research-hub-cards-v1', 'research-hub-theme', 'research-hub-unassigned-data-code-v1', 'academic-workbench-tracker-display-v1', 'academic-workbench-journal-categories-v1', 'academic-workbench-journal-category-order-v1', 'academic-workbench-journal-category-colors-v1'];
+  var cacheOwnerKey = 'academic-workbench-cache-owner-v1';
+  var cacheOwner;
+  window.__academicStaticAccountIsolation = true;
+  function activateAccountCache(user) {
+    var nextOwner = user ? String(user.id) : 'guest';
+    if (cacheOwner === nextOwner && localStorage.getItem(cacheOwnerKey) === nextOwner) return;
+    var previousOwner = localStorage.getItem(cacheOwnerKey);
+    if (previousOwner !== nextOwner && (previousOwner || user)) {
+      // Preserve unclaimed/previous-account edits locally; never import them into
+      // a different account just because it has an empty cloud workspace.
+      var previous = {};
+      focusKeys.concat(researchHubKeys).forEach(function (key) { previous[key] = localStorage.getItem(key); });
+      if (Object.keys(previous).some(function (key) { return previous[key] !== null; })) {
+        localStorage.setItem('academic-workbench-isolated-cache-v1:' + (previousOwner || 'unclaimed') + ':' + Date.now(), JSON.stringify(previous));
+      }
+      focusKeys.concat(researchHubKeys).forEach(function (key) { localStorage.removeItem(key); });
+    }
+    var changed = cacheOwner !== undefined && cacheOwner !== nextOwner;
+    cacheOwner = nextOwner;
+    localStorage.setItem(cacheOwnerKey, nextOwner);
+    resetWorkspaceSession();
+    if (changed) window.dispatchEvent(new CustomEvent('academic-account-changed'));
+  }
 
   function response(data, status) { return new Response(JSON.stringify(data), { status: status || 200, headers: { 'Content-Type': 'application/json' } }); }
   function nowId() { return Date.now(); }
@@ -208,7 +231,7 @@
   function overview() { var payload = currentPayload(); var defaults = { configured: false, label: '学业进度', stage: '', percent: 0, start: '', end: '', remain_days: 0 }; return { field_name: 'Academic Research Hub', phd: Object.assign(defaults, payload.studyProgress || {}), graduation: graduation(payload.publications, payload.graduationConfig), academic_records: payload.academicRecords || { funding: [], awards: [], conferences: [] }, academic_record_drafts: payload.academicRecordDrafts || {}, sections: [], tree: { name: '浏览器版不访问本地文件', children: [], count: 0 } }; }
   // Read the persisted browser session first. Unlike getUser(), this does not
   // depend on a network round-trip during a page refresh.
-  async function getUser() { await window.__academicAuthReady; var result = await client.auth.getSession(); return result.data.session ? result.data.session.user : null; }
+  async function getUser() { await window.__academicAuthReady; var result = await client.auth.getSession(); var user = result.data.session ? result.data.session.user : null; activateAccountCache(user); return user; }
   var attachmentBucket = 'research-attachments';
   var attachmentTusPromise = null;
   function attachmentContext(kind, id) {
@@ -445,8 +468,10 @@
   async function loadWorkspaceFromCloud() {
     var user = await getUser();
     if (!user) return null;
+    var generation = workspaceSessionGeneration;
     var result = await client.from('user_workspaces').select('payload,updated_at').eq('user_id', user.id).maybeSingle();
     if (result.error) throw result.error;
+    if (generation !== workspaceSessionGeneration) throw new Error('账号已切换，请重新加载');
     var establishBase = !workspaceRevisionKnown;
     if (establishBase) { workspaceRowExists = Boolean(result.data); workspaceRevision = result.data ? result.data.updated_at || null : null; workspaceRevisionKnown = true; }
     workspace = (result.data && result.data.payload) || { todos: [], journal: [], publications: [], browser: {}, researchHub: {} };
@@ -478,7 +503,7 @@
     ['funding', 'awards', 'conferences'].forEach(function (kind) { if (!Array.isArray(workspace.academicRecords[kind])) workspace.academicRecords[kind] = []; });
     workspace.browser = workspace.browser || {};
     workspace.researchHub = workspace.researchHub || {};
-    if (establishBase) workspaceBasePayload = copyPayload(workspace);
+    if (establishBase) { workspaceBasePayload = copyPayload(workspace); applyBrowser(workspace); }
     return workspace;
   }
   function saveWorkspace(nextPayload, expectedRevision, forceConflictOverride, modifiedAt) {
@@ -493,7 +518,7 @@
     var force = forceConflictOverride === true;
     var queued = workspaceWriteChain.catch(function () {}).then(function () {
       return userPromise.then(function (user) {
-        if (!user || generation !== workspaceSessionGeneration) return;
+        if (!user || generation !== workspaceSessionGeneration) throw new Error('账号已切换，请重新保存');
         if (pendingWorkspaceConflict && !force) {
           pendingWorkspaceConflict.localData = copyPayload(payload);
           throw conflictError(payload, pendingWorkspaceConflict.cloudUpdatedAt);
@@ -576,12 +601,10 @@
     var previousApplying = applyingBrowserSnapshot;
     applyingBrowserSnapshot = true;
     try {
-      focusKeys.concat(researchHubKeys).forEach(function (k) { if (Object.prototype.hasOwnProperty.call(values, k)) values[k] === null ? localStorage.removeItem(k) : localStorage.setItem(k, values[k]); });
-      Object.keys((payload && payload.researchHub) || {}).forEach(function (k) {
-        if (researchHubKeys.indexOf(k) < 0) return;
-        if ((k === 'academic-workbench-tracker-display-v1' || k === 'academic-workbench-journal-categories-v1' || k === 'academic-workbench-journal-category-order-v1' || k === 'academic-workbench-journal-category-colors-v1') && payload.researchHub[k] == null) return;
-        if (payload.researchHub[k] == null) localStorage.removeItem(k);
-        else localStorage.setItem(k, payload.researchHub[k]);
+      focusKeys.concat(researchHubKeys).forEach(function (k) {
+        var next = Object.prototype.hasOwnProperty.call((payload && payload.researchHub) || {}, k) ? payload.researchHub[k] : values[k];
+        if (next == null) localStorage.removeItem(k);
+        else localStorage.setItem(k, next);
       });
     } finally { applyingBrowserSnapshot = previousApplying; }
   }
@@ -623,12 +646,12 @@
     var path = requestUrl.split('?')[0];
     var body = options && options.body ? JSON.parse(options.body) : {};
     try {
-      if (path === '/api/auth/me') { var me = await getUser(); return response({ user: me ? { email: me.email } : null }); }
-      if (path === '/api/auth/login') { var login = await client.auth.signInWithPassword({ email: body.email, password: body.password }); if (login.error) return response({ error: login.error.message }, 401); resetWorkspaceSession(); return response({ ok: true, user: { email: login.data.user.email } }); }
-      if (path === '/api/auth/register') { var signup = await client.auth.signUp({ email: body.email, password: body.password }); if (signup.error) return response({ error: signup.error.message }, 400); if (signup.data.session) resetWorkspaceSession(); return response({ ok: true, user: { email: body.email } }); }
+      if (path === '/api/auth/me') { var me = await getUser(); return response({ user: me ? { id: me.id, email: me.email } : null }); }
+      if (path === '/api/auth/login') { var login = await client.auth.signInWithPassword({ email: body.email, password: body.password }); if (login.error) return response({ error: login.error.message }, 401); activateAccountCache(login.data.user); resetWorkspaceSession(); return response({ ok: true, user: { id: login.data.user.id, email: login.data.user.email } }); }
+      if (path === '/api/auth/register') { var signup = await client.auth.signUp({ email: body.email, password: body.password }); if (signup.error) return response({ error: signup.error.message }, 400); if (signup.data.session) { activateAccountCache(signup.data.user); resetWorkspaceSession(); } return response({ ok: true, requiresConfirmation: !signup.data.session, user: signup.data.session ? { id: signup.data.user.id, email: body.email } : null }); }
       if (path === '/api/auth/reset-password') { var reset = await client.auth.resetPasswordForEmail(String(body.email || '').trim(), { redirectTo: location.href.split('#')[0] }); if (reset.error) return response({ error: reset.error.message }, 400); return response({ ok: true }); }
       if (path === '/api/auth/change-password') { var passwordUser = await getUser(); if (!passwordUser) return response({ error: '请先登录' }, 401); if (!body.recovery) { var verified = await client.auth.signInWithPassword({ email: passwordUser.email, password: String(body.currentPassword || '') }); if (verified.error) return response({ error: '当前密码不正确' }, 400); } var changed = await client.auth.updateUser({ password: String(body.password || '') }); if (changed.error) return response({ error: changed.error.message }, 400); return response({ ok: true }); }
-      if (path === '/api/auth/logout') { await client.auth.signOut(); resetWorkspaceSession(); return response({ ok: true }); }
+      if (path === '/api/auth/logout') { var logout = await client.auth.signOut(); if (logout.error) throw logout.error; activateAccountCache(null); resetWorkspaceSession(); return response({ ok: true }); }
       if (path === '/api/sync') {
         if (method === 'GET') { var existing = await loadWorkspace(); if (!existing) return response({ error: '请先登录' }, 401); applyBrowser(existing); return response({ data: existing }); }
         var user = await getUser(); if (!user) return response({ error: '请先登录' }, 401);
@@ -1285,4 +1308,7 @@
       return response({ ok: false, error: error.message || '云端同步失败' }, 500);
     }
   };
+  client.auth.onAuthStateChange(function (_event, session) {
+    activateAccountCache(session && session.user);
+  });
 })(window.__nativeFetch = window.fetch.bind(window));

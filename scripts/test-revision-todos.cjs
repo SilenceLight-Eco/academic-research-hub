@@ -11,7 +11,7 @@ const ref = { paperKey: 'paper1', roundId: 'rround12345', itemId: 'ritem123456' 
 const linkedSource = { type: 'submission-revision', ...ref };
 const base = fs.readFileSync(path.join(__dirname, 'test-reference-operations.cjs'), 'utf8');
 const apiFactory = vm.createContext({ staticApiSource, vm, structuredClone, Response, Request, Headers, URL, setTimeout, clearTimeout, console });
-vm.runInContext(base.slice(base.indexOf('function createApiHarness('), base.indexOf("test('browser preference")), apiFactory);
+vm.runInContext(base.slice(base.indexOf('function createApiHarness('), base.indexOf('\ntest(')), apiFactory);
 function payload(overrides = {}) {
   const round = { id: ref.roundId, number: 2, journal: 'Journal B', dueAt: '2026-10-30', items: [{ id: ref.itemId, status: 'pending', comment: '补充识别检验', response: '不得覆盖', ...overrides }] };
   return { todos: [], journal: [{ content: 'Keep' }], researchHub: {

@@ -154,6 +154,7 @@ test('failed variable saves do not persist a new citation recent', async () => {
 });
 test('browser preference edits are written to the cloud workspace', async () => {
   const harness = createApiHarness({ todos: [], browser: {} });
+  await harness.get('/api/sync');
   harness.setLocalItem('academic-workbench-theme', 'dark');
   await new Promise(resolve => setTimeout(resolve, 850));
   assert.equal(harness.readWorkspace().browser['academic-workbench-theme'], 'dark');

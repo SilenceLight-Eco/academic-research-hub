@@ -7,7 +7,7 @@ const test = require('node:test');
 const harnessSource = fs.readFileSync(path.join(__dirname, 'test-reference-operations.cjs'), 'utf8');
 const staticApiSource = fs.readFileSync(path.join(__dirname, '../web/static-api.js'), 'utf8');
 const context = vm.createContext({ staticApiSource, vm, structuredClone, Response, Request, Headers, URL, setTimeout, clearTimeout, Date, Math, JSON, Object, Array, String, Number, Boolean, Map, Set, Promise, Error, RegExp, console });
-vm.runInContext(harnessSource.slice(harnessSource.indexOf('function createApiHarness('), harnessSource.indexOf("test('browser preference")), context);
+vm.runInContext(harnessSource.slice(harnessSource.indexOf('function createApiHarness('), harnessSource.indexOf('\ntest(')), context);
 const harness = context.createApiHarness;
 const initial = () => ({ peerReviews: { items: [], trash: [] }, researchProjects: { projects: [{ id: 1, title: 'Keep my project' }], trash: [] }, referenceLibrary: { items: [{ id: 9, title: 'Keep my reference' }] } });
 async function create(h) { const result = await (await h.request({ action: 'create' }, '/api/peer-reviews')).json(); assert.equal(result.ok, true); return result.createdId; }

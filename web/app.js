@@ -419,7 +419,9 @@
   window.addEventListener('academic-workspace-auto-merged', scheduleCloudWorkspaceRefresh);
 
   function api(url, options) {
+    var requestAccount = account && (account.id || account.email);
     function request() {
+      if (url.indexOf('/api/auth/') !== 0 && requestAccount !== (account && (account.id || account.email))) return Promise.reject(new Error('账号已切换，请重新操作'));
       var requestOptions = Object.assign({ headers: { 'Content-Type': 'application/json' } }, options);
       if (pendingExitFlush && typeof requestOptions.body === 'string' && new Blob([requestOptions.body]).size <= 24000) requestOptions.keepalive = true;
       return fetch(url, requestOptions)
@@ -442,6 +444,11 @@
   }
 
   var account = null;
+  window.addEventListener('academic-account-changed', function () {
+    // Recreate module editors and iframes so old in-memory drafts cannot be
+    // autosaved under a newly signed-in account. Token refreshes do not emit this.
+    location.reload();
+  });
   var registering = false;
   var syncTimer = null;
   var academicEditorKind = '';
@@ -865,18 +872,17 @@
     return values;
   }
 
+  var researchHubSnapshotApplied = false;
   function applyResearchHubSnapshot(values) {
     var changed = false;
     var trackerPreferencesChanged = false;
     var trackerCategoriesChanged = false;
     var trackerCategoryOrderChanged = false;
     var trackerCategoryColorsChanged = false;
-    Object.keys(values || {}).forEach(function (key) {
-      if (researchHubKeys.indexOf(key) < 0) return;
+    researchHubKeys.forEach(function (key) {
       var current = localStorage.getItem(key);
-      var next = values[key];
+      var next = (values || {})[key];
       if (next === null || next === undefined) {
-        if ((key === trackerDisplayPreferencesKey || key === trackerCategoryCatalogKey || key === trackerCategoryOrderKey || key === trackerCategoryColorsKey) && current !== null) return;
         if (current !== null) { localStorage.removeItem(key); changed = true; }
       } else if (current !== String(next)) {
         localStorage.setItem(key, next);
@@ -904,7 +910,8 @@
       if (state.journalTrackerLoaded) renderJournalTracker();
     }
     var frame = $('.research-hub-frame');
-    if (changed && frame) frame.src = frame.src;
+    if ((changed || !researchHubSnapshotApplied) && frame) frame.src = frame.src;
+    researchHubSnapshotApplied = true;
     if (changed && state.panel === 'dashboard') renderTodayBoard();
   }
 
@@ -1405,6 +1412,8 @@
     api(registering ? '/api/auth/register' : '/api/auth/login', { method: 'POST', body: JSON.stringify({ email: $('#authEmail').value, password: $('#authPassword').value }) })
       .then(function (result) {
         if (!result.ok) throw new Error(result.error || '登录失败');
+        if (result.requiresConfirmation) { error.textContent = '注册成功，请前往邮箱完成验证后再登录。'; error.hidden = false; return; }
+        if (window.__academicStaticAccountIsolation) { location.reload(); return; }
         setAccount(result.user); closeAuth();
         return api('/api/sync').then(function (sync) {
           if (sync.data && Object.keys(sync.data).length) {
