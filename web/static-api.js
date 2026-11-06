@@ -228,7 +228,29 @@
   function browserSnapshot() { var result = {}; focusKeys.forEach(function (k) { result[k] = localStorage.getItem(k); }); return result; }
   function researchSnapshot() { var result = {}; researchHubKeys.forEach(function (k) { result[k] = localStorage.getItem(k); }); return result; }
   function graduation(pubs, config) { var items = (pubs || []).filter(function (p) { return p.type === 'c_journal'; }); var settings = config || {}; var required = Math.max(0, Number(settings.required) || 2); var achieved = settings.achieved == null ? items.length : Math.max(0, Number(settings.achieved) || 0); var label = 'C刊/SCI论文'; return { c_journal: { label: label, required: required, achieved: achieved, remaining: Math.max(0, required - achieved), complete: achieved >= required, items: items } }; }
-  function overview() { var payload = currentPayload(); var defaults = { configured: false, label: '学业进度', stage: '', percent: 0, start: '', end: '', remain_days: 0 }; return { field_name: 'Academic Research Hub', phd: Object.assign(defaults, payload.studyProgress || {}), graduation: graduation(payload.publications, payload.graduationConfig), academic_records: payload.academicRecords || { funding: [], awards: [], conferences: [] }, academic_record_drafts: payload.academicRecordDrafts || {}, sections: [], tree: { name: '浏览器版不访问本地文件', children: [], count: 0 } }; }
+  function calculateStudyProgress(settings, now) {
+    var dayMs = 86400000;
+    function dateValue(value) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value || '')) return NaN;
+      var timestamp = Date.parse(value + 'T00:00:00Z');
+      return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === value ? timestamp : NaN;
+    }
+    var config = settings || {};
+    // Calendar days in Beijing avoid partial-day rounding and device timezone drift.
+    var today = new Date(new Date(now == null ? Date.now() : now).getTime() + 8 * 3600000).toISOString().slice(0, 10);
+    var start = dateValue(config.start), end = dateValue(config.end), current = dateValue(today);
+    var result = Object.assign({}, config, { configured: false, label: config.label || '学业进度', stage: config.stage || '',
+      start: config.start || '', end: config.end || '', today: today, percent: 0, elapsed_days: 0, remain_days: 0, total_days: 0 });
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return result;
+    result.configured = true;
+    result.total_days = Math.round((end - start) / dayMs);
+    result.elapsed_days = Math.max(0, Math.round((current - start) / dayMs));
+    result.remain_days = Math.max(0, Math.round((end - current) / dayMs));
+    result.percent = Math.round(Math.min(result.total_days, result.elapsed_days) / result.total_days * 1000) / 10;
+    return result;
+  }
+  window.__academicCalculateStudyProgress = calculateStudyProgress;
+  function overview() { var payload = currentPayload(); return { field_name: 'Academic Research Hub', phd: calculateStudyProgress(payload.studyProgress), graduation: graduation(payload.publications, payload.graduationConfig), academic_records: payload.academicRecords || { funding: [], awards: [], conferences: [] }, academic_record_drafts: payload.academicRecordDrafts || {}, sections: [], tree: { name: '浏览器版不访问本地文件', children: [], count: 0 } }; }
   // Read the persisted browser session first. Unlike getUser(), this does not
   // depend on a network round-trip during a page refresh.
   async function getUser() { await window.__academicAuthReady; var result = await client.auth.getSession(); var user = result.data.session ? result.data.session.user : null; activateAccountCache(user); return user; }
@@ -1212,8 +1234,9 @@
       if (path === '/api/references') { var references = data.referenceLibrary || (data.referenceLibrary = { items: [], trash: [] }); references.items = Array.isArray(references.items) ? references.items : []; references.trash = Array.isArray(references.trash) ? references.trash : []; if (method === 'GET') return response({ ok: true, referenceLibrary: references }); if (body.action === 'create') references.items.unshift({ id: nowId(), title: '未命名文献', authors: '', year: '', type: '期刊论文', source: '', locator: '', doi: '', url: '', abstract: '', abstractSource: '', keywords: '', keywordsSource: '', tags: '', projectId: '', knowledgeDocId: '', notes: '', updated: nowText() }); if (body.action === 'save') references.items.forEach(function (item) { if (String(item.id) === String(body.id)) { item.title = String(body.title || '未命名文献').trim(); item.authors = String(body.authors || '').trim(); item.year = String(body.year || '').replace(/[^0-9]/g, '').slice(0, 4); item.type = ['期刊论文', '书籍', '会议论文', '报告', '网页'].indexOf(body.type) >= 0 ? body.type : '期刊论文'; item.source = String(body.source || '').trim(); item.locator = String(body.locator || '').trim(); item.doi = String(body.doi || '').trim().replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, ''); item.url = String(body.url || '').trim(); item.abstract = String(body.abstract || '').slice(0, 20000); item.abstractSource = String(body.abstractSource || '').slice(0, 120); item.keywords = String(body.keywords || '').slice(0, 5000); item.keywordsSource = String(body.keywordsSource || '').slice(0, 120); item.tags = String(body.tags || '').trim(); item.projectId = String(body.projectId || ''); item.knowledgeDocId = String(body.knowledgeDocId || ''); item.notes = String(body.notes || ''); item.updated = nowText(); } }); if (body.action === 'trash') { var removedReference = references.items.filter(function (item) { return String(item.id) === String(body.id); })[0]; if (removedReference) { references.trash.unshift({ id: nowId(), item: removedReference, deletedAt: nowText() }); references.items = references.items.filter(function (item) { return String(item.id) !== String(body.id); }); } } if (body.action === 'restore') { var restoredReference = references.trash.filter(function (entry) { return String(entry.id) === String(body.id); })[0]; if (restoredReference && restoredReference.item) { references.items.unshift(restoredReference.item); references.trash = references.trash.filter(function (entry) { return String(entry.id) !== String(body.id); }); } } if (body.action === 'purge') references.trash = references.trash.filter(function (entry) { return String(entry.id) !== String(body.id); }); if (body.action === 'purge-all') references.trash = []; await saveWorkspace(data, dataRevision); return response({ ok: true, referenceLibrary: references }); }
       if (path === '/api/overview') return response(overview());
       if (path === '/api/study-progress' && method === 'POST') {
-        var percent = Math.max(0, Math.min(100, Number(body.percent) || 0));
-        data.studyProgress = { configured: true, label: String(body.label || '学业进度').trim() || '学业进度', stage: String(body.stage || '').trim(), percent: percent, start: String(body.start || '').trim(), end: String(body.end || '').trim(), elapsed_days: Number(body.elapsed_days) || 0, remain_days: Number(body.remain_days) || 0 };
+        var studySettings = { label: String(body.label || '学业进度').trim() || '学业进度', stage: String(body.stage || '').trim(), start: String(body.start || '').trim(), end: String(body.end || '').trim() };
+        if (!calculateStudyProgress(studySettings).configured) return response({ ok: false, error: '请填写有效日期，且预计毕业日期必须晚于入学日期' }, 422);
+        data.studyProgress = studySettings;
         await saveWorkspace(data, dataRevision); return response({ ok: true, phd: overview().phd });
       }
       if (path === '/api/graduation-settings' && method === 'POST') {

@@ -970,6 +970,13 @@
 
   function applySyncData(data) {
     if (!data) return;
+    if (data.studyProgress && state.overview) {
+      var studyProgress = window.__academicCalculateStudyProgress(data.studyProgress);
+      if (JSON.stringify(studyProgress) !== JSON.stringify(state.overview.phd)) {
+        state.overview.phd = studyProgress;
+        renderStudyProgress(false);
+      }
+    }
     if (Array.isArray(data.todos) && JSON.stringify(data.todos) !== JSON.stringify(state.todos)) { state.todos = data.todos; renderTodos(); renderDashboardTodos(); updateTodoBadge(); }
     if (Array.isArray(data.journal) && JSON.stringify(data.journal) !== JSON.stringify(state.journal)) { state.journal = data.journal; renderJournal(); renderDashboardJournal(); }
     applyResearchHubSnapshot(data.researchHub);
@@ -1711,7 +1718,7 @@
     $('#panelTitle').textContent = PANEL_TITLES[panel] || '';
     staggerCards(panel);
     // 面板切换时懒加载数据
-    if (panel === 'dashboard' && prev !== panel) { renderTodayBoard(); loadPeerReviewReminders(); }
+    if (panel === 'dashboard' && prev !== panel) { refreshStudyProgressForToday(); renderTodayBoard(); loadPeerReviewReminders(); }
     if (panel === 'literature') loadLiteratureAll();
     if (panel === 'frontier') loadFrontier();
     if (panel === 'hotspots') loadHotspots();
@@ -1831,8 +1838,12 @@
   }
 
   // ===== 渲染：概览 =====
-  function renderOverview() {
-    var phd = state.overview.phd;
+  var studyProgressRenderedDay = '';
+  function renderStudyProgress(animate) {
+    if (!state.overview) return;
+    var phd = window.__academicCalculateStudyProgress(state.overview.phd);
+    state.overview.phd = phd;
+    studyProgressRenderedDay = phd.today;
     /* 学业进度由入学和预计毕业日期计算。 */
     var phdLabel = phd.label || '学业进度';
     var cardLabel = $('#phdCardLabel');
@@ -1841,12 +1852,15 @@
     if (miniLabel) miniLabel.textContent = phdLabel;
 
     if (phd.configured) {
-      countUp($('#phdPercent'), phd.percent, 1500);
-      countUp($('#phdPercentMini'), phd.percent, 1500);
-      setTimeout(function () {
-        $('#phdBarFill').style.width = phd.percent + '%';
-        $('#phdBarMini').style.width = phd.percent + '%';
-      }, 100);
+      if (animate) {
+        countUp($('#phdPercent'), phd.percent, 1500);
+        countUp($('#phdPercentMini'), phd.percent, 1500);
+      } else {
+        $('#phdPercent').textContent = phd.percent;
+        $('#phdPercentMini').textContent = phd.percent;
+      }
+      $('#phdBarFill').style.width = phd.percent + '%';
+      $('#phdBarMini').style.width = phd.percent + '%';
       $('#phdDays').innerHTML = '已读 <strong>' + phd.elapsed_days + '</strong> 天 · 剩余 <strong>' + phd.remain_days + '</strong> 天';
       $('#phdStartDate').textContent = phd.start;
       $('#phdEndDate').textContent = phd.end;
@@ -1864,6 +1878,14 @@
       var miniRange2 = $('#phdMiniRange');
       if (miniRange2) miniRange2.textContent = '未设置学制';
     }
+  }
+  function refreshStudyProgressForToday() {
+    if (!state.overview || document.hidden) return;
+    var today = window.__academicCalculateStudyProgress(state.overview.phd).today;
+    if (today !== studyProgressRenderedDay) renderStudyProgress(false);
+  }
+  function renderOverview() {
+    renderStudyProgress(true);
     renderGraduation();
     renderAcademicRecords();
 
@@ -9310,12 +9332,8 @@
   function readStudyProgressPayload() {
     var start = $('#progressStart').value;
     var end = $('#progressEnd').value;
-    if (!start || !end || Date.parse(end) <= Date.parse(start)) return null;
-    var remainDays = Math.max(0, Math.ceil((new Date(end).getTime() - Date.now()) / 86400000));
-    var elapsedDays = Math.max(0, Math.floor((Date.now() - new Date(start).getTime()) / 86400000));
-    var totalDays = Math.max(1, Math.ceil((new Date(end).getTime() - new Date(start).getTime()) / 86400000));
-    var percent = Math.max(0, Math.min(100, Math.round(elapsedDays / totalDays * 100)));
-    return { label: '学业进度', stage: '', percent: percent, start: start, end: end, elapsed_days: elapsedDays, remain_days: remainDays };
+    if (!window.__academicCalculateStudyProgress({ start: start, end: end }).configured) return null;
+    return { label: '学业进度', stage: '', start: start, end: end };
   }
 
   function persistStudyProgress(body, automatic) {
@@ -13033,6 +13051,8 @@
     $('#panelDate').textContent = formatDate(new Date());
     initV3();
     bindEvents();
+    // Only the date card changes at midnight; no network request or page reload.
+    setInterval(refreshStudyProgressForToday, 60000);
     initPdfSelectionToolbar();
     initPdfImageLightbox();
     // 恢复未跑完的一轮专注（刷新/关标签都能接着跑），并先渲染一次面板
@@ -13056,6 +13076,7 @@
       // 专注计时用的是时间戳，回前台立刻校准一次（后台标签页会被降频，
       // 也可能在后台期间已经到点）
       if (!document.hidden && focusIsActive()) { focusTick(); focusRenderAll(); }
+      refreshStudyProgressForToday();
       if (!document.hidden && state.panel === 'dashboard') renderTodayBoard();
       if (!document.hidden && account) syncAndPullCloudData();
     });
