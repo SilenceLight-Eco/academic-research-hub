@@ -12,6 +12,7 @@
   var loadRequest = 0;
 
   function notifyPipelineFilesChanged(context) {
+    if (context) window.dispatchEvent(new CustomEvent('academic-attachments-changed', { detail: { kind: context.kind, contextId: context.id } }));
     var frame = document.querySelector('.research-hub-frame');
     if (!context || context.kind !== 'paper' || !frame || !frame.contentWindow || typeof frame.contentWindow.postMessage !== 'function') return;
     frame.contentWindow.postMessage({ type: 'academic-research-hub-materials-changed', contextId: context.id }, location.origin);

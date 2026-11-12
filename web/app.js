@@ -10607,6 +10607,7 @@
     $('#peerReviewMaterials').innerHTML = peerReviewMaterialButtons();
     renderPeerReviewChecklist();
     renderPeerReviewHistory();
+    loadPeerReviewMaterialStatus();
   }
   function readPeerReviewPayload() {
     var payload = { action: 'save', id: state.peerReviewId };
@@ -10718,11 +10719,72 @@
     return downloadPeerReviewExport(readPeerReviewPayload(), audience);
   }
   var peerReviewMaterialTypes = { manuscript: '稿件', response: '作者回复信', supplement: '补充材料' };
+  var peerReviewMaterialCounts = {};
+  var peerReviewMaterialOwner = '';
+  function peerReviewMaterialCache() {
+    var owner = account ? account.id : '';
+    if (peerReviewMaterialOwner !== owner) { peerReviewMaterialCounts = {}; peerReviewMaterialOwner = owner; }
+    return peerReviewMaterialCounts;
+  }
+  function peerReviewMaterialStatus(entry) {
+    if (!account) return { text: '登录后查看', state: 'idle' };
+    if (!entry) return { text: '待检查', state: 'idle' };
+    if (entry.pending) return { text: '读取中…', state: 'loading' };
+    if (entry.error) return { text: '读取失败，请刷新重试', state: 'error' };
+    return { text: entry.count ? '已上传 ' + entry.count + ' 个文件' : '未上传', state: entry.count ? 'present' : 'missing' };
+  }
+  function renderPeerReviewMaterialStatus(contextId) {
+    if (state.panel !== 'peer-reviews' || state.peerReviewTrashOpen) return;
+    var node = $('#peerReviewMaterialStatus_' + contextId);
+    if (!node) return;
+    var entry = peerReviewMaterialCache()[contextId], status = peerReviewMaterialStatus(entry);
+    node.textContent = status.text;
+    node.className = 'peer-review-material-status is-' + status.state;
+    node.title = entry && entry.error || '';
+  }
+  function loadPeerReviewMaterialCount(contextId, force) {
+    var cache = peerReviewMaterialCache(), owner = peerReviewMaterialOwner, entry = cache[contextId];
+    if (!owner) return Promise.resolve();
+    if (!force && entry && (entry.pending || Date.now() - entry.checkedAt < 60000)) return entry.promise;
+    entry = { pending: true };
+    cache[contextId] = entry;
+    renderPeerReviewMaterialStatus(contextId);
+    entry.promise = Promise.resolve().then(function () {
+      if (!account || account.id !== owner || peerReviewMaterialCache()[contextId] !== entry) throw new Error('材料检查已过期');
+      if (!window.__academicAttachments || !window.__academicAttachments.count) throw new Error('附件组件尚未就绪，请刷新材料状态重试');
+      return window.__academicAttachments.count('paper', contextId);
+    }).then(function (count) {
+      if (!Number.isSafeInteger(count) || count < 0) throw new Error('附件数量暂时无法确认，请重试');
+      entry.count = count;
+    }).catch(function (error) { entry.error = String(error.message || '读取附件失败'); }).then(function () {
+      entry.pending = false; entry.checkedAt = Date.now();
+      if (account && account.id === owner && peerReviewMaterialCache()[contextId] === entry) renderPeerReviewMaterialStatus(contextId);
+    });
+    return entry.promise;
+  }
+  function loadPeerReviewMaterialStatus(historyId, force) {
+    var item = activePeerReview();
+    if (!item || !account || state.panel !== 'peer-reviews' || state.peerReviewTrashOpen || state.peerReviewLoading) return Promise.resolve();
+    var snapshot = historyId ? (item.history || []).find(function (entry) { return String(entry.id) === String(historyId); }) : item;
+    if (!snapshot) return Promise.resolve();
+    try {
+      return Promise.all(Object.keys(peerReviewMaterialTypes).map(function (kind) {
+        return loadPeerReviewMaterialCount(peerReviewMaterialContext(item, Number(snapshot.round || 1), kind), force);
+      }));
+    } catch (error) { return Promise.resolve(); }
+  }
   function peerReviewMaterialButtons(historyId) {
-    var disabled = !activePeerReview() || state.peerReviewTrashOpen || state.peerReviewBusy || state.peerReviewLoading;
+    var item = activePeerReview(), disabled = !item || state.peerReviewTrashOpen || state.peerReviewBusy || state.peerReviewLoading;
+    var snapshot = item && historyId ? (item.history || []).find(function (entry) { return String(entry.id) === String(historyId); }) : item;
+    var cache = peerReviewMaterialCache();
     return Object.keys(peerReviewMaterialTypes).map(function (kind) {
-      return '<button type="button" data-review-material="' + kind + '"' + (historyId ? ' data-review-material-history="' + escapeAttribute(historyId) + '"' : '') + (disabled ? ' disabled' : '') + '>' + peerReviewMaterialTypes[kind] + '</button>';
-    }).join('');
+      var contextId = '', status = peerReviewMaterialStatus();
+      if (snapshot) {
+        try { contextId = peerReviewMaterialContext(item, Number(snapshot.round || 1), kind); status = peerReviewMaterialStatus(cache[contextId]); }
+        catch (error) { status = { text: '轮次无效', state: 'error' }; }
+      }
+      return '<button type="button" class="peer-review-material-button" data-review-material="' + kind + '"' + (historyId ? ' data-review-material-history="' + escapeAttribute(historyId) + '"' : '') + (disabled ? ' disabled' : '') + '>' + peerReviewMaterialTypes[kind] + '<small' + (contextId ? ' id="peerReviewMaterialStatus_' + contextId + '"' : '') + ' class="peer-review-material-status is-' + status.state + '" role="status">' + status.text + '</small></button>';
+    }).join('') + '<button type="button" data-review-material-refresh="' + escapeAttribute(historyId || '') + '"' + (disabled ? ' disabled' : '') + '>刷新材料状态</button>';
   }
   function peerReviewMaterialContext(item, round, kind) {
     if (!item || item.id === undefined || item.id === null || item.id === '' || !Object.prototype.hasOwnProperty.call(peerReviewMaterialTypes, kind) || !Number.isSafeInteger(round) || round < 1) throw new Error('审稿材料分类或轮次无效');
@@ -10756,7 +10818,7 @@
         return '<div class="peer-review-history-field"><strong>' + field[0] + '</strong><div>' + escapeHtml(snapshot[field[1]] || '（未填写）') + '</div></div>';
       }).join('');
       var checks = (Array.isArray(snapshot.checklist) ? snapshot.checklist : []).map(function (row, index) { return '<div class="peer-review-history-field"><strong>核对 ' + (index + 1) + ' · ' + escapeHtml(row.kind) + ' · ' + escapeHtml(row.status) + '</strong><div>问题：' + escapeHtml(row.issue) + '\n作者回应：' + escapeHtml(row.response) + '\n我的判断：' + escapeHtml(row.assessment) + '</div></div>'; }).join('');
-      return '<details class="peer-review-history-round"><summary>第 ' + escapeHtml(snapshot.round || 1) + ' 轮 · ' + escapeHtml(snapshot.status || '待决定') + ' · 归档于 ' + escapeHtml(snapshot.archivedAt || '') + '</summary><div class="peer-review-actions">' + peerReviewMaterialButtons(snapshot.id) + '<button type="button" data-review-history-author="' + escapeHtml(snapshot.id) + '"' + (state.peerReviewBusy || state.peerReviewLoading ? ' disabled' : '') + '>导出本轮给作者</button><button type="button" data-review-history-editor="' + escapeHtml(snapshot.id) + '"' + (state.peerReviewBusy || state.peerReviewLoading ? ' disabled' : '') + '>导出本轮给编辑</button></div>' + content + checks + '</details>';
+      return '<details class="peer-review-history-round" data-review-material-round="' + escapeAttribute(snapshot.id) + '"><summary>第 ' + escapeHtml(snapshot.round || 1) + ' 轮 · ' + escapeHtml(snapshot.status || '待决定') + ' · 归档于 ' + escapeHtml(snapshot.archivedAt || '') + '</summary><div class="peer-review-actions">' + peerReviewMaterialButtons(snapshot.id) + '<button type="button" data-review-history-author="' + escapeHtml(snapshot.id) + '"' + (state.peerReviewBusy || state.peerReviewLoading ? ' disabled' : '') + '>导出本轮给作者</button><button type="button" data-review-history-editor="' + escapeHtml(snapshot.id) + '"' + (state.peerReviewBusy || state.peerReviewLoading ? ' disabled' : '') + '>导出本轮给编辑</button></div>' + content + checks + '</details>';
     }).join('') : '<p class="peer-review-history-empty">暂无历史轮次。点击“新建轮次”会先保存并归档当前轮次。</p>';
   }
   function exportPeerReviewHistory(id, audience) {
@@ -10887,8 +10949,25 @@
     $('#peerReviewExportEditor').addEventListener('click', function () { exportPeerReview('editor'); });
     $('#peerReviewNextRound').addEventListener('click', startNextPeerReviewRound);
     $('#peerReviewMaterials').addEventListener('click', function (event) {
+      var refresh = event.target.closest('[data-review-material-refresh]');
+      if (refresh) { loadPeerReviewMaterialStatus('', true); return; }
       var button = event.target.closest('[data-review-material]');
       if (button) openPeerReviewMaterials(button.dataset.reviewMaterial);
+    });
+    $('#peerReviewHistory').addEventListener('toggle', function (event) {
+      if (event.target.matches && event.target.matches('[data-review-material-round]') && event.target.open && event.target.isConnected) loadPeerReviewMaterialStatus(event.target.dataset.reviewMaterialRound);
+    }, true);
+    window.addEventListener('academic-attachments-changed', function (event) {
+      var detail = event.detail, item = activePeerReview();
+      if (!item || !account || !detail || detail.kind !== 'paper') return;
+      var rounds = [item].concat(item.history || []);
+      var belongs = rounds.some(function (round) {
+        return Object.keys(peerReviewMaterialTypes).some(function (kind) {
+          try { return peerReviewMaterialContext(item, Number(round.round || 1), kind) === detail.contextId; }
+          catch (error) { return false; }
+        });
+      });
+      if (belongs) loadPeerReviewMaterialCount(detail.contextId, true);
     });
     $('#peerReviewChecklistAdd').addEventListener('click', addPeerReviewCheck);
     $('#peerReviewChecklistImport').addEventListener('click', importPreviousPeerReviewChecks);
@@ -10913,6 +10992,8 @@
       queuePeerReviewAutoSave(); renderPeerReviewChecklist();
     });
     $('#peerReviewHistory').addEventListener('click', function (event) {
+      var refresh = event.target.closest('[data-review-material-refresh]');
+      if (refresh) { loadPeerReviewMaterialStatus(refresh.dataset.reviewMaterialRefresh, true); return; }
       var material = event.target.closest('[data-review-material]');
       if (material) { openPeerReviewMaterials(material.dataset.reviewMaterial, material.dataset.reviewMaterialHistory); return; }
       var author = event.target.closest('[data-review-history-author]'), editor = event.target.closest('[data-review-history-editor]');

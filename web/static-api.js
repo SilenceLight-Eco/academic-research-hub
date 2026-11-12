@@ -301,6 +301,17 @@
     });
   }
   window.__academicAttachments = {
+    count: async function (kind, id) {
+      var context = attachmentContext(kind, id);
+      var session = await attachmentSession();
+      var result = await client.from('research_attachments')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', session.user.id)
+        .eq('context_kind', context.kind).eq('context_id', context.id);
+      if (result.error) throw result.error;
+      if (!Number.isSafeInteger(result.count) || result.count < 0) throw new Error('附件数量暂时无法确认，请重试');
+      return result.count;
+    },
     list: async function (kind, id) {
       var context = attachmentContext(kind, id);
       await attachmentSession();

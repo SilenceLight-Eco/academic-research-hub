@@ -11,9 +11,10 @@ const start = source.indexOf('  var peerReviewFieldMap =');
 const end = source.indexOf('  // ===== 变量库：', start);
 function harness(options = {}) {
   const state = { panel: 'peer-reviews', peerReviews: { items: [], trash: [] }, peerReviewId: null, peerReviewTrashOpen: false, peerReviewFilter: 'all', peerReviewQuery: '', peerReviewBusy: false, peerReviewLoading: false };
-  const nodes = new Map(), slots = {}, toasts = [], calls = [], downloads = []; let flushes = 0;
+  const nodes = new Map(), slots = {}, toasts = [], calls = [], downloads = [], windowHandlers = {}; let flushes = 0;
+  const window = Object.assign({ addEventListener(type, handler) { windowHandlers[type] = handler; } }, options.window);
   function node(id) { if (!nodes.has(id)) nodes.set(id, { value: '', textContent: '', innerHTML: '', disabled: false, hidden: false, dataset: {}, handlers: {}, focus() {}, addEventListener(type, handler) { this.handlers[type] = handler; } }); return nodes.get(id); }
-  const context = vm.createContext({ state, autoSaveSlots: slots, Date, console, Blob, window: options.window || {}, account: { id: 'test-user' }, renderTodayBoard() {},
+  const context = vm.createContext({ state, autoSaveSlots: slots, Date, console, Blob, window, account: { id: 'test-user' }, renderTodayBoard() {},
     downloadBlob: (blob, filename) => { if (options.downloadFails) throw new Error('Download blocked'); downloads.push({ blob, filename }); },
     $: selector => node(selector.slice(1)), escapeHtml: text => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'), escapeAttribute: text => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'),
     toast: message => toasts.push(message), confirm: () => options.confirm !== false,
@@ -26,12 +27,107 @@ function harness(options = {}) {
     }
   });
   vm.runInContext(source.slice(start, end), context);
-  return { context, state, slots, node, calls, toasts, downloads, flushes: () => flushes };
+  return { context, state, slots, node, calls, toasts, downloads, windowHandlers, flushes: () => flushes };
 }
 function addTask(h, extras = {}) {
   const item = { id: 'one', title: 'Review one', journal: 'JEEM', round: 1, status: '审稿中', recommendation: '尚未决定', dueAt: '', ...extras };
   h.state.peerReviews.items.push(item); h.state.peerReviewId = item.id; h.context.renderPeerReviews(); return item;
 }
+
+const materialTick = () => new Promise(resolve => setImmediate(resolve));
+const materialStatusNode = (h, round, kind) => h.node('peerReviewMaterialStatus_peer_review_one_r' + round + '_' + kind);
+
+test('current round counts load automatically, reflect exact counts and distinguish empty from failure', async () => {
+  const reads = [];
+  const h = harness({ window: { __academicAttachments: { count: async (kind, id) => {
+    reads.push({ kind, id });
+    if (id.endsWith('_response')) throw new Error('Permission denied');
+    return id.endsWith('_manuscript') ? 321 : 0;
+  } } } });
+  addTask(h, { round: 3, history: [{ id: 'r1', round: 1 }] });
+  assert.equal(materialStatusNode(h, 3, 'manuscript').textContent, '读取中…');
+  await h.context.loadPeerReviewMaterialStatus();
+  assert.equal(reads.length, 3);
+  assert.ok(reads.every(read => read.kind === 'paper' && read.id.includes('_r3_')));
+  assert.equal(materialStatusNode(h, 3, 'manuscript').textContent, '已上传 321 个文件');
+  assert.equal(materialStatusNode(h, 3, 'supplement').textContent, '未上传');
+  assert.equal(materialStatusNode(h, 3, 'response').textContent, '读取失败，请刷新重试');
+  assert.equal(materialStatusNode(h, 3, 'response').title, 'Permission denied');
+  assert.equal(h.calls.length, 0);
+});
+
+test('material status renders reuse pending and fresh queries, expire after a minute and support manual retry', async () => {
+  let reads = 0, fail = true;
+  const h = harness({ window: { __academicAttachments: { count: async () => { reads++; if (fail) throw new Error('Offline'); return 1; } } } });
+  addTask(h);
+  await Promise.all([h.context.loadPeerReviewMaterialStatus(), h.context.loadPeerReviewMaterialStatus()]);
+  assert.equal(reads, 3);
+  h.context.renderPeerReviews(); await materialTick(); assert.equal(reads, 3);
+  fail = false;
+  await h.context.loadPeerReviewMaterialStatus('', true);
+  assert.equal(reads, 6); assert.equal(materialStatusNode(h, 1, 'response').textContent, '已上传 1 个文件');
+  Object.values(h.context.peerReviewMaterialCounts).forEach(entry => { entry.checkedAt -= 60001; });
+  await h.context.loadPeerReviewMaterialStatus(); assert.equal(reads, 9);
+});
+
+test('historical counts load only on expansion and update without rebuilding the editor or folding history', async () => {
+  const reads = [];
+  const h = harness({ window: { __academicAttachments: { count: async (_kind, id) => { reads.push(id); return id.includes('_r1_') ? 2 : 0; } } } });
+  addTask(h, { round: 4, history: [{ id: 'r1', round: 1 }, { id: 'r2', round: 2 }] }); h.context.bindPeerReviewEvents();
+  await materialTick(); assert.equal(reads.length, 3);
+  const toggle = h.node('peerReviewHistory').handlers.toggle;
+  toggle({ target: { matches: () => true, open: false, isConnected: true, dataset: { reviewMaterialRound: 'r1' } } });
+  await materialTick(); assert.equal(reads.length, 3);
+  h.node('peerReviewSummary').value = 'Unsaved opinion';
+  const markup = h.node('peerReviewHistory').innerHTML;
+  toggle({ target: { matches: () => true, open: true, isConnected: true, dataset: { reviewMaterialRound: 'r1' } } });
+  await materialTick();
+  assert.equal(reads.length, 6); assert.ok(reads.slice(3).every(id => id.includes('_r1_')));
+  assert.equal(materialStatusNode(h, 1, 'manuscript').textContent, '已上传 2 个文件');
+  assert.equal(h.node('peerReviewHistory').innerHTML, markup);
+  assert.equal(h.node('peerReviewSummary').value, 'Unsaved opinion');
+  assert.equal(h.calls.length, 0);
+});
+
+test('attachment mutations refresh only their exact task/round/type and stale count results are ignored', async () => {
+  let resolveOld; let reads = 0;
+  const h = harness({ window: { __academicAttachments: { count: async (_kind, id) => {
+    reads++;
+    if (reads === 1) return new Promise(resolve => { resolveOld = resolve; });
+    return id.endsWith('_manuscript') ? 1 : 0;
+  } } } });
+  addTask(h); h.context.bindPeerReviewEvents(); await materialTick();
+  h.windowHandlers['academic-attachments-changed']({ detail: { kind: 'paper', contextId: 'peer_review_one_r1_manuscript' } });
+  await materialTick(); assert.equal(reads, 4);
+  assert.equal(materialStatusNode(h, 1, 'manuscript').textContent, '已上传 1 个文件');
+  resolveOld(0); await materialTick();
+  assert.equal(materialStatusNode(h, 1, 'manuscript').textContent, '已上传 1 个文件');
+  for (const contextId of ['peer_review_another_r1_manuscript', 'submission_r123_response']) h.windowHandlers['academic-attachments-changed']({ detail: { kind: 'paper', contextId } });
+  await materialTick(); assert.equal(reads, 4);
+});
+
+test('signed-out, trash and loading views do not fetch counts; account switches clear cached values and reject late results', async () => {
+  let reads = 0, resolveOld;
+  const h = harness({ window: { __academicAttachments: { count: async () => { reads++; if (reads === 1) return new Promise(resolve => { resolveOld = resolve; }); return 0; } } } });
+  h.context.account = null; addTask(h); await materialTick(); assert.equal(reads, 0);
+  h.context.account = { id: 'test-user' };
+  for (const flag of ['peerReviewTrashOpen', 'peerReviewLoading']) { h.state[flag] = true; h.context.renderPeerReviews(); await materialTick(); assert.equal(reads, 0); h.state[flag] = false; }
+  h.context.renderPeerReviews(); await materialTick(); assert.equal(reads, 3);
+  h.context.account = { id: 'new-user' }; h.context.renderPeerReviews(); await materialTick(); assert.equal(reads, 6);
+  assert.equal(materialStatusNode(h, 1, 'manuscript').textContent, '未上传');
+  resolveOld(5); await materialTick(); assert.equal(materialStatusNode(h, 1, 'manuscript').textContent, '未上传');
+});
+
+test('manual status refresh buttons retry current and historical reads through normal event handlers', async () => {
+  const reads = [];
+  const h = harness({ window: { __academicAttachments: { count: async (_kind, id) => { reads.push(id); return 1; } } } });
+  addTask(h, { round: 2, history: [{ id: 'r1', round: 1 }] }); h.context.bindPeerReviewEvents(); await materialTick();
+  const target = id => ({ closest: selector => selector === '[data-review-material-refresh]' ? { dataset: { reviewMaterialRefresh: id } } : null });
+  h.node('peerReviewMaterials').handlers.click({ target: target('') }); await materialTick();
+  h.node('peerReviewHistory').handlers.click({ target: target('r1') }); await materialTick();
+  assert.equal(reads.length, 9); assert.ok(reads.slice(6).every(id => id.includes('_r1_')));
+  assert.equal(h.calls.length, 0); assert.equal(h.downloads.length, 0);
+});
 
 test('material controls exist for each active and archived round and disable during unavailable states', () => {
   const h = harness(); addTask(h, { round: 2, history: [{ id: 'r1', round: 1 }] });
@@ -42,7 +138,7 @@ test('material controls exist for each active and archived round and disable dur
   }
   for (const flag of ['peerReviewBusy', 'peerReviewLoading', 'peerReviewTrashOpen']) {
     h.state[flag] = true; h.context.renderPeerReviews();
-    assert.equal((h.node('peerReviewMaterials').innerHTML.match(/ disabled/g) || []).length, 3);
+    assert.equal((h.node('peerReviewMaterials').innerHTML.match(/ disabled/g) || []).length, 4);
     h.state[flag] = false;
   }
 });
@@ -117,7 +213,7 @@ test('active and history material clicks are wired to their own round without in
   const opened = [];
   const h = harness({ window: { __academicOpenAttachments: (...args) => { opened.push(args); return true; } } });
   addTask(h, { round: 2, history: [{ id: 'r1', round: 1 }] }); h.context.bindPeerReviewEvents();
-  h.node('peerReviewMaterials').handlers.click({ target: { closest: () => ({ dataset: { reviewMaterial: 'manuscript' } }) } });
+  h.node('peerReviewMaterials').handlers.click({ target: { closest: selector => selector === '[data-review-material]' ? { dataset: { reviewMaterial: 'manuscript' } } : null } });
   await new Promise(resolve => setImmediate(resolve));
   h.node('peerReviewHistory').handlers.click({ target: { closest: selector => selector === '[data-review-material]' ? { dataset: { reviewMaterial: 'response', reviewMaterialHistory: 'r1' } } : null } });
   await new Promise(resolve => setImmediate(resolve));

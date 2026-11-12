@@ -9,7 +9,7 @@ const deferred = () => { let resolve, reject; const promise = new Promise((yes, 
 const tick = () => new Promise(resolve => setImmediate(resolve));
 function harness(api = {}) {
   const nodes = new Map(), handlers = {}, frames = { contentWindow: {} }, uploads = [], downloaded = [], removed = [], alerts = [];
-  const notifications = [];
+  const notifications = [], events = [];
   frames.contentWindow.postMessage = (data, origin) => notifications.push({ data, origin });
   function element(tag) { return { tag, hidden: true, value: '', textContent: '', dataset: {}, children: [], disabled: false, handlers: {}, classList: { toggle() {} },
     replaceChildren() { this.children = []; }, appendChild(child) { this.children.push(child); }, append(...children) { this.children.push(...children); },
@@ -21,12 +21,13 @@ function harness(api = {}) {
     upload: api.upload || (async (kind, id, file) => uploads.push({ kind, id, name: file.name })),
     download: async id => { downloaded.push(id); return { name: 'test.docx', blob: {} }; },
     remove: async id => removed.push(id)
-  }, alert: text => alerts.push(text), confirm: () => true, addEventListener(type, handler) { handlers['window:' + type] = handler; } };
-  vm.runInNewContext(source, { window, document, location: { origin: 'https://example.test' }, Date, Array, URL: { createObjectURL: () => 'blob:test', revokeObjectURL() {} }, setTimeout() {} });
+  }, alert: text => alerts.push(text), confirm: () => true, dispatchEvent(event) { events.push(event); }, addEventListener(type, handler) { handlers['window:' + type] = handler; } };
+  class CustomEvent { constructor(type, options) { this.type = type; this.detail = options.detail; } }
+  vm.runInNewContext(source, { window, document, CustomEvent, location: { origin: 'https://example.test' }, Date, Array, URL: { createObjectURL: () => 'blob:test', revokeObjectURL() {} }, setTimeout() {} });
   function open(id, title = id, description = '', options = {}) { handlers['window:message']({ origin: options.origin || 'https://example.test', source: options.source || frames.contentWindow, data: { type: 'academic-research-hub-open-attachments', id, title, description } }); }
   const action = (id, type) => node('fileList').handlers.click({ target: { closest: () => ({ dataset: { fileId: id, fileAction: type } }) } });
   async function upload(file = { name: 'test.docx', size: 100 }) { node('fileInput').files = [file]; await node('fileInput').handlers.change(); }
-  return { node, open, action, upload, uploads, downloaded, removed, alerts, notifications, window };
+  return { node, open, action, upload, uploads, downloaded, removed, alerts, notifications, window, events };
 }
 
 test('review module can open round materials through the shared modal with uploads and downloads', async () => {
@@ -39,6 +40,19 @@ test('review module can open round materials through the shared modal with uploa
   await h.upload(); await h.action('review-file', 'download');
   assert.equal(h.uploads[0].id, 'peer_review_123_r3_manuscript');
   assert.deepEqual(h.downloaded, ['review-file']);
+});
+
+test('uploading and deleting review files signal count changes, while downloads and reads leave counts untouched', async () => {
+  const h = harness({ list: async () => [{ id: 'file1', file_name: 'Review.pdf' }] });
+  h.open('peer_review_one_r2_manuscript'); await tick();
+  await h.action('file1', 'download'); assert.equal(h.events.length, 0);
+  await h.upload(); await h.action('file1', 'remove');
+  assert.equal(h.events.length, 2);
+  for (const event of h.events) {
+    assert.equal(event.type, 'academic-attachments-changed');
+    assert.equal(event.detail.kind, 'paper');
+    assert.equal(event.detail.contextId, 'peer_review_one_r2_manuscript');
+  }
 });
 
 test('modal labels identify the selected round/type and reset when opening generic attachments', async () => {

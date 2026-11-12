@@ -7490,6 +7490,11 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .peer-review-editor { display:grid; gap:16px; }
 .peer-review-materials { display:grid; gap:10px; }
 .peer-review-materials h3 { margin:0; color:var(--text); font-size:14px; }
+.peer-review-actions .peer-review-material-button { display:inline-flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.peer-review-material-status { font-size:11px; font-weight:400; color:var(--text-muted); }
+.peer-review-material-status.is-present { color:#248261; }
+.peer-review-material-status.is-missing { color:#a46f23; }
+.peer-review-material-status.is-error { color:#c64444; }
 .peer-review-editor[hidden],.peer-review-empty[hidden] { display:none; }
 .peer-review-title-row { display:flex; align-items:flex-end; gap:12px; }
 .peer-review-title-row > label { flex:1; min-width:0; }
