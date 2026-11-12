@@ -9490,6 +9490,8 @@
   var replicationFileTypes = { paper: '论文 PDF', supplement: '附件', data: '数据', code: '代码' };
   var replicationFileCache = {};
   var replicationFileOwner = '';
+  var replicationUploads = {};
+  var replicationUploadJob = null;
   var replicationLoadRequest = 0;
   var replicationFolderEditingId = '';
   function activeReplication() {
@@ -9551,7 +9553,7 @@
     $('#replicationTrash').textContent = state.replicationTrashOpen ? '返回复现列表' : '回收站';
     var slot = item && autoSaveSlots['replication:' + item.id];
     $('#replicationSaveStatus').textContent = slot && slot.dirty ? '修改待保存 · 每 3 分钟及切换任务、模块时自动保存' : item ? '修改会自动保存' + (item.updated ? ' · 最近保存 ' + item.updated : '') : '';
-    Object.keys(replicationFileTypes).forEach(function (kind) { renderReplicationFileList(kind); });
+    Object.keys(replicationFileTypes).forEach(function (kind) { renderReplicationFileList(kind); renderReplicationUploadStatus(kind); });
     if (item && account && !state.replicationLoading) Object.keys(replicationFileTypes).forEach(function (kind) { loadReplicationFileList(kind); });
   }
   function loadReplications() {
@@ -9637,7 +9639,7 @@
   }
   function replicationAttachmentCache() {
     var owner = account && account.id || '';
-    if (replicationFileOwner !== owner) { replicationFileCache = {}; replicationFileOwner = owner; }
+    if (replicationFileOwner !== owner) { replicationFileCache = {}; replicationUploads = {}; replicationFileOwner = owner; }
     return replicationFileCache;
   }
   function renderReplicationFileList(kind) {
@@ -9711,7 +9713,92 @@
     if (!account || account.id !== owner || state.panel !== 'replications' || state.replicationTrashOpen || String(state.replicationId) !== id) return false;
     return window.__academicOpenAttachments('paper', contextId, (activeReplication() || item).title + ' · ' + replicationFileTypes[kind], '材料随当前账号保存，单个文件最大 50 MB。上传后可在其他设备下载。');
   }
+  function renderReplicationUploadStatus(kind) {
+    var node = $('#replicationUploadStatus_' + kind), item = activeReplication();
+    if (!node) return;
+    replicationAttachmentCache();
+    var job = item && account && !state.replicationTrashOpen && replicationUploads[replicationFileContext(item.id, kind)];
+    node.textContent = job ? job.message : '';
+    node.hidden = !job;
+    node.className = job && job.error ? 'replication-upload-status is-error' : 'replication-upload-status';
+  }
+  async function uploadReplicationFiles(kind, selectedFiles) {
+    var item = activeReplication(), owner = account && account.id;
+    if (!item || !owner || state.replicationTrashOpen) { toast('请先登录并选择复现任务'); return false; }
+    if (state.replicationBusy || state.replicationLoading) { toast('当前内容正在保存或载入，请稍后拖入文件'); return false; }
+    if (replicationUploadJob && replicationUploadJob.owner === owner && replicationUploadJob.running) { toast('当前文件批次正在上传，请稍候'); return false; }
+    var files = Array.from(selectedFiles || []), contextId;
+    try {
+      contextId = replicationFileContext(item.id, kind);
+      if (!window.__academicAttachments || !window.__academicAttachments.upload) throw new Error('附件组件尚未就绪，请稍后重试');
+      if (!files.length) throw new Error('请拖入需要上传的文件');
+      files.forEach(function (file) {
+        if (!file || typeof file.name !== 'string' || !file.name || file.name.length > 255 || !Number.isFinite(file.size) || file.size < 0) throw new Error('文件名或文件大小无效');
+        if (file.size > 50 * 1024 * 1024) throw new Error(file.name + ' 超过单文件50 MB上限，请调整后重试');
+      });
+    } catch (error) { toast(error.message); return false; }
+    replicationAttachmentCache();
+    var job = { owner: owner, taskId: String(item.id), running: true, message: '正在保存任务，准备上传…', error: false };
+    replicationUploadJob = job; replicationUploads[contextId] = job; renderReplicationUploadStatus(kind);
+    var succeeded = 0, failures = [];
+    try {
+      if (!await saveReplication()) { job.message = '任务尚未保存，上传未开始，请保存成功后重试。'; job.error = true; return false; }
+      if (!account || account.id !== owner || state.panel !== 'replications' || state.replicationTrashOpen || String(state.replicationId) !== job.taskId) { job.message = '任务或账号已切换，请重新拖入文件。'; job.error = true; return false; }
+      for (let i = 0; i < files.length; i++) {
+        if (!account || account.id !== owner) { job.message = '账号已切换，本批次上传已停止。'; job.error = true; return false; }
+        let file = files[i];
+        job.activeIndex = i;
+        job.message = '正在上传 ' + (i + 1) + '/' + files.length + ' · ' + file.name + '（0%）'; renderReplicationUploadStatus(kind);
+        try {
+          await window.__academicAttachments.upload('paper', contextId, file, function (percent) {
+            if (!job.running || job.activeIndex !== i || !account || account.id !== owner) return;
+            job.message = '正在上传 ' + (i + 1) + '/' + files.length + ' · ' + file.name + '（' + Math.max(0, Math.min(100, Math.round(percent))) + '%）';
+            renderReplicationUploadStatus(kind);
+          });
+          succeeded++;
+        } catch (error) { failures.push(file.name + ' · ' + (error.message || '上传失败')); }
+        if (!account || account.id !== owner) { job.message = '账号已切换，本批次上传已停止。'; job.error = true; return false; }
+        if (account && account.id === owner) {
+          delete replicationAttachmentCache()[contextId];
+          if (String(state.replicationId) === job.taskId) await loadReplicationFileList(kind, true);
+        }
+      }
+      job.error = failures.length > 0;
+      job.message = succeeded + ' 个文件上传成功' + (failures.length ? '，' + failures.length + ' 个失败\n' + failures.join('\n') : '，已保存到云端');
+      return !job.error;
+    } finally {
+      job.running = false;
+      if (account && account.id === owner) renderReplicationUploadStatus(kind);
+    }
+  }
   function bindReplicationEvents() {
+    $('#replicationFiles').addEventListener('dragenter', function (event) {
+      if (!event.dataTransfer || !Array.from(event.dataTransfer.types || []).includes('Files')) return;
+      var zone = event.target.closest('[data-replication-drop]');
+      if (!zone) return;
+      event.preventDefault();
+      zone.dataset.dragDepth = Number(zone.dataset.dragDepth || 0) + 1;
+      zone.classList.add('is-dragover');
+    });
+    $('#replicationFiles').addEventListener('dragleave', function (event) {
+      var zone = event.target.closest('[data-replication-drop]');
+      if (!zone) return;
+      zone.dataset.dragDepth = Math.max(0, Number(zone.dataset.dragDepth || 0) - 1);
+      if (!Number(zone.dataset.dragDepth)) zone.classList.remove('is-dragover');
+    });
+    $('#panel-replications').addEventListener('dragover', function (event) {
+      if (event.dataTransfer && Array.from(event.dataTransfer.types || []).includes('Files')) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; }
+    });
+    $('#panel-replications').addEventListener('drop', function (event) {
+      if (!event.dataTransfer || !Array.from(event.dataTransfer.types || []).includes('Files')) return;
+      event.preventDefault();
+      var zone = event.target.closest('[data-replication-drop]');
+      if (!zone) { toast('请将文件拖到相应的材料区域'); return; }
+      zone.dataset.dragDepth = 0; zone.classList.remove('is-dragover');
+      var directory = Array.from(event.dataTransfer.items || []).some(function (item) { var entry = item.webkitGetAsEntry && item.webkitGetAsEntry(); return entry && entry.isDirectory; });
+      if (directory) { toast('文件夹请先压缩为ZIP文件再上传'); return; }
+      return uploadReplicationFiles(zone.dataset.replicationDrop, event.dataTransfer.files);
+    });
     $('#replicationFolderNew').addEventListener('click', function () { editReplicationFolder(''); });
     $('#replicationFolderCancel').addEventListener('click', function () { $('#replicationFolderForm').hidden = true; });
     $('#replicationFolderForm').addEventListener('submit', function (event) { event.preventDefault(); saveReplicationFolder(replicationFolderEditingId ? 'rename-folder' : 'create-folder', replicationFolderEditingId); });

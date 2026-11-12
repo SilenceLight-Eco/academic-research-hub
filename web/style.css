@@ -7488,6 +7488,11 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .replication-file-row small { display:block; margin-top:3px; font-size:11px; color:var(--text-muted); }
 .replication-file-actions { display:flex; flex-wrap:wrap; gap:6px; }
 .replication-file-error { margin:0; color:#c64444; font-size:12px; }
+.replication-drop-hint { padding:12px; margin-bottom:10px; border:1px dashed var(--hairline); border-radius:6px; color:var(--text-muted); font-size:12px; text-align:center; }
+.replication-file-group.is-dragover { border-color:var(--accent); background:var(--accent-dim); }
+.replication-file-group.is-dragover .replication-drop-hint { border-color:var(--accent); color:var(--accent); }
+.replication-upload-status { margin:8px 0; color:var(--accent); font-size:12px; line-height:1.7; white-space:pre-wrap; overflow-wrap:anywhere; }
+.replication-upload-status.is-error { color:#c64444; }
 @media(max-width:760px) { .replication-workspace { grid-template-columns:1fr; height:auto; } .replication-sidebar { max-height:240px; border-right:0; border-bottom:1px solid var(--hairline); } .replication-workspace > .peer-review-content { max-height:75vh; } }
 .peer-review-sidebar { display:flex; flex-direction:column; min-height:0; padding:16px 12px; gap:12px; border-right:1px solid var(--hairline); }
 .peer-review-sidebar label,.peer-review-editor label { display:grid; gap:6px; color:var(--text-secondary); font-size:12px; line-height:1.7; }

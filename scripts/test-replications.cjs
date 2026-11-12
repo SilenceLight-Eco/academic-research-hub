@@ -350,3 +350,107 @@ test('a forced upload refresh supersedes an older metadata response for the same
   resolveOld([]); await new Promise(resolve => setImmediate(resolve));
   assert.ok(h.node('replicationFileList_paper').innerHTML.includes('Uploaded.pdf'));
 });
+
+function fileDrop(kind, files) {
+  const classes = new Set(); let prevented = 0;
+  const zone = { dataset: { replicationDrop: kind }, classList: { add: value => classes.add(value), remove: value => classes.delete(value) } };
+  const event = { target: { closest: () => zone }, preventDefault: () => prevented++, dataTransfer: { types: ['Files'], files, items: [] } };
+  return { event, zone, classes, prevented: () => prevented };
+}
+
+test('dropping multiple code files saves the current form, uploads to the captured category and shows progress and results inline', async () => {
+  const uploaded = [], rows = [];
+  const h = uiHarness({ attachments: {
+    list: async (_kind, id) => id.endsWith('_code') ? rows.slice() : [],
+    upload: async (kind, id, file, progress) => {
+      assert.equal(h.calls[0].payload.notes, 'Save before uploading');
+      uploaded.push({ kind, id, name: file.name }); progress(25);
+      assert.ok(h.node('replicationUploadStatus_code').textContent.includes('25%'));
+      rows.push({ id: file.name, file_name: file.name, file_size: file.size }); progress(100);
+    }
+  } });
+  h.select(); h.context.bindReplicationEvents(); h.node('replicationNotes').value = 'Save before uploading';
+  const drop = fileDrop('code', [{ name: '01_clean.do', size: 100 }, { name: '02_regression.py', size: 200 }]);
+  assert.equal(await h.node('panel-replications').handlers.drop(drop.event), true);
+  assert.equal(drop.prevented(), 1);
+  assert.deepEqual(uploaded, [{ kind: 'paper', id: 'replication_rp-one_code', name: '01_clean.do' }, { kind: 'paper', id: 'replication_rp-one_code', name: '02_regression.py' }]);
+  assert.ok(h.node('replicationFileList_code').innerHTML.includes('01_clean.do')); assert.ok(h.node('replicationFileList_code').innerHTML.includes('02_regression.py'));
+  assert.equal(h.node('replicationUploadStatus_code').textContent, '2 个文件上传成功，已保存到云端');
+});
+
+test('every material category accepts drag uploads and partial failures preserve successful files and report failed names', async () => {
+  const uploaded = [], rows = {};
+  const h = uiHarness({ attachments: {
+    list: async (_kind, id) => rows[id] || [],
+    upload: async (_kind, id, file) => {
+      uploaded.push(file.name); if (file.name === 'fail.zip') throw new Error('Network failure');
+      (rows[id] || (rows[id] = [])).push({ id: file.name, file_name: file.name });
+    }
+  } }); h.select();
+  for (const kind of ['paper', 'supplement', 'data', 'code']) {
+    assert.ok(html.includes('data-replication-drop="' + kind + '"'));
+    assert.equal(await h.context.uploadReplicationFiles(kind, [{ name: kind + '.zip', size: 10 }]), true);
+  }
+  assert.equal(await h.context.uploadReplicationFiles('data', [{ name: 'one.csv', size: 10 }, { name: 'fail.zip', size: 10 }, { name: 'two.dta', size: 10 }]), false);
+  const status = h.node('replicationUploadStatus_data').textContent;
+  assert.ok(status.includes('2 个文件上传成功，1 个失败')); assert.ok(status.includes('fail.zip · Network failure'));
+  assert.ok(h.node('replicationFileList_data').innerHTML.includes('one.csv')); assert.ok(h.node('replicationFileList_data').innerHTML.includes('two.dta'));
+  assert.equal(uploaded.filter(name => name === 'one.csv').length, 1);
+});
+
+test('invalid files, oversize batches, directories and drops outside a material region never upload or navigate', async () => {
+  let uploaded = 0;
+  const h = uiHarness({ attachments: { list: async () => [], upload: async () => uploaded++ } }); h.select(); h.context.bindReplicationEvents();
+  assert.equal(await h.context.uploadReplicationFiles('paper', [{ name: 'large.pdf', size: 50 * 1024 * 1024 + 1 }]), false);
+  assert.equal(await h.context.uploadReplicationFiles('paper', [{ name: '', size: 10 }]), false);
+  assert.equal(await h.context.uploadReplicationFiles('paper', []), false);
+  assert.equal(await h.context.uploadReplicationFiles('bad', [{ name: 'one', size: 1 }]), false);
+  const outside = fileDrop('paper', [{ name: 'paper.pdf', size: 10 }]); outside.event.target.closest = () => null;
+  h.node('panel-replications').handlers.drop(outside.event); assert.equal(outside.prevented(), 1);
+  const directory = fileDrop('data', []); directory.event.dataTransfer.items = [{ webkitGetAsEntry: () => ({ isDirectory: true }) }];
+  h.node('panel-replications').handlers.drop(directory.event); assert.ok(h.toasts.some(text => text.includes('ZIP')));
+  assert.equal(uploaded, 0); assert.equal(h.calls.length, 0);
+});
+
+test('a failed task save prevents drag upload and leaves an actionable status', async () => {
+  let uploaded = 0;
+  const h = uiHarness({ api: async () => ({ ok: false, error: 'Save failed' }), attachments: { list: async () => [], upload: async () => uploaded++ } });
+  h.select(); assert.equal(await h.context.uploadReplicationFiles('paper', [{ name: 'paper.pdf', size: 10 }]), false);
+  assert.equal(uploaded, 0); assert.ok(h.node('replicationUploadStatus_paper').textContent.includes('上传未开始'));
+});
+
+test('task switching during upload keeps all files in the original task and repeated drops cannot duplicate the running batch', async () => {
+  let resolveFirst; const uploads = [];
+  const h = uiHarness({ attachments: { list: async () => [], upload: async (_kind, id, file) => {
+    uploads.push({ id, name: file.name }); if (uploads.length === 1) await new Promise(resolve => { resolveFirst = resolve; });
+  } } }); h.select();
+  const pending = h.context.uploadReplicationFiles('data', [{ name: 'one.csv', size: 10 }, { name: 'two.csv', size: 10 }]);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(await h.context.uploadReplicationFiles('data', [{ name: 'one.csv', size: 10 }]), false);
+  h.select({ id: 'rp-two' }); resolveFirst(); assert.equal(await pending, true);
+  assert.ok(uploads.every(file => file.id === 'replication_rp-one_data'));
+  assert.equal(uploads.length, 2); assert.equal(h.node('replicationUploadStatus_data').textContent, '');
+});
+
+test('switching accounts stops the remaining files and clears old upload status from the new account', async () => {
+  let resolveFirst; const uploaded = [];
+  const h = uiHarness({ attachments: { list: async () => [], upload: async (_kind, _id, file) => { uploaded.push(file.name); await new Promise(resolve => { resolveFirst = resolve; }); } } });
+  h.select();
+  const pending = h.context.uploadReplicationFiles('paper', [{ name: 'one.pdf', size: 10 }, { name: 'two.pdf', size: 10 }]);
+  await new Promise(resolve => setImmediate(resolve));
+  h.context.account = { id: 'new-account' }; h.context.renderReplications(); resolveFirst();
+  assert.equal(await pending, false); assert.deepEqual(uploaded, ['one.pdf']);
+  assert.equal(h.node('replicationUploadStatus_paper').textContent, '');
+});
+
+test('drag feedback handles nested enter/leave and text dragging retains normal editor behavior', () => {
+  const h = uiHarness(); h.select(); h.context.bindReplicationEvents(); const drop = fileDrop('code', []);
+  const events = h.node('replicationFiles').handlers;
+  events.dragenter(drop.event); events.dragenter(drop.event); assert.ok(drop.classes.has('is-dragover'));
+  events.dragleave(drop.event); assert.ok(drop.classes.has('is-dragover'));
+  events.dragleave(drop.event); assert.ok(!drop.classes.has('is-dragover'));
+  h.node('panel-replications').handlers.dragover(drop.event); assert.equal(drop.event.dataTransfer.dropEffect, 'copy');
+  let prevented = false;
+  h.node('panel-replications').handlers.drop({ dataTransfer: { types: ['text/plain'] }, preventDefault: () => { prevented = true; } });
+  assert.equal(prevented, false);
+});
