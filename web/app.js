@@ -9487,7 +9487,7 @@
 
   // ===== 论文复现 =====
   var replicationFields = { title: 'replicationTitle', authors: 'replicationAuthors', doi: 'replicationDoi', status: 'replicationStatus', environment: 'replicationEnvironment', runOrder: 'replicationRunOrder', results: 'replicationResults', notes: 'replicationNotes', folderId: 'replicationFolder' };
-  var replicationFileTypes = { paper: '论文 PDF', supplement: '附件', data: '数据', code: '代码' };
+  var replicationFileTypes = { paper: '论文 PDF', supplement: '附件', data: '数据', code: '代码', result: '复现结果文档' };
   var replicationFileCache = {};
   var replicationFileOwner = '';
   var replicationUploads = {};
@@ -9549,7 +9549,7 @@
     ['replicationFolderNew', 'replicationFolderName', 'replicationFolderSubmit'].forEach(function (id) { $('#' + id).disabled = locked || state.replicationTrashOpen; });
     if (state.replicationTrashOpen) $('#replicationFolderForm').hidden = true;
     ['replicationSave', 'replicationDelete'].forEach(function (id) { $('#' + id).disabled = locked || !item; });
-    $$('#replicationFiles button').forEach(function (button) { button.disabled = locked || !item; });
+    $$('#replicationFiles button, #replicationResultFiles button').forEach(function (button) { button.disabled = locked || !item; });
     $('#replicationTrash').textContent = state.replicationTrashOpen ? '返回复现列表' : '回收站';
     var slot = item && autoSaveSlots['replication:' + item.id];
     $('#replicationSaveStatus').textContent = slot && slot.dirty ? '修改待保存 · 每 3 分钟及切换任务、模块时自动保存' : item ? '修改会自动保存' + (item.updated ? ' · 最近保存 ' + item.updated : '') : '';
@@ -9772,7 +9772,7 @@
     }
   }
   function bindReplicationEvents() {
-    $('#replicationFiles').addEventListener('dragenter', function (event) {
+    $('#panel-replications').addEventListener('dragenter', function (event) {
       if (!event.dataTransfer || !Array.from(event.dataTransfer.types || []).includes('Files')) return;
       var zone = event.target.closest('[data-replication-drop]');
       if (!zone) return;
@@ -9780,7 +9780,7 @@
       zone.dataset.dragDepth = Number(zone.dataset.dragDepth || 0) + 1;
       zone.classList.add('is-dragover');
     });
-    $('#replicationFiles').addEventListener('dragleave', function (event) {
+    $('#panel-replications').addEventListener('dragleave', function (event) {
       var zone = event.target.closest('[data-replication-drop]');
       if (!zone) return;
       zone.dataset.dragDepth = Math.max(0, Number(zone.dataset.dragDepth || 0) - 1);
@@ -9835,7 +9835,7 @@
       if (restore) mutateReplication('restore', restore.dataset.replicationRestore);
       if (open) afterCurrentEditorSaved('replications', function () { state.replicationId = open.dataset.replicationOpen; renderReplications(); });
     });
-    $('#replicationFiles').addEventListener('click', function (event) {
+    $('#panel-replications').addEventListener('click', function (event) {
       var action = event.target.closest('[data-replication-file-action]');
       if (action) { replicationFileAction(action.dataset.replicationFileKind, action.dataset.replicationFileId, action.dataset.replicationFileAction); return; }
       var refresh = event.target.closest('[data-replication-file-refresh]');

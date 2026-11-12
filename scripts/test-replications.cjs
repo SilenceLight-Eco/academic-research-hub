@@ -115,7 +115,7 @@ test('PDF, supplemental, data and code buttons open separate private attachment 
   assert.equal(await h.context.openReplicationFiles('unknown'), false);
   assert.throws(() => h.context.replicationFileContext('../bad', 'paper'));
   for (const kind of ['paper', 'supplement', 'data', 'code']) assert.ok(html.includes('data-replication-file="' + kind + '"'));
-  assert.ok(h.node('replicationFiles').handlers.click);
+  assert.ok(h.node('panel-replications').handlers.click);
 });
 
 test('late loads and saves from a different account cannot repopulate the module or open files', async () => {
@@ -262,13 +262,13 @@ test('creating a folder clears the search so the new empty folder is immediately
   assert.equal(h.node('replicationFolderForm').hidden, true);
 });
 
-test('all four inline material lists load independently, keep legacy supplements and reuse fresh metadata on redraw', async () => {
+test('all five inline material lists load independently, keep legacy supplements and reuse fresh metadata on redraw', async () => {
   const reads = [];
   const h = uiHarness({ attachments: { list: async (kind, id) => {
     reads.push({ kind, id }); return [{ id: id + '-file', file_name: id.endsWith('_supplement') ? '旧材料.csv' : '<file>.pdf', file_size: 2048, created_at: '2026-11-12T00:00:00Z' }];
   } } });
   h.select(); await new Promise(resolve => setImmediate(resolve));
-  assert.equal(reads.length, 4); assert.equal(new Set(reads.map(read => read.id)).size, 4);
+  assert.equal(reads.length, 5); assert.equal(new Set(reads.map(read => read.id)).size, 5);
   assert.ok(reads.every(read => read.kind === 'paper'));
   assert.ok(h.node('replicationFileList_supplement').innerHTML.includes('旧材料.csv'));
   for (const kind of ['paper', 'data', 'code']) {
@@ -276,7 +276,7 @@ test('all four inline material lists load independently, keep legacy supplements
     assert.ok(markup.includes('&lt;file>.pdf')); assert.ok(!markup.includes('<file>'));
     assert.ok(markup.includes('2048 B')); assert.ok(markup.includes('下载')); assert.ok(markup.includes('删除'));
   }
-  h.context.renderReplications(); await new Promise(resolve => setImmediate(resolve)); assert.equal(reads.length, 4);
+  h.context.renderReplications(); await new Promise(resolve => setImmediate(resolve)); assert.equal(reads.length, 5);
   assert.ok(!html.includes('>附件与数据</button>')); assert.ok(html.includes('<h4>附件</h4>')); assert.ok(html.includes('<h4>数据</h4>'));
 });
 
@@ -288,7 +288,7 @@ test('upload notifications update the affected visible file list without rerende
   rows.push({ id: 'data1', file_name: 'panel.dta', file_size: 512 });
   h.windowHandlers['academic-attachments-changed']({ detail: { kind: 'paper', contextId: 'replication_rp-one_data' } });
   await new Promise(resolve => setImmediate(resolve));
-  assert.equal(reads.length, 5); assert.equal(reads[4], 'replication_rp-one_data');
+  assert.equal(reads.length, 6); assert.equal(reads[5], 'replication_rp-one_data');
   assert.ok(h.node('replicationFileList_data').innerHTML.includes('panel.dta')); assert.equal(h.node('replicationNotes').value, 'Keep typing');
   assert.equal(h.calls.length, 0);
 });
@@ -317,7 +317,7 @@ test('failed list reads are shown as errors and the visible refresh button retri
   assert.ok(h.node('replicationFileList_paper').innerHTML.includes('文件读取失败'));
   assert.ok(!h.node('replicationFileList_paper').innerHTML.includes('暂无文件'));
   offline = false;
-  h.node('replicationFiles').handlers.click({ target: { closest: selector => selector === '[data-replication-file-refresh]' ? { dataset: { replicationFileRefresh: 'paper' } } : null } });
+  h.node('panel-replications').handlers.click({ target: { closest: selector => selector === '[data-replication-file-refresh]' ? { dataset: { replicationFileRefresh: 'paper' } } : null } });
   await new Promise(resolve => setImmediate(resolve));
   assert.ok(h.node('replicationFileList_paper').innerHTML.includes('Fresh.pdf'));
   assert.ok(h.node('replicationFileList_data').innerHTML.includes('文件读取失败'));
@@ -328,9 +328,9 @@ test('late file reads cannot replace the file list for another task or another a
   const h = uiHarness({ attachments: { list: (_kind, id) => new Promise(resolve => pending.push({ id, resolve })) } });
   h.select(); await new Promise(resolve => setImmediate(resolve));
   h.select({ id: 'rp-two' }); await new Promise(resolve => setImmediate(resolve));
-  pending.slice(4).forEach(entry => entry.resolve([{ id: 'new-file', file_name: 'New task.pdf' }]));
+  pending.slice(5).forEach(entry => entry.resolve([{ id: 'new-file', file_name: 'New task.pdf' }]));
   await new Promise(resolve => setImmediate(resolve));
-  pending.slice(0, 4).forEach(entry => entry.resolve([{ id: 'old-file', file_name: 'Old task.pdf' }]));
+  pending.slice(0, 5).forEach(entry => entry.resolve([{ id: 'old-file', file_name: 'Old task.pdf' }]));
   await new Promise(resolve => setImmediate(resolve));
   assert.ok(h.node('replicationFileList_paper').innerHTML.includes('New task.pdf'));
   assert.ok(!h.node('replicationFileList_paper').innerHTML.includes('Old task.pdf'));
@@ -445,7 +445,7 @@ test('switching accounts stops the remaining files and clears old upload status 
 
 test('drag feedback handles nested enter/leave and text dragging retains normal editor behavior', () => {
   const h = uiHarness(); h.select(); h.context.bindReplicationEvents(); const drop = fileDrop('code', []);
-  const events = h.node('replicationFiles').handlers;
+  const events = h.node('panel-replications').handlers;
   events.dragenter(drop.event); events.dragenter(drop.event); assert.ok(drop.classes.has('is-dragover'));
   events.dragleave(drop.event); assert.ok(drop.classes.has('is-dragover'));
   events.dragleave(drop.event); assert.ok(!drop.classes.has('is-dragover'));
@@ -453,4 +453,62 @@ test('drag feedback handles nested enter/leave and text dragging retains normal 
   let prevented = false;
   h.node('panel-replications').handlers.drop({ dataTransfer: { types: ['text/plain'] }, preventDefault: () => { prevented = true; } });
   assert.equal(prevented, false);
+});
+
+test('the result document area sits below the result text and its upload button uses a separate private context', async () => {
+  const h = uiHarness(); h.select(); h.context.bindReplicationEvents();
+  h.node('replicationResults').value = '表1已复现，存在小幅差异。';
+  assert.ok(html.indexOf('id="replicationResults"') < html.indexOf('id="replicationResultFiles"'));
+  assert.ok(html.indexOf('id="replicationResultFiles"') < html.indexOf('id="replicationNotes"'));
+  assert.ok(html.includes('data-replication-file="result"')); assert.ok(html.includes('data-replication-drop="result"'));
+  h.node('panel-replications').handlers.click({ target: { closest: selector => selector === '[data-replication-file]' ? { dataset: { replicationFile: 'result' } } : null } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(h.files[0].slice(0, 2), ['paper', 'replication_rp-one_result']);
+  assert.ok(h.files[0][2].includes('复现结果文档'));
+  assert.equal(h.calls[0].payload.results, '表1已复现，存在小幅差异。');
+  assert.equal(h.node('replicationResults').value, '表1已复现，存在小幅差异。');
+  for (const kind of ['paper', 'supplement', 'data', 'code']) assert.notEqual(h.context.replicationFileContext('rp-one', kind), h.files[0][1]);
+});
+
+test('result documents can be dropped, displayed, reloaded, downloaded and deleted through ordinary controls', async () => {
+  const rows = [], downloads = [], removed = [];
+  const attachments = {
+    list: async (_kind, id) => id.endsWith('_result') ? rows.slice() : [],
+    upload: async (_kind, id, file, progress) => {
+      assert.equal(id, 'replication_rp-one_result'); progress(80);
+      rows.push({ id: file.name, file_name: file.name, file_size: file.size });
+    },
+    download: async id => { downloads.push(id); return { blob: 'result-data', name: id }; },
+    remove: async id => { removed.push(id); rows.splice(rows.findIndex(row => row.id === id), 1); }
+  };
+  const h = uiHarness({ attachments }); h.select(); h.context.bindReplicationEvents();
+  h.node('replicationResults').value = 'Text and files coexist';
+  const drop = fileDrop('result', [{ name: '复现报告.docx', size: 200 }, { name: '结果表.xlsx', size: 150 }]);
+  assert.equal(await h.node('panel-replications').handlers.drop(drop.event), true);
+  assert.ok(h.node('replicationFileList_result').innerHTML.includes('复现报告.docx'));
+  assert.ok(h.node('replicationFileList_result').innerHTML.includes('结果表.xlsx'));
+  assert.equal(h.node('replicationResults').value, 'Text and files coexist');
+  const reloaded = uiHarness({ attachments }); reloaded.select();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(reloaded.node('replicationFileList_result').innerHTML.includes('复现报告.docx'));
+  function action(type) {
+    h.node('panel-replications').handlers.click({ target: { closest: selector => selector === '[data-replication-file-action]' ? { dataset: { replicationFileKind: 'result', replicationFileId: '复现报告.docx', replicationFileAction: type } } : null } });
+  }
+  action('download'); await new Promise(resolve => setImmediate(resolve)); assert.deepEqual(downloads, ['复现报告.docx']);
+  action('remove'); await new Promise(resolve => setImmediate(resolve)); assert.deepEqual(removed, ['复现报告.docx']);
+  assert.ok(!h.node('replicationFileList_result').innerHTML.includes('复现报告.docx'));
+  assert.ok(h.node('replicationFileList_result').innerHTML.includes('结果表.xlsx'));
+});
+
+test('result document upload notifications refresh that list without replacing result text', async () => {
+  const rows = [], reads = [];
+  const h = uiHarness({ attachments: { list: async (_kind, id) => { reads.push(id); return id.endsWith('_result') ? rows.slice() : []; } } });
+  h.select(); h.context.bindReplicationEvents(); await new Promise(resolve => setImmediate(resolve));
+  const before = reads.length; h.node('replicationResults').value = 'Unsaved result text';
+  rows.push({ id: 'output', file_name: '输出日志.pdf' });
+  h.windowHandlers['academic-attachments-changed']({ detail: { kind: 'paper', contextId: 'replication_rp-one_result' } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(reads.length, before + 1); assert.equal(reads[reads.length - 1], 'replication_rp-one_result');
+  assert.ok(h.node('replicationFileList_result').innerHTML.includes('输出日志.pdf'));
+  assert.equal(h.node('replicationResults').value, 'Unsaved result text');
 });
