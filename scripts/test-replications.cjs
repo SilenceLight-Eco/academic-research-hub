@@ -61,14 +61,15 @@ test('trash and restore retain task IDs used by cloud materials and stale saves 
 const app = fs.readFileSync(path.join(__dirname, '../web/app.js'), 'utf8');
 const html = fs.readFileSync(path.join(__dirname, '../web/workbench.html'), 'utf8');
 function uiHarness(options = {}) {
-  const nodes = new Map(), slots = {}, calls = [], toasts = [], files = [];
+  const nodes = new Map(), slots = {}, calls = [], toasts = [], files = [], downloads = [], windowHandlers = {};
   const state = { panel: 'replications', replications: { items: [], trash: [] }, replicationId: null, replicationTrashOpen: false };
   const node = id => {
     if (!nodes.has(id)) nodes.set(id, { value: '', innerHTML: '', textContent: '', handlers: {}, focus() {}, addEventListener(type, fn) { this.handlers[type] = fn; } });
     return nodes.get(id);
   };
   const context = vm.createContext({ state, account: { id: 'user' }, autoSaveSlots: slots,
-    window: { __academicOpenAttachments: (...args) => { files.push(args); return true; } },
+    window: { __academicOpenAttachments: (...args) => { files.push(args); return true; }, __academicAttachments: options.attachments, addEventListener(type, handler) { windowHandlers[type] = handler; } },
+    formatBytes: size => size + ' B', downloadBlob: (blob, name) => downloads.push({ blob, name }),
     $: selector => node(selector.slice(1)), $$: () => [],
     escapeHtml: value => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'), escapeAttribute: value => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'),
     toast: text => toasts.push(text), confirm: () => true,
@@ -85,7 +86,7 @@ function uiHarness(options = {}) {
     const item = { id: 'rp-one', title: 'Test', authors: '', doi: '', status: '未开始', environment: '', runOrder: '', results: '', notes: '', ...extras };
     state.replications.items.push(item); state.replicationId = item.id; context.renderReplications(); return item;
   }
-  return { context, state, node, slots, calls, toasts, files, select };
+  return { context, state, node, slots, calls, toasts, files, downloads, windowHandlers, select };
 }
 
 test('normal input handlers queue all fields without replacing the active form; search covers concrete content', () => {
@@ -107,13 +108,13 @@ test('manual save succeeds only after cloud confirmation; failed saves preserve 
   assert.ok(h.toasts.every(text => !text.includes('已保存')));
 });
 
-test('PDF, supplemental and code buttons open separate private attachment contexts after saving', async () => {
+test('PDF, supplemental, data and code buttons open separate private attachment contexts after saving', async () => {
   const h = uiHarness(); h.select(); h.context.bindReplicationEvents();
-  for (const kind of ['paper', 'supplement', 'code']) assert.equal(await h.context.openReplicationFiles(kind), true);
-  assert.deepEqual(h.files.map(args => args.slice(0, 2)), [['paper', 'replication_rp-one_paper'], ['paper', 'replication_rp-one_supplement'], ['paper', 'replication_rp-one_code']]);
+  for (const kind of ['paper', 'supplement', 'data', 'code']) assert.equal(await h.context.openReplicationFiles(kind), true);
+  assert.deepEqual(h.files.map(args => args.slice(0, 2)), [['paper', 'replication_rp-one_paper'], ['paper', 'replication_rp-one_supplement'], ['paper', 'replication_rp-one_data'], ['paper', 'replication_rp-one_code']]);
   assert.equal(await h.context.openReplicationFiles('unknown'), false);
   assert.throws(() => h.context.replicationFileContext('../bad', 'paper'));
-  for (const kind of ['paper', 'supplement', 'code']) assert.ok(html.includes('data-replication-file="' + kind + '"'));
+  for (const kind of ['paper', 'supplement', 'data', 'code']) assert.ok(html.includes('data-replication-file="' + kind + '"'));
   assert.ok(h.node('replicationFiles').handlers.click);
 });
 
@@ -259,4 +260,93 @@ test('creating a folder clears the search so the new empty folder is immediately
   assert.equal(await h.context.saveReplicationFolder('create-folder', ''), true);
   assert.equal(h.state.replicationQuery, ''); assert.ok(h.node('replicationList').innerHTML.includes('Created (0)'));
   assert.equal(h.node('replicationFolderForm').hidden, true);
+});
+
+test('all four inline material lists load independently, keep legacy supplements and reuse fresh metadata on redraw', async () => {
+  const reads = [];
+  const h = uiHarness({ attachments: { list: async (kind, id) => {
+    reads.push({ kind, id }); return [{ id: id + '-file', file_name: id.endsWith('_supplement') ? '旧材料.csv' : '<file>.pdf', file_size: 2048, created_at: '2026-11-12T00:00:00Z' }];
+  } } });
+  h.select(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(reads.length, 4); assert.equal(new Set(reads.map(read => read.id)).size, 4);
+  assert.ok(reads.every(read => read.kind === 'paper'));
+  assert.ok(h.node('replicationFileList_supplement').innerHTML.includes('旧材料.csv'));
+  for (const kind of ['paper', 'data', 'code']) {
+    const markup = h.node('replicationFileList_' + kind).innerHTML;
+    assert.ok(markup.includes('&lt;file>.pdf')); assert.ok(!markup.includes('<file>'));
+    assert.ok(markup.includes('2048 B')); assert.ok(markup.includes('下载')); assert.ok(markup.includes('删除'));
+  }
+  h.context.renderReplications(); await new Promise(resolve => setImmediate(resolve)); assert.equal(reads.length, 4);
+  assert.ok(!html.includes('>附件与数据</button>')); assert.ok(html.includes('<h4>附件</h4>')); assert.ok(html.includes('<h4>数据</h4>'));
+});
+
+test('upload notifications update the affected visible file list without rerendering the edited form', async () => {
+  const reads = [], rows = [];
+  const h = uiHarness({ attachments: { list: async (_kind, id) => { reads.push(id); return id.endsWith('_data') ? rows.slice() : []; } } });
+  h.select(); h.context.bindReplicationEvents(); await new Promise(resolve => setImmediate(resolve));
+  h.node('replicationNotes').value = 'Keep typing';
+  rows.push({ id: 'data1', file_name: 'panel.dta', file_size: 512 });
+  h.windowHandlers['academic-attachments-changed']({ detail: { kind: 'paper', contextId: 'replication_rp-one_data' } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(reads.length, 5); assert.equal(reads[4], 'replication_rp-one_data');
+  assert.ok(h.node('replicationFileList_data').innerHTML.includes('panel.dta')); assert.equal(h.node('replicationNotes').value, 'Keep typing');
+  assert.equal(h.calls.length, 0);
+});
+
+test('inline download and single-file deletion use only the selected category records and refresh after deletion', async () => {
+  const removed = [], rows = [{ id: 'code1', file_name: 'regression.do', file_size: 120 }];
+  const h = uiHarness({ attachments: {
+    list: async (_kind, id) => id.endsWith('_code') ? rows.slice() : [],
+    download: async id => { assert.equal(id, 'code1'); return { blob: 'test-blob', name: 'regression.do' }; },
+    remove: async id => { removed.push(id); rows.length = 0; }
+  } });
+  h.select(); h.context.bindReplicationEvents(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(await h.context.replicationFileAction('data', 'code1', 'remove'), false);
+  assert.equal(await h.context.replicationFileAction('code', 'code1', 'download'), true);
+  assert.deepEqual(h.downloads, [{ blob: 'test-blob', name: 'regression.do' }]);
+  assert.equal(await h.context.replicationFileAction('code', 'code1', 'remove'), true);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(removed, ['code1']); assert.ok(h.node('replicationFileList_code').innerHTML.includes('暂无文件'));
+  assert.equal(await h.context.replicationFileAction('code', 'code1', 'remove'), false);
+});
+
+test('failed list reads are shown as errors and the visible refresh button retries the exact category', async () => {
+  let offline = true;
+  const h = uiHarness({ attachments: { list: async () => { if (offline) throw new Error('Offline'); return [{ id: 'fresh', file_name: 'Fresh.pdf' }]; } } });
+  h.select(); h.context.bindReplicationEvents(); await new Promise(resolve => setImmediate(resolve));
+  assert.ok(h.node('replicationFileList_paper').innerHTML.includes('文件读取失败'));
+  assert.ok(!h.node('replicationFileList_paper').innerHTML.includes('暂无文件'));
+  offline = false;
+  h.node('replicationFiles').handlers.click({ target: { closest: selector => selector === '[data-replication-file-refresh]' ? { dataset: { replicationFileRefresh: 'paper' } } : null } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(h.node('replicationFileList_paper').innerHTML.includes('Fresh.pdf'));
+  assert.ok(h.node('replicationFileList_data').innerHTML.includes('文件读取失败'));
+});
+
+test('late file reads cannot replace the file list for another task or another account', async () => {
+  const pending = [];
+  const h = uiHarness({ attachments: { list: (_kind, id) => new Promise(resolve => pending.push({ id, resolve })) } });
+  h.select(); await new Promise(resolve => setImmediate(resolve));
+  h.select({ id: 'rp-two' }); await new Promise(resolve => setImmediate(resolve));
+  pending.slice(4).forEach(entry => entry.resolve([{ id: 'new-file', file_name: 'New task.pdf' }]));
+  await new Promise(resolve => setImmediate(resolve));
+  pending.slice(0, 4).forEach(entry => entry.resolve([{ id: 'old-file', file_name: 'Old task.pdf' }]));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(h.node('replicationFileList_paper').innerHTML.includes('New task.pdf'));
+  assert.ok(!h.node('replicationFileList_paper').innerHTML.includes('Old task.pdf'));
+  h.context.account = null; h.context.renderReplications();
+  assert.equal(h.node('replicationFileList_paper').innerHTML, '');
+  assert.equal(Object.keys(h.context.replicationFileCache).length, 0);
+});
+
+test('a forced upload refresh supersedes an older metadata response for the same file category', async () => {
+  let resolveOld, first = true;
+  const h = uiHarness({ attachments: { list: async (_kind, id) => {
+    if (id.endsWith('_paper') && first) { first = false; return new Promise(resolve => { resolveOld = resolve; }); }
+    return [{ id: 'new', file_name: 'Uploaded.pdf' }];
+  } } });
+  h.select(); await new Promise(resolve => setImmediate(resolve));
+  await h.context.loadReplicationFileList('paper', true);
+  resolveOld([]); await new Promise(resolve => setImmediate(resolve));
+  assert.ok(h.node('replicationFileList_paper').innerHTML.includes('Uploaded.pdf'));
 });

@@ -9487,7 +9487,9 @@
 
   // ===== 论文复现 =====
   var replicationFields = { title: 'replicationTitle', authors: 'replicationAuthors', doi: 'replicationDoi', status: 'replicationStatus', environment: 'replicationEnvironment', runOrder: 'replicationRunOrder', results: 'replicationResults', notes: 'replicationNotes', folderId: 'replicationFolder' };
-  var replicationFileTypes = { paper: '论文 PDF', supplement: '附件与数据', code: '代码' };
+  var replicationFileTypes = { paper: '论文 PDF', supplement: '附件', data: '数据', code: '代码' };
+  var replicationFileCache = {};
+  var replicationFileOwner = '';
   var replicationLoadRequest = 0;
   var replicationFolderEditingId = '';
   function activeReplication() {
@@ -9549,6 +9551,8 @@
     $('#replicationTrash').textContent = state.replicationTrashOpen ? '返回复现列表' : '回收站';
     var slot = item && autoSaveSlots['replication:' + item.id];
     $('#replicationSaveStatus').textContent = slot && slot.dirty ? '修改待保存 · 每 3 分钟及切换任务、模块时自动保存' : item ? '修改会自动保存' + (item.updated ? ' · 最近保存 ' + item.updated : '') : '';
+    Object.keys(replicationFileTypes).forEach(function (kind) { renderReplicationFileList(kind); });
+    if (item && account && !state.replicationLoading) Object.keys(replicationFileTypes).forEach(function (kind) { loadReplicationFileList(kind); });
   }
   function loadReplications() {
     var request = ++replicationLoadRequest, owner = account && account.id;
@@ -9631,6 +9635,71 @@
     if (!Object.prototype.hasOwnProperty.call(replicationFileTypes, kind) || !/^[A-Za-z0-9_-]{1,80}$/.test(String(id || ''))) throw new Error('复现材料分类或任务编号无效');
     return 'replication_' + id + '_' + kind;
   }
+  function replicationAttachmentCache() {
+    var owner = account && account.id || '';
+    if (replicationFileOwner !== owner) { replicationFileCache = {}; replicationFileOwner = owner; }
+    return replicationFileCache;
+  }
+  function renderReplicationFileList(kind) {
+    var node = $('#replicationFileList_' + kind), item = activeReplication(), cache = replicationAttachmentCache();
+    if (!node) return;
+    if (!item || !account || state.replicationTrashOpen) { node.innerHTML = ''; return; }
+    var entry = cache[replicationFileContext(item.id, kind)];
+    if (!entry || entry.loading) { node.innerHTML = '<p class="replication-help">正在读取文件…</p>'; return; }
+    if (entry.error) { node.innerHTML = '<p class="replication-file-error">文件读取失败，请点击刷新重试。</p>'; return; }
+    node.innerHTML = entry.files.map(function (file) {
+      var date = new Date(file.created_at), dateText = Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('zh-CN');
+      return '<div class="replication-file-row"><div><strong title="' + escapeAttribute(file.file_name) + '">' + escapeHtml(file.file_name) + '</strong><small>' + escapeHtml(formatBytes(file.file_size || 0)) + (dateText ? ' · ' + escapeHtml(dateText) : '') + '</small></div><div class="replication-file-actions"><button type="button" data-replication-file-action="download" data-replication-file-kind="' + kind + '" data-replication-file-id="' + escapeAttribute(file.id) + '"' + (entry.busy ? ' disabled' : '') + '>下载</button><button type="button" data-replication-file-action="remove" data-replication-file-kind="' + kind + '" data-replication-file-id="' + escapeAttribute(file.id) + '"' + (entry.busy ? ' disabled' : '') + '>删除</button></div></div>';
+    }).join('') || '<p class="replication-help">暂无文件</p>';
+    if (entry.busy) node.innerHTML += '<p class="replication-help">正在处理文件…</p>';
+  }
+  function loadReplicationFileList(kind, force) {
+    var item = activeReplication(), owner = account && account.id;
+    if (!item || !owner || state.replicationTrashOpen || state.panel !== 'replications') return Promise.resolve();
+    var contextId = replicationFileContext(item.id, kind), taskId = String(item.id), cache = replicationAttachmentCache(), entry = cache[contextId];
+    if (entry && (entry.busy || !force && (entry.loading || Date.now() - entry.checkedAt < 60000))) return entry.promise || Promise.resolve();
+    entry = { loading: true, files: [] }; cache[contextId] = entry;
+    renderReplicationFileList(kind);
+    entry.promise = Promise.resolve().then(function () {
+      if (!account || account.id !== owner || replicationAttachmentCache()[contextId] !== entry) return;
+      if (!window.__academicAttachments) throw new Error('附件组件尚未就绪');
+      return window.__academicAttachments.list('paper', contextId);
+    }).then(function (files) {
+      if (!Array.isArray(files)) throw new Error('未能确认文件列表');
+      entry.files = files;
+    }).catch(function (error) { entry.error = error.message || '读取文件失败'; }).then(function () {
+      entry.loading = false; entry.checkedAt = Date.now();
+      if (account && account.id === owner && String(state.replicationId) === taskId && state.panel === 'replications' && replicationAttachmentCache()[contextId] === entry) renderReplicationFileList(kind);
+    });
+    return entry.promise;
+  }
+  async function replicationFileAction(kind, fileId, action) {
+    var item = activeReplication(), owner = account && account.id;
+    if (!item || !owner || state.replicationTrashOpen || ['download', 'remove'].indexOf(action) < 0) return false;
+    var contextId = replicationFileContext(item.id, kind), entry = replicationAttachmentCache()[contextId];
+    var file = entry && entry.files.find(function (row) { return String(row.id) === String(fileId); });
+    if (!file || entry.busy) return false;
+    if (action === 'remove' && !confirm('永久删除文件“' + file.file_name + '”？')) return false;
+    entry.busy = true; renderReplicationFileList(kind);
+    try {
+      if (action === 'remove') await window.__academicAttachments.remove(file.id);
+      else {
+        var result = await window.__academicAttachments.download(file.id);
+        if (!account || account.id !== owner) return false;
+        downloadBlob(result.blob, result.name);
+      }
+      return true;
+    } catch (error) { if (account && account.id === owner) toast(error.message || '文件操作失败'); return false; }
+    finally {
+      entry.busy = false;
+      if (account && account.id === owner) {
+        if (action === 'remove') {
+          delete replicationAttachmentCache()[contextId];
+          if (activeReplication() && replicationFileContext(state.replicationId, kind) === contextId) loadReplicationFileList(kind, true);
+        } else renderReplicationFileList(kind);
+      }
+    }
+  }
   async function openReplicationFiles(kind) {
     var item = activeReplication(), owner = account && account.id;
     if (!item || !owner || !window.__academicOpenAttachments) return false;
@@ -9680,8 +9749,21 @@
       if (open) afterCurrentEditorSaved('replications', function () { state.replicationId = open.dataset.replicationOpen; renderReplications(); });
     });
     $('#replicationFiles').addEventListener('click', function (event) {
+      var action = event.target.closest('[data-replication-file-action]');
+      if (action) { replicationFileAction(action.dataset.replicationFileKind, action.dataset.replicationFileId, action.dataset.replicationFileAction); return; }
+      var refresh = event.target.closest('[data-replication-file-refresh]');
+      if (refresh) { loadReplicationFileList(refresh.dataset.replicationFileRefresh, true); return; }
       var button = event.target.closest('[data-replication-file]');
       if (button) openReplicationFiles(button.dataset.replicationFile);
+    });
+    window.addEventListener('academic-attachments-changed', function (event) {
+      var detail = event.detail, item = activeReplication();
+      if (!account || !detail || detail.kind !== 'paper') return;
+      delete replicationAttachmentCache()[detail.contextId];
+      if (!item || state.replicationTrashOpen) return;
+      Object.keys(replicationFileTypes).forEach(function (kind) {
+        if (replicationFileContext(item.id, kind) === detail.contextId) loadReplicationFileList(kind, true);
+      });
     });
     Object.keys(replicationFields).forEach(function (field) {
       ['input', 'change'].forEach(function (type) { $('#' + replicationFields[field]).addEventListener(type, queueReplicationAutoSave); });

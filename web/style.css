@@ -7477,6 +7477,17 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .replication-sidebar input { width:100%; box-sizing:border-box; padding:9px 10px; border:1px solid var(--hairline); border-radius:7px; background:var(--glass-strong); color:var(--text); font:inherit; }
 #replicationList { overflow:auto; min-height:0; }
 .replication-help { margin:0; font-size:12px; color:var(--text-muted); line-height:1.7; }
+.replication-file-groups { display:grid; gap:12px; }
+.replication-file-group { padding:12px; border:1px solid var(--hairline); border-radius:8px; min-width:0; }
+.replication-file-heading { display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+.replication-file-heading h4 { flex:1; margin:0; font-size:13px; color:var(--text); }
+.replication-file-heading button,.replication-file-actions button { padding:4px 8px; border:1px solid var(--hairline); border-radius:5px; color:var(--text-secondary); background:var(--glass-strong); cursor:pointer; }
+.replication-file-row { display:flex; align-items:center; gap:10px; padding:9px 0; border-top:1px solid var(--hairline); }
+.replication-file-row > div:first-child { flex:1; min-width:0; }
+.replication-file-row strong { display:block; font-size:13px; overflow-wrap:anywhere; color:var(--text); }
+.replication-file-row small { display:block; margin-top:3px; font-size:11px; color:var(--text-muted); }
+.replication-file-actions { display:flex; flex-wrap:wrap; gap:6px; }
+.replication-file-error { margin:0; color:#c64444; font-size:12px; }
 @media(max-width:760px) { .replication-workspace { grid-template-columns:1fr; height:auto; } .replication-sidebar { max-height:240px; border-right:0; border-bottom:1px solid var(--hairline); } .replication-workspace > .peer-review-content { max-height:75vh; } }
 .peer-review-sidebar { display:flex; flex-direction:column; min-height:0; padding:16px 12px; gap:12px; border-right:1px solid var(--hairline); }
 .peer-review-sidebar label,.peer-review-editor label { display:grid; gap:6px; color:var(--text-secondary); font-size:12px; line-height:1.7; }
