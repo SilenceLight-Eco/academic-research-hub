@@ -13,7 +13,7 @@ function harness(options = {}) {
   const state = { panel: 'peer-reviews', peerReviews: { items: [], trash: [] }, peerReviewId: null, peerReviewTrashOpen: false, peerReviewFilter: 'all', peerReviewQuery: '', peerReviewBusy: false, peerReviewLoading: false };
   const nodes = new Map(), slots = {}, toasts = [], calls = [], downloads = []; let flushes = 0;
   function node(id) { if (!nodes.has(id)) nodes.set(id, { value: '', textContent: '', innerHTML: '', disabled: false, hidden: false, dataset: {}, handlers: {}, focus() {}, addEventListener(type, handler) { this.handlers[type] = handler; } }); return nodes.get(id); }
-  const context = vm.createContext({ state, autoSaveSlots: slots, Date, console, Blob, account: { id: 'test-user' }, renderTodayBoard() {},
+  const context = vm.createContext({ state, autoSaveSlots: slots, Date, console, Blob, window: options.window || {}, account: { id: 'test-user' }, renderTodayBoard() {},
     downloadBlob: (blob, filename) => { if (options.downloadFails) throw new Error('Download blocked'); downloads.push({ blob, filename }); },
     $: selector => node(selector.slice(1)), escapeHtml: text => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'), escapeAttribute: text => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'),
     toast: message => toasts.push(message), confirm: () => options.confirm !== false,
@@ -32,6 +32,98 @@ function addTask(h, extras = {}) {
   const item = { id: 'one', title: 'Review one', journal: 'JEEM', round: 1, status: '审稿中', recommendation: '尚未决定', dueAt: '', ...extras };
   h.state.peerReviews.items.push(item); h.state.peerReviewId = item.id; h.context.renderPeerReviews(); return item;
 }
+
+test('material controls exist for each active and archived round and disable during unavailable states', () => {
+  const h = harness(); addTask(h, { round: 2, history: [{ id: 'r1', round: 1 }] });
+  assert.ok(html.includes('id="peerReviewMaterials"'));
+  for (const kind of ['manuscript', 'response', 'supplement']) {
+    assert.ok(h.node('peerReviewMaterials').innerHTML.includes('data-review-material="' + kind + '"'));
+    assert.ok(h.node('peerReviewHistory').innerHTML.includes('data-review-material="' + kind + '" data-review-material-history="r1"'));
+  }
+  for (const flag of ['peerReviewBusy', 'peerReviewLoading', 'peerReviewTrashOpen']) {
+    h.state[flag] = true; h.context.renderPeerReviews();
+    assert.equal((h.node('peerReviewMaterials').innerHTML.match(/ disabled/g) || []).length, 3);
+    h.state[flag] = false;
+  }
+});
+
+test('attachment contexts separate task, round and material type and remain stable after rename', () => {
+  const h = harness(); const item = addTask(h);
+  const ids = new Set();
+  for (const id of ['one', 'two']) for (const round of [1, 2, 4]) for (const kind of ['manuscript', 'response', 'supplement']) {
+    const context = h.context.peerReviewMaterialContext({ id }, round, kind);
+    assert.match(context, /^[A-Za-z0-9_-]{1,120}$/); ids.add(context);
+  }
+  assert.equal(ids.size, 18);
+  const original = h.context.peerReviewMaterialContext(item, 1, 'manuscript');
+  item.title = 'Renamed'; item.folderId = 'New folder';
+  assert.equal(h.context.peerReviewMaterialContext(item, 1, 'manuscript'), original);
+  for (const args of [[item, 0, 'manuscript'], [item, 1.5, 'manuscript'], [item, 1, 'unknown'], [{ id: '../bad' }, 1, 'manuscript'], [{}, 1, 'manuscript']]) {
+    assert.throws(() => h.context.peerReviewMaterialContext(...args), /无效/);
+  }
+});
+
+test('opening materials first saves live edits and then opens the selected private round context', async () => {
+  const opened = [], h = harness({ window: { __academicOpenAttachments: (...args) => { opened.push(args); return true; } } });
+  addTask(h, { round: 4, history: [{ id: 'r1', round: 1, title: 'Original title' }] });
+  h.node('peerReviewSummary').value = 'Latest live opinion';
+  assert.equal(await h.context.openPeerReviewMaterials('manuscript'), true);
+  assert.equal(h.calls[0].body.summary, 'Latest live opinion');
+  assert.deepEqual(opened[0].slice(0, 2), ['paper', 'peer_review_one_r4_manuscript']);
+  assert.ok(opened[0][2].includes('第 4 轮 · 稿件'));
+  assert.equal(await h.context.openPeerReviewMaterials('response', 'r1'), true);
+  assert.deepEqual(opened[1].slice(0, 2), ['paper', 'peer_review_one_r1_response']);
+  assert.ok(opened[1][2].includes('Original title · 第 1 轮 · 作者回复信'));
+  assert.equal(h.state.peerReviews.items[0].history.length, 1);
+  assert.equal(h.state.peerReviews.items[0].round, 4);
+});
+
+test('failed saves, invalid contexts and unavailable selections never open materials', async () => {
+  let opened = 0;
+  const options = { window: { __academicOpenAttachments: () => { opened++; return true; } } };
+  const failed = harness({ ...options, api: async () => ({ ok: false, error: 'Offline' }) }); addTask(failed);
+  assert.equal(await failed.context.openPeerReviewMaterials('manuscript'), false);
+  const h = harness(options); addTask(h);
+  assert.equal(await h.context.openPeerReviewMaterials('unknown'), false);
+  assert.equal(await h.context.openPeerReviewMaterials('response', 'missing'), false);
+  assert.equal(h.calls.length, 0);
+  for (const flag of ['peerReviewTrashOpen', 'peerReviewBusy', 'peerReviewLoading']) {
+    h.state[flag] = true; assert.equal(await h.context.openPeerReviewMaterials('response'), false); h.state[flag] = false;
+  }
+  h.context.account = null;
+  assert.equal(await h.context.openPeerReviewMaterials('response'), false);
+  assert.equal(opened, 0);
+});
+
+test('account, task or round changes while saving prevent opening a stale attachment context', async () => {
+  for (const change of ['account', 'task', 'round', 'panel', 'history']) {
+    let resolveSave, opened = 0;
+    const h = harness({ window: { __academicOpenAttachments: () => { opened++; return true; } }, api: () => new Promise(resolve => { resolveSave = resolve; }) });
+    addTask(h, { round: 2, history: [{ id: 'r1', round: 1 }] });
+    const pending = h.context.openPeerReviewMaterials('supplement', 'r1');
+    const result = structuredClone(h.state.peerReviews);
+    if (change === 'account') h.context.account = { id: 'another-user' };
+    if (change === 'task') h.state.peerReviewId = 'other';
+    if (change === 'round') result.items[0].round = 3;
+    if (change === 'panel') h.state.panel = 'dashboard';
+    if (change === 'history') result.items[0].history = [];
+    resolveSave({ ok: true, peerReviews: result });
+    assert.equal(await pending, false, change);
+    assert.equal(opened, 0, change);
+  }
+});
+
+test('active and history material clicks are wired to their own round without invoking opinion exports', async () => {
+  const opened = [];
+  const h = harness({ window: { __academicOpenAttachments: (...args) => { opened.push(args); return true; } } });
+  addTask(h, { round: 2, history: [{ id: 'r1', round: 1 }] }); h.context.bindPeerReviewEvents();
+  h.node('peerReviewMaterials').handlers.click({ target: { closest: () => ({ dataset: { reviewMaterial: 'manuscript' } }) } });
+  await new Promise(resolve => setImmediate(resolve));
+  h.node('peerReviewHistory').handlers.click({ target: { closest: selector => selector === '[data-review-material]' ? { dataset: { reviewMaterial: 'response', reviewMaterialHistory: 'r1' } } : null } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(opened.map(args => args[1]), ['peer_review_one_r2_manuscript', 'peer_review_one_r1_response']);
+  assert.equal(h.downloads.length, 0);
+});
 
 test('author export has a strict allowlist and excludes recommendation, confidential comments, notes and private links', () => {
   const h = harness();

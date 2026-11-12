@@ -82,9 +82,9 @@
   }
 
   function openFiles(kind, id, title, description) {
-    if (busy) { setStatus('当前附件操作尚未结束，请稍候再切换材料分类。'); return; }
-    if (!id) { window.alert('请先选择已保存的内容'); return; }
-    if (!window.__academicAttachments) { window.alert('附件仅在登录后的云端网页版中可用'); return; }
+    if (busy) { setStatus('当前附件操作尚未结束，请稍候再切换材料分类。'); return false; }
+    if (!id) { window.alert('请先选择已保存的内容'); return false; }
+    if (!window.__academicAttachments) { window.alert('附件仅在登录后的云端网页版中可用'); return false; }
     current = { kind: kind, id: String(id) };
     files = [];
     renderFiles();
@@ -94,7 +94,10 @@
     contextDescription.hidden = !contextDescription.textContent;
     modal.hidden = false;
     loadFiles();
+    return true;
   }
+
+  window.__academicOpenAttachments = openFiles;
 
   function closeFiles() {
     if (busy) return;

@@ -10604,6 +10604,7 @@
     $('#peerReviewFolderNew').disabled = state.peerReviewBusy || state.peerReviewLoading || state.peerReviewTrashOpen;
     if (state.peerReviewTrashOpen) $('#peerReviewFolderForm').hidden = true;
     renderPeerReviewSaveStatus();
+    $('#peerReviewMaterials').innerHTML = peerReviewMaterialButtons();
     renderPeerReviewChecklist();
     renderPeerReviewHistory();
   }
@@ -10716,6 +10717,36 @@
     // Read the current form, including edits not yet synced; export does not submit or change status.
     return downloadPeerReviewExport(readPeerReviewPayload(), audience);
   }
+  var peerReviewMaterialTypes = { manuscript: '稿件', response: '作者回复信', supplement: '补充材料' };
+  function peerReviewMaterialButtons(historyId) {
+    var disabled = !activePeerReview() || state.peerReviewTrashOpen || state.peerReviewBusy || state.peerReviewLoading;
+    return Object.keys(peerReviewMaterialTypes).map(function (kind) {
+      return '<button type="button" data-review-material="' + kind + '"' + (historyId ? ' data-review-material-history="' + escapeAttribute(historyId) + '"' : '') + (disabled ? ' disabled' : '') + '>' + peerReviewMaterialTypes[kind] + '</button>';
+    }).join('');
+  }
+  function peerReviewMaterialContext(item, round, kind) {
+    if (!item || item.id === undefined || item.id === null || item.id === '' || !Object.prototype.hasOwnProperty.call(peerReviewMaterialTypes, kind) || !Number.isSafeInteger(round) || round < 1) throw new Error('审稿材料分类或轮次无效');
+    var id = 'peer_review_' + String(item.id) + '_r' + round + '_' + kind;
+    if (!/^[A-Za-z0-9_-]{1,120}$/.test(id)) throw new Error('审稿任务编号无效，请重新载入');
+    return id;
+  }
+  async function openPeerReviewMaterials(kind, historyId) {
+    var item = activePeerReview();
+    if (!item || state.peerReviewTrashOpen || state.peerReviewBusy || state.peerReviewLoading) return false;
+    if (!account || !window.__academicOpenAttachments) { toast('请登录云端网页版后使用审稿附件'); return false; }
+    var reviewAccount = account.id, taskId = String(item.id), currentRound = Number(item.round || 1);
+    var snapshot = historyId ? (item.history || []).find(function (entry) { return String(entry.id) === String(historyId); }) : item;
+    if (!snapshot) { toast('此历史轮次已不存在，请重新载入'); return false; }
+    var round = Number(snapshot.round || 1), contextId;
+    try { contextId = peerReviewMaterialContext(item, round, kind); }
+    catch (error) { toast(error.message); return false; }
+    if (!await savePeerReview()) return false;
+    item = activePeerReview();
+    if (!account || account.id !== reviewAccount || state.panel !== 'peer-reviews' || state.peerReviewTrashOpen || !item || String(item.id) !== taskId || Number(item.round || 1) !== currentRound) return false;
+    snapshot = historyId ? (item.history || []).find(function (entry) { return String(entry.id) === String(historyId); }) : item;
+    if (!snapshot || Number(snapshot.round || 1) !== round) return false;
+    return window.__academicOpenAttachments('paper', contextId, (snapshot.title || item.title || '审稿任务') + ' · 第 ' + round + ' 轮 · ' + peerReviewMaterialTypes[kind], '审稿材料按任务、轮次和类型分别保存。可上传、下载或删除本分类中的单个附件，每个文件最大 50 MB。');
+  }
   function renderPeerReviewHistory() {
     var item = state.peerReviewTrashOpen ? null : activePeerReview();
     $('#peerReviewHistorySection').hidden = !item;
@@ -10725,7 +10756,7 @@
         return '<div class="peer-review-history-field"><strong>' + field[0] + '</strong><div>' + escapeHtml(snapshot[field[1]] || '（未填写）') + '</div></div>';
       }).join('');
       var checks = (Array.isArray(snapshot.checklist) ? snapshot.checklist : []).map(function (row, index) { return '<div class="peer-review-history-field"><strong>核对 ' + (index + 1) + ' · ' + escapeHtml(row.kind) + ' · ' + escapeHtml(row.status) + '</strong><div>问题：' + escapeHtml(row.issue) + '\n作者回应：' + escapeHtml(row.response) + '\n我的判断：' + escapeHtml(row.assessment) + '</div></div>'; }).join('');
-      return '<details class="peer-review-history-round"><summary>第 ' + escapeHtml(snapshot.round || 1) + ' 轮 · ' + escapeHtml(snapshot.status || '待决定') + ' · 归档于 ' + escapeHtml(snapshot.archivedAt || '') + '</summary><div class="peer-review-actions"><button type="button" data-review-history-author="' + escapeHtml(snapshot.id) + '"' + (state.peerReviewBusy || state.peerReviewLoading ? ' disabled' : '') + '>导出本轮给作者</button><button type="button" data-review-history-editor="' + escapeHtml(snapshot.id) + '"' + (state.peerReviewBusy || state.peerReviewLoading ? ' disabled' : '') + '>导出本轮给编辑</button></div>' + content + checks + '</details>';
+      return '<details class="peer-review-history-round"><summary>第 ' + escapeHtml(snapshot.round || 1) + ' 轮 · ' + escapeHtml(snapshot.status || '待决定') + ' · 归档于 ' + escapeHtml(snapshot.archivedAt || '') + '</summary><div class="peer-review-actions">' + peerReviewMaterialButtons(snapshot.id) + '<button type="button" data-review-history-author="' + escapeHtml(snapshot.id) + '"' + (state.peerReviewBusy || state.peerReviewLoading ? ' disabled' : '') + '>导出本轮给作者</button><button type="button" data-review-history-editor="' + escapeHtml(snapshot.id) + '"' + (state.peerReviewBusy || state.peerReviewLoading ? ' disabled' : '') + '>导出本轮给编辑</button></div>' + content + checks + '</details>';
     }).join('') : '<p class="peer-review-history-empty">暂无历史轮次。点击“新建轮次”会先保存并归档当前轮次。</p>';
   }
   function exportPeerReviewHistory(id, audience) {
@@ -10855,6 +10886,10 @@
     $('#peerReviewExportAuthor').addEventListener('click', function () { exportPeerReview('author'); });
     $('#peerReviewExportEditor').addEventListener('click', function () { exportPeerReview('editor'); });
     $('#peerReviewNextRound').addEventListener('click', startNextPeerReviewRound);
+    $('#peerReviewMaterials').addEventListener('click', function (event) {
+      var button = event.target.closest('[data-review-material]');
+      if (button) openPeerReviewMaterials(button.dataset.reviewMaterial);
+    });
     $('#peerReviewChecklistAdd').addEventListener('click', addPeerReviewCheck);
     $('#peerReviewChecklistImport').addEventListener('click', importPreviousPeerReviewChecks);
     function editCheck(event) {
@@ -10878,6 +10913,8 @@
       queuePeerReviewAutoSave(); renderPeerReviewChecklist();
     });
     $('#peerReviewHistory').addEventListener('click', function (event) {
+      var material = event.target.closest('[data-review-material]');
+      if (material) { openPeerReviewMaterials(material.dataset.reviewMaterial, material.dataset.reviewMaterialHistory); return; }
       var author = event.target.closest('[data-review-history-author]'), editor = event.target.closest('[data-review-history-editor]');
       if (author) exportPeerReviewHistory(author.dataset.reviewHistoryAuthor, 'author');
       if (editor) exportPeerReviewHistory(editor.dataset.reviewHistoryEditor, 'editor');

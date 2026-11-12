@@ -26,8 +26,20 @@ function harness(api = {}) {
   function open(id, title = id, description = '', options = {}) { handlers['window:message']({ origin: options.origin || 'https://example.test', source: options.source || frames.contentWindow, data: { type: 'academic-research-hub-open-attachments', id, title, description } }); }
   const action = (id, type) => node('fileList').handlers.click({ target: { closest: () => ({ dataset: { fileId: id, fileAction: type } }) } });
   async function upload(file = { name: 'test.docx', size: 100 }) { node('fileInput').files = [file]; await node('fileInput').handlers.change(); }
-  return { node, open, action, upload, uploads, downloaded, removed, alerts, notifications };
+  return { node, open, action, upload, uploads, downloaded, removed, alerts, notifications, window };
 }
+
+test('review module can open round materials through the shared modal with uploads and downloads', async () => {
+  const contexts = [];
+  const h = harness({ list: async (kind, id) => { contexts.push({ kind, id }); return [{ id: 'review-file', file_name: 'Manuscript.pdf' }]; } });
+  assert.equal(h.window.__academicOpenAttachments('paper', 'peer_review_123_r3_manuscript', '测试稿件 · 第 3 轮 · 稿件', '本轮稿件'), true);
+  await tick();
+  assert.deepEqual(contexts[0], { kind: 'paper', id: 'peer_review_123_r3_manuscript' });
+  assert.match(h.node('fileModalTitle').textContent, /第 3 轮 · 稿件/);
+  await h.upload(); await h.action('review-file', 'download');
+  assert.equal(h.uploads[0].id, 'peer_review_123_r3_manuscript');
+  assert.deepEqual(h.downloaded, ['review-file']);
+});
 
 test('modal labels identify the selected round/type and reset when opening generic attachments', async () => {
   const h = harness(); h.open('submission_r123456789_response', '论文 · 第 2 次投稿 · 回复信', 'Journal C · 本处仅显示回复信'); await tick();
