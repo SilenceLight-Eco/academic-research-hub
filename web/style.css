@@ -7472,6 +7472,12 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .peer-review-actions button:disabled { opacity:.45; cursor:not-allowed; }
 .peer-review-stats { margin:0 0 12px; }
 .peer-review-workspace { display:grid; grid-template-columns:260px minmax(0,1fr); height:min(72vh,850px); min-height:460px; overflow:hidden; border:1px solid var(--hairline); border-radius:12px; background:var(--glass); }
+.replication-workspace { display:grid; grid-template-columns:260px minmax(0,1fr); height:min(74vh,900px); min-height:480px; overflow:hidden; border:1px solid var(--hairline); border-radius:12px; background:var(--glass); }
+.replication-sidebar { display:flex; flex-direction:column; gap:14px; min-height:0; padding:16px 12px; border-right:1px solid var(--hairline); }
+.replication-sidebar > input { width:100%; box-sizing:border-box; padding:9px 10px; border:1px solid var(--hairline); border-radius:7px; background:var(--glass-strong); color:var(--text); font:inherit; }
+#replicationList { overflow:auto; min-height:0; }
+.replication-help { margin:0; font-size:12px; color:var(--text-muted); line-height:1.7; }
+@media(max-width:760px) { .replication-workspace { grid-template-columns:1fr; height:auto; } .replication-sidebar { max-height:240px; border-right:0; border-bottom:1px solid var(--hairline); } .replication-workspace > .peer-review-content { max-height:75vh; } }
 .peer-review-sidebar { display:flex; flex-direction:column; min-height:0; padding:16px 12px; gap:12px; border-right:1px solid var(--hairline); }
 .peer-review-sidebar label,.peer-review-editor label { display:grid; gap:6px; color:var(--text-secondary); font-size:12px; line-height:1.7; }
 .peer-review-sidebar input,.peer-review-sidebar select,.peer-review-editor input,.peer-review-editor select,.peer-review-editor textarea { width:100%; min-width:0; box-sizing:border-box; padding:8px 10px; border:1px solid var(--hairline); border-radius:7px; outline:0; background:var(--glass-strong); color:var(--text); font:13px/1.7 "Noto Sans SC",sans-serif; }

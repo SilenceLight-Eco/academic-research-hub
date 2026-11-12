@@ -59,6 +59,11 @@
     projectTrashOpen: false,
     projectCategoryFilter: 'all',
     peerReviews: { items: [], trash: [], folders: [] },
+    replications: { items: [], trash: [] },
+    replicationId: null,
+    replicationTrashOpen: false,
+    replicationBusy: false,
+    replicationQuery: '',
     peerReviewId: null,
     peerReviewTrashOpen: false,
     peerReviewFilter: 'all',
@@ -346,6 +351,7 @@
     'prompt-library': '提示词库',
     'research-projects': '研究项目',
     'peer-reviews': '审稿',
+    'replications': '论文复现',
     'variable-library': '变量库',
     references: '文献与引用',
     'journal-tracker': '文献追踪',
@@ -575,6 +581,7 @@
     if (key.indexOf('reference:') === 0) return persistReference;
     if (key.indexOf('project:') === 0) return persistResearchProject;
     if (key.indexOf('peer-review:') === 0) return persistPeerReview;
+    if (key.indexOf('replication:') === 0) return persistReplication;
     if (key.indexOf('variable:') === 0) return persistVariable;
     if (key.indexOf('prompt:') === 0) return persistPrompt;
     if (key.indexOf('note:') === 0) return persistNoteStudio;
@@ -756,6 +763,7 @@
     if (panel === 'prompt-library' && state.promptId && !state.promptTrashOpen) return 'prompt:' + state.promptId;
     if (panel === 'research-projects' && state.projectId && !state.projectTrashOpen) return 'project:' + state.projectId;
     if (panel === 'peer-reviews' && state.peerReviewId && !state.peerReviewTrashOpen) return 'peer-review:' + state.peerReviewId;
+    if (panel === 'replications' && state.replicationId && !state.replicationTrashOpen) return 'replication:' + state.replicationId;
     if (panel === 'variable-library' && state.variableId && !state.variableTrashOpen) return 'variable:' + state.variableId;
     if (panel === 'references' && state.referenceId && !state.referenceTrashOpen) return 'reference:' + state.referenceId;
     if (panel === 'data-code' && state.dataCodeId && !state.dataCodeTrashOpen) return 'data-code:' + state.dataCodeId;
@@ -987,6 +995,10 @@
     var previousReviewAccount = account && account.id;
     account = user || null;
     if (previousReviewAccount !== (account && account.id)) {
+      replicationLoadRequest++;
+      state.replications = { items: [], trash: [] }; state.replicationId = null;
+      state.replicationBusy = false; state.replicationLoading = false; state.replicationTrashOpen = false; state.replicationQuery = '';
+      if (state.panel === 'replications') { renderReplications(); if (account) loadReplications(); }
       peerReviewLoadRequest++; peerReviewReminderRequest++;
       state.peerReviews = { items: [], trash: [], folders: [] }; state.peerReviewId = null;
       state.peerReviewTrashOpen = false; state.peerReviewFilter = 'all'; state.peerReviewQuery = '';
@@ -1299,6 +1311,7 @@
     addLine('提示词库', ['promptLibrary'], data.promptLibrary, countBackupItems(data.promptLibrary, ['prompts', 'trash']));
     addLine('研究项目', ['researchProjects'], data.researchProjects, countBackupItems(data.researchProjects, ['projects', 'trash']));
     addLine('审稿任务', ['peerReviews'], data.peerReviews, countBackupItems(data.peerReviews, ['items', 'trash']));
+    addLine('论文复现', ['replications'], data.replications, countBackupItems(data.replications, ['items', 'trash']));
     addLine('变量库', ['variableLibrary'], data.variableLibrary, countBackupItems(data.variableLibrary, ['items', 'trash']));
     addLine('数据与代码', ['dataCodeLibrary'], data.dataCodeLibrary, countBackupItems(data.dataCodeLibrary, ['items', 'trash']));
     addLine('文献与引用', ['referenceLibrary'], data.referenceLibrary, countBackupItems(data.referenceLibrary, ['items', 'trash']));
@@ -1731,6 +1744,7 @@
     if (panel === 'prompt-library') loadPromptLibrary();
     if (panel === 'research-projects') loadResearchProjects();
     if (panel === 'peer-reviews') loadPeerReviews();
+    if (panel === 'replications') loadReplications();
     if (panel === 'variable-library') loadVariableLibrary();
     if (panel === 'references') loadReferenceLibrary();
     if (panel === 'journal-tracker') {
@@ -8187,6 +8201,7 @@
     ['projectTitle', 'projectCategory', 'projectStatus', 'projectProgress', 'projectStart', 'projectEnd', 'projectGoal', 'projectMembers', 'projectMilestones', 'projectResources'].forEach(function (id) { $('#' + id).addEventListener('input', function () { renderProjectSummary(); queueResearchProjectAutoSave(); }); });
     $('#projectStatus').addEventListener('change', function () { renderProjectSummary(); queueResearchProjectAutoSave(); });
     bindPeerReviewEvents();
+    bindReplicationEvents();
     $('#variableDuplicate').addEventListener('click', duplicateVariable);
     $('#variableImport').addEventListener('click', function () { if (state.variableTrashOpen) { toast('请先退出回收站再导入'); return; } $('#variableImportFile').click(); });
     $('#variableImportFile').addEventListener('change', importVariableCsvFile);
@@ -9463,6 +9478,160 @@
     api('/api/academic-records', { method: 'POST', body: JSON.stringify({ action: 'delete', id: id }) }).then(function (res) {
       if (!res.ok) return;
       state.overview.academic_records = res.records; renderAcademicRecords();
+    });
+  }
+
+  // ===== 论文复现 =====
+  var replicationFields = { title: 'replicationTitle', authors: 'replicationAuthors', doi: 'replicationDoi', status: 'replicationStatus', environment: 'replicationEnvironment', runOrder: 'replicationRunOrder', results: 'replicationResults', notes: 'replicationNotes' };
+  var replicationFileTypes = { paper: '论文 PDF', supplement: '附件与数据', code: '代码' };
+  var replicationLoadRequest = 0;
+  function activeReplication() {
+    return state.replications.items.find(function (item) { return String(item.id) === String(state.replicationId); });
+  }
+  function applyReplications(library) {
+    state.replications = Object.assign({ items: [], trash: [] }, library || {});
+    state.replications.items.forEach(function (item) {
+      var slot = autoSaveSlots['replication:' + item.id];
+      if (slot && slot.dirty) Object.keys(replicationFields).forEach(function (field) { item[field] = slot.payload[field]; });
+    });
+  }
+  function renderReplicationList() {
+    var query = (state.replicationQuery || '').toLowerCase();
+    var entries = state.replicationTrashOpen ? state.replications.trash : state.replications.items;
+    $('#replicationList').innerHTML = entries.filter(function (entry) {
+      var item = entry.item || entry;
+      return Object.keys(replicationFields).map(function (field) { return item[field] || ''; }).join(' ').toLowerCase().indexOf(query) >= 0;
+    }).map(function (entry) {
+      var item = entry.item || entry;
+      if (state.replicationTrashOpen) return '<div class="peer-review-task"><strong>' + escapeHtml(item.title) + '</strong><button type="button" data-replication-restore="' + escapeAttribute(entry.id) + '">恢复</button></div>';
+      return '<button type="button" class="peer-review-task' + (String(item.id) === String(state.replicationId) ? ' is-active' : '') + '" data-replication-open="' + escapeAttribute(item.id) + '"><strong>' + escapeHtml(item.title) + '</strong><small>' + escapeHtml(item.status || '未开始') + ' · ' + escapeHtml(item.authors || '未填写作者') + '</small></button>';
+    }).join('') || '<p class="replication-help">' + (state.replicationLoading ? '正在载入…' : '暂无匹配记录') + '</p>';
+  }
+  function renderReplications() {
+    var item = state.replicationTrashOpen ? null : activeReplication();
+    var locked = state.replicationBusy || state.replicationLoading || !account;
+    $('#replicationSearch').value = state.replicationQuery || '';
+    renderReplicationList();
+    $('#replicationEditor').hidden = !item;
+    $('#replicationEmpty').hidden = Boolean(item);
+    $('#replicationEmpty').textContent = !account ? '登录后新建论文复现任务并使用云端附件。' : state.replicationTrashOpen ? '选择左侧记录恢复任务及其材料入口。' : '新建或选择一篇论文，上传材料并记录复现过程。';
+    Object.keys(replicationFields).forEach(function (field) {
+      var input = $('#' + replicationFields[field]);
+      input.value = item ? item[field] || '' : '';
+      input.disabled = locked || !item;
+    });
+    ['replicationNew', 'replicationTrash', 'replicationSearch'].forEach(function (id) { $('#' + id).disabled = locked; });
+    ['replicationSave', 'replicationDelete'].forEach(function (id) { $('#' + id).disabled = locked || !item; });
+    $$('#replicationFiles button').forEach(function (button) { button.disabled = locked || !item; });
+    $('#replicationTrash').textContent = state.replicationTrashOpen ? '返回复现列表' : '回收站';
+    var slot = item && autoSaveSlots['replication:' + item.id];
+    $('#replicationSaveStatus').textContent = slot && slot.dirty ? '修改待保存 · 每 3 分钟及切换任务、模块时自动保存' : item ? '修改会自动保存' + (item.updated ? ' · 最近保存 ' + item.updated : '') : '';
+  }
+  function loadReplications() {
+    var request = ++replicationLoadRequest, owner = account && account.id;
+    if (!owner) { renderReplications(); return Promise.resolve(); }
+    state.replicationLoading = true; renderReplications();
+    return api('/api/replications').then(function (result) {
+      if (!account || account.id !== owner || request !== replicationLoadRequest) return;
+      if (!result.ok) throw new Error(result.error || '复现任务载入失败');
+      applyReplications(result.replications);
+      if (!activeReplication()) state.replicationId = (state.replications.items[0] || {}).id || null;
+    }).catch(function (error) { if (account && account.id === owner && request === replicationLoadRequest) toast(error.message); }).then(function () {
+      if (account && account.id === owner && request === replicationLoadRequest) { state.replicationLoading = false; renderReplications(); }
+    });
+  }
+  function persistReplication(payload) {
+    var owner = account && account.id;
+    return api('/api/replications', { method: 'POST', body: JSON.stringify(payload) }).then(function (result) {
+      if (!account || account.id !== owner) throw new Error('账号已变化，保存响应已忽略');
+      if (!result.ok) throw new Error(result.error || '复现任务保存失败');
+      applyReplications(result.replications);
+      replicationLoadRequest++;
+      if (state.replicationLoading) { state.replicationLoading = false; renderReplications(); }
+      renderReplicationList();
+      var slot = autoSaveSlots['replication:' + payload.id];
+      if (String(state.replicationId) === String(payload.id)) $('#replicationSaveStatus').textContent = slot && slot.dirty && JSON.stringify(slot.payload) !== JSON.stringify(payload) ? '最新修改待保存' : '已同步保存';
+    });
+  }
+  function queueReplicationAutoSave() {
+    var item = activeReplication();
+    if (!item || state.replicationBusy || state.replicationLoading || state.replicationTrashOpen || !account) return;
+    var payload = { action: 'save', id: item.id };
+    Object.keys(replicationFields).forEach(function (field) { payload[field] = $('#' + replicationFields[field]).value; item[field] = payload[field]; });
+    queueAutoSave('replication:' + item.id, payload, persistReplication);
+    renderReplicationList();
+    $('#replicationSaveStatus').textContent = '修改待保存 · 每 3 分钟及切换任务、模块时自动保存';
+  }
+  function saveReplication() {
+    if (!activeReplication() || state.replicationBusy || state.replicationLoading || state.replicationTrashOpen || !account) return Promise.resolve(false);
+    queueReplicationAutoSave();
+    var owner = account.id, saved = false;
+    state.replicationBusy = true; renderReplications();
+    return afterCurrentEditorSaved('replications', function () {
+      if (!account || account.id !== owner) return;
+      saved = true; toast('复现任务已保存');
+    }).then(function () {
+      if (account && account.id === owner) { state.replicationBusy = false; renderReplications(); }
+      return saved;
+    });
+  }
+  function mutateReplication(action, id) {
+    if (state.replicationBusy || state.replicationLoading || !account) return Promise.resolve(false);
+    if (action === 'trash' && !confirm('将此复现任务移入回收站？')) return Promise.resolve(false);
+    queueReplicationAutoSave();
+    var owner = account.id, changed = false;
+    state.replicationBusy = true; renderReplications();
+    return afterCurrentEditorSaved('replications', function () {
+      if (!account || account.id !== owner) return;
+      return api('/api/replications', { method: 'POST', body: JSON.stringify({ action: action, id: id }) }).then(function (result) {
+        if (!account || account.id !== owner) return;
+        if (!result.ok) throw new Error(result.error || '复现操作失败');
+        applyReplications(result.replications);
+        if (action === 'create') { state.replicationTrashOpen = false; state.replicationQuery = ''; $('#replicationSearch').value = ''; state.replicationId = result.createdId; }
+        if (action === 'trash') state.replicationId = (state.replications.items[0] || {}).id || null;
+        changed = true;
+      });
+    }).then(function () {
+      if (account && account.id === owner) { state.replicationBusy = false; renderReplications(); }
+      return changed;
+    });
+  }
+  function replicationFileContext(id, kind) {
+    if (!Object.prototype.hasOwnProperty.call(replicationFileTypes, kind) || !/^[A-Za-z0-9_-]{1,80}$/.test(String(id || ''))) throw new Error('复现材料分类或任务编号无效');
+    return 'replication_' + id + '_' + kind;
+  }
+  async function openReplicationFiles(kind) {
+    var item = activeReplication(), owner = account && account.id;
+    if (!item || !owner || !window.__academicOpenAttachments) return false;
+    var contextId;
+    try { contextId = replicationFileContext(item.id, kind); }
+    catch (error) { toast(error.message); return false; }
+    var id = String(item.id);
+    if (!await saveReplication()) return false;
+    if (!account || account.id !== owner || state.panel !== 'replications' || state.replicationTrashOpen || String(state.replicationId) !== id) return false;
+    return window.__academicOpenAttachments('paper', contextId, (activeReplication() || item).title + ' · ' + replicationFileTypes[kind], '材料随当前账号保存，单个文件最大 50 MB。上传后可在其他设备下载。');
+  }
+  function bindReplicationEvents() {
+    $('#replicationNew').addEventListener('click', function () { mutateReplication('create'); });
+    $('#replicationSave').addEventListener('click', saveReplication);
+    $('#replicationDelete').addEventListener('click', function () { mutateReplication('trash', state.replicationId); });
+    $('#replicationTrash').addEventListener('click', function () {
+      if (state.replicationBusy || state.replicationLoading) return;
+      afterCurrentEditorSaved('replications', function () { state.replicationTrashOpen = !state.replicationTrashOpen; renderReplications(); });
+    });
+    $('#replicationSearch').addEventListener('input', function () { state.replicationQuery = this.value; renderReplicationList(); });
+    $('#replicationList').addEventListener('click', function (event) {
+      if (state.replicationBusy || state.replicationLoading) return;
+      var restore = event.target.closest('[data-replication-restore]'), open = event.target.closest('[data-replication-open]');
+      if (restore) mutateReplication('restore', restore.dataset.replicationRestore);
+      if (open) afterCurrentEditorSaved('replications', function () { state.replicationId = open.dataset.replicationOpen; renderReplications(); });
+    });
+    $('#replicationFiles').addEventListener('click', function (event) {
+      var button = event.target.closest('[data-replication-file]');
+      if (button) openReplicationFiles(button.dataset.replicationFile);
+    });
+    Object.keys(replicationFields).forEach(function (field) {
+      ['input', 'change'].forEach(function (type) { $('#' + replicationFields[field]).addEventListener(type, queueReplicationAutoSave); });
     });
   }
 
@@ -12896,6 +13065,7 @@
       ['variables', '/api/variable-library', 'variableLibrary'],
       ['projects', '/api/research-projects', 'researchProjects'],
       ['reviews', '/api/peer-reviews', 'peerReviews'],
+      ['replications', '/api/replications', 'replications'],
       ['prompts', '/api/prompt-library', 'promptLibrary']
     ];
     cmdkSearchData = {
@@ -12905,6 +13075,7 @@
       variables: state.variableLibrary,
       projects: state.researchProjects,
       reviews: state.peerReviews,
+      replications: state.replications,
       prompts: state.promptLibrary
     };
     cmdkSearchLoading = true;
@@ -12948,6 +13119,7 @@
     }
     if (kind === 'projects') { state.projectTrashOpen = false; state.projectCategoryFilter = 'all'; state.projectId = item.id; }
     if (kind === 'reviews') { state.peerReviewTrashOpen = false; state.peerReviewQuery = ''; state.peerReviewFilter = 'all'; state.peerReviewFolderFilter = 'all'; state.peerReviewId = item.id; }
+    if (kind === 'replications') { state.replicationTrashOpen = false; state.replicationQuery = ''; state.replicationId = item.id; }
     if (kind === 'prompts') { state.promptTrashOpen = false; state.promptCategoryFilter = 'all'; state.promptId = item.id; }
     switchPanel(panel);
   }
@@ -13028,6 +13200,7 @@
     items = items.concat(cmdkSearchGroup(searchableVariables, '变量库', 'name', ['symbol', 'role', 'definition', 'measure', 'source', 'paper', 'measureReferenceText', 'notes'], needle, function (item) { openCmdkRecord('variable-library', item, 'variables'); }));
     items = items.concat(cmdkSearchGroup((data.projects || {}).projects, '研究项目', 'title', ['category', 'goal', 'milestones', 'resources', 'members'], needle, function (item) { openCmdkRecord('research-projects', item, 'projects'); }));
     items = items.concat(cmdkSearchGroup((data.reviews || {}).items, '审稿任务', 'title', ['journal', 'manuscriptCode', 'summary', 'majorComments', 'minorComments', 'editorComments', 'notes'], needle, function (item) { openCmdkRecord('peer-reviews', item, 'reviews'); }));
+    items = items.concat(cmdkSearchGroup((data.replications || {}).items, '论文复现', 'title', ['authors', 'doi', 'environment', 'runOrder', 'results', 'notes'], needle, function (item) { openCmdkRecord('replications', item, 'replications'); }));
     items = items.concat(cmdkSearchGroup((data.prompts || {}).prompts, '提示词', 'title', ['category', 'tags', 'body'], needle, function (item) { openCmdkRecord('prompt-library', item, 'prompts'); }));
     items = items.concat(cmdkPaperItems(needle));
     return items;

@@ -701,13 +701,54 @@
         await saveWorkspace(workspace, syncRevision);
         return response({ ok: true });
       }
-      if ((path === '/api/references/folders' || path === '/api/peer-reviews') && !await getUser()) return response({ error: '请先登录后使用此功能' }, 401);
+      if ((path === '/api/references/folders' || path === '/api/peer-reviews' || path === '/api/replications') && !await getUser()) return response({ error: '请先登录后使用此功能' }, 401);
       var data = await loadWorkspace();
       if (!data && method === 'GET') data = currentPayload();
       if (!data) return response({ error: '请先登录后使用浏览器版工作台' }, 401);
       var dataRevision = workspaceRevision;
       activeWritePayload = data;
       activeWriteRevision = dataRevision;
+      if (path === '/api/replications') {
+        var replicationData = copyPayload(data);
+        var replications = replicationData.replications || { items: [], trash: [] };
+        replications.items = Array.isArray(replications.items) ? replications.items : [];
+        replications.trash = Array.isArray(replications.trash) ? replications.trash : [];
+        replicationData.replications = replications;
+        if (method === 'GET') return response({ ok: true, replications: replications });
+        if (method !== 'POST') return response({ error: '不支持此请求方法' }, 405);
+        if (['create', 'save', 'trash', 'restore'].indexOf(body.action) < 0) return response({ error: '未知复现操作' }, 400);
+        var replicationId = String(body.id || '');
+        var replicationItem = replications.items.find(function (item) { return String(item.id) === replicationId; });
+        if (body.action === 'create') {
+          replicationId = 'rp-' + nowId() + '-' + Math.random().toString(36).slice(2, 10);
+          replications.items.push({ id: replicationId, title: '未命名复现论文', authors: '', doi: '', status: '未开始', environment: '', runOrder: '', results: '', notes: '', created: nowText(), updated: nowText() });
+        } else if (body.action === 'restore') {
+          var replicationTrash = replications.trash.find(function (entry) { return String(entry.id) === replicationId; });
+          if (!replicationTrash || !replicationTrash.item) return response({ error: '回收站记录已不存在' }, 404);
+          if (replications.items.some(function (item) { return String(item.id) === String(replicationTrash.item.id); })) return response({ error: '该复现任务已恢复，请刷新查看' }, 409);
+          replications.items.push(replicationTrash.item);
+          replications.trash = replications.trash.filter(function (entry) { return entry !== replicationTrash; });
+        } else {
+          if (!replicationItem) return response({ error: '复现任务已不存在，请重新载入' }, 404);
+          if (body.action === 'save') {
+            var replicationFields = ['title', 'authors', 'doi', 'status', 'environment', 'runOrder', 'results', 'notes'];
+            for (var ri = 0; ri < replicationFields.length; ri++) {
+              var replicationField = replicationFields[ri];
+              if (body[replicationField] === undefined) continue;
+              if (typeof body[replicationField] !== 'string' || body[replicationField].length > (['runOrder', 'results', 'notes'].indexOf(replicationField) >= 0 ? 100000 : 1000)) return response({ error: '复现字段格式或长度无效' }, 422);
+              replicationItem[replicationField] = body[replicationField];
+            }
+            if (['未开始', '复现中', '已完成', '暂时搁置'].indexOf(replicationItem.status) < 0) return response({ error: '复现状态无效' }, 422);
+            replicationItem.title = replicationItem.title.trim() || '未命名复现论文';
+            replicationItem.updated = nowText();
+          } else {
+            replications.trash.unshift({ id: 'trash-' + replicationId, item: replicationItem, deletedAt: nowText() });
+            replications.items = replications.items.filter(function (item) { return item !== replicationItem; });
+          }
+        }
+        await saveWorkspace(replicationData, dataRevision);
+        return response({ ok: true, replications: replications, createdId: body.action === 'create' ? replicationId : undefined });
+      }
       if (path === '/api/peer-reviews') {
         var reviewData = copyPayload(data);
         var reviews = reviewData.peerReviews || { items: [], trash: [] };

@@ -8,7 +8,7 @@
   <link rel="apple-touch-icon" href="icon-180.png">
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#174e4a">
-  <link rel="stylesheet" href="style.css?v=20261112-04">
+  <link rel="stylesheet" href="style.css?v=20261112-05">
   <style>.sidebar-nav .retired-content{display:none!important}</style>
 </head>
 <body>
@@ -57,6 +57,10 @@
         <button class="nav-item" data-panel="research-hub">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M9 7h7M9 11h7M9 15h4"/></svg>
           <span>论文管线</span>
+        </button>
+        <button class="nav-item" data-panel="replications">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2zM9 7h7M9 11h7"/></svg>
+          <span>论文复现</span>
         </button>
         <button class="nav-item" data-panel="peer-reviews">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5v18h14V3h-3M9 2h6v4H9z"/><path d="m8 12 2 2 5-5M8 18h8"/></svg>
@@ -377,6 +381,24 @@
         </div>
       </section>
 
+      <section class="panel" id="panel-replications" hidden>
+        <div class="peer-review-head"><div><h2><span class="peer-review-dot" aria-hidden="true"></span>论文复现</h2><p>按论文整理原文、附件、代码与复现记录。</p></div><div class="peer-review-actions"><button type="button" id="replicationTrash">回收站</button><button type="button" id="replicationNew">＋ 新建复现</button><button type="button" id="replicationSave" disabled>立即保存</button></div></div>
+        <div class="replication-workspace">
+          <aside class="replication-sidebar"><input id="replicationSearch" type="search" placeholder="搜索论文和复现记录" aria-label="搜索论文复现"><div id="replicationList"></div></aside>
+          <div class="peer-review-content"><p id="replicationEmpty">新建或选择一篇论文，上传材料并记录复现过程。</p>
+            <section id="replicationEditor" class="peer-review-editor" hidden>
+              <div class="peer-review-title-row"><label>论文标题<input id="replicationTitle" maxlength="1000" placeholder="输入论文标题"></label><button type="button" id="replicationDelete">移入回收站</button></div>
+              <div class="peer-review-meta"><label>作者<input id="replicationAuthors" maxlength="1000"></label><label>DOI<input id="replicationDoi" maxlength="1000"></label><label>复现状态<select id="replicationStatus"><option>未开始</option><option>复现中</option><option>已完成</option><option>暂时搁置</option></select></label></div>
+              <section class="peer-review-materials"><h3>复现材料</h3><div id="replicationFiles" class="peer-review-actions"><button type="button" data-replication-file="paper">论文 PDF</button><button type="button" data-replication-file="supplement">附件与数据</button><button type="button" data-replication-file="code">代码</button></div><p class="replication-help">支持 PDF、Word、Stata／Python／R 代码和 ZIP 等文件，每个文件最大 50 MB。</p></section>
+              <label>运行环境<input id="replicationEnvironment" maxlength="1000" placeholder="例如 Stata 19，所需扩展包和版本"></label>
+              <label>运行步骤<textarea id="replicationRunOrder" maxlength="100000" placeholder="按顺序记录数据准备和代码运行步骤"></textarea></label>
+              <label>复现结果<textarea id="replicationResults" maxlength="100000" placeholder="记录对应表图、运行结果及与原文的差异"></textarea></label>
+              <label>复现笔记<textarea id="replicationNotes" maxlength="100000" placeholder="记录报错、处理方法和待解决的问题"></textarea></label>
+            </section>
+            <p id="replicationSaveStatus" class="peer-review-save-status" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+      </section>
       <section class="panel" id="panel-peer-reviews">
         <div class="peer-review-head"><div><h2><span class="peer-review-dot" aria-hidden="true"></span>我的审稿任务</h2><p>记录你作为审稿人的任务，与自己的在投论文分开管理。</p></div><div class="peer-review-actions"><button type="button" id="peerReviewTrash">回收站</button><button type="button" id="peerReviewNew">+ 新建审稿</button><button type="button" id="peerReviewExportAuthor" title="仅导出总体评价、主要意见和次要意见" disabled>导出给作者</button><button type="button" id="peerReviewExportEditor" title="仅导出审稿建议和编辑保密意见，不包含个人备注" disabled>导出给编辑</button><button type="button" id="peerReviewSave" disabled>立即保存</button></div></div>
         <div class="peer-review-stats" id="peerReviewStats" aria-live="polite">待处理 0 · 7 天内截止 0 · 已逾期 0</div>
@@ -1573,10 +1595,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-<script src="static-api.js?v=20261112-04"></script>
+<script src="static-api.js?v=20261112-05"></script>
 <script src="reference-export.js?v=20260927-01"></script>
 <script src="submission-deadlines.js?v=20261007-12"></script>
-  <script src="app.js?v=20261112-04"></script>
-  <script src="attachments.js?v=20261112-04"></script>
+  <script src="app.js?v=20261112-05"></script>
+  <script src="attachments.js?v=20261112-05"></script>
 </body>
 </html>

@@ -75,6 +75,7 @@ test('account logout cancels late reminder responses and removes cached tasks an
   let complete; const h = harness({ api: () => new Promise(resolve => { complete = resolve; }) });
   h.state.peerReviews.items = [task('one', '2000-01-01')]; h.node('peerReviewFolderName').value = 'Private group'; h.node('peerReviewFolderForm').hidden = false;
   const loading = h.context.loadPeerReviewReminders();
+  h.context.replicationLoadRequest = 0;
   Object.assign(h.context, { autoSaveDraftAccountKey: () => h.context.account ? h.context.account.id : 'guest', autoSaveDraftRestoreAccount: '', setGlobalSaveState() {}, navigator: { onLine: true }, syncTimer: null, setInterval: () => 1, clearInterval() {}, hasUnsavedChanges: () => false });
   vm.runInContext(source.slice(source.indexOf('  function setAccount(user)'), source.indexOf('  function checkAccount()')), h.context);
   h.context.setAccount(null); complete({ ok: true, peerReviews: { items: [task('leaked', '2000-01-01')], trash: [] } }); await loading;
