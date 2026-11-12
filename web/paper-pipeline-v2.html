@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Research Hub · Academic Dashboard</title><script src="submission-deadlines.js?v=20261007-12"></script><style>@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;600;700;800&display=swap');
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Research Hub · Academic Dashboard</title><script src="submission-deadlines.js?v=20261007-12"></script><link rel="stylesheet" href="revision-compare.css?v=20261112-01"><script src="vendor/diff-9.0.0.min.js"></script><script src="revision-compare-core.js?v=20261112-01"></script><script src="revision-compare.js?v=20261112-01"></script><style>@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;600;700;800&display=swap');
 
 :root {
   --bg: #f5f7fb;
@@ -1661,6 +1661,7 @@ function refreshSubmissionStatus() {
   const openFileArchives = new Set([...document.querySelectorAll("[data-submission-file-archive][open]")].map(el => el.dataset.submissionFileArchive));
   const revisionPanels = new Map([...document.querySelectorAll("[data-submission-revision]")].map(el => [el.dataset.submissionRevision, el.open]));
   const reviewerPanels = new Map([...document.querySelectorAll("[data-revision-reviewer]")].map(el => [el.dataset.revisionReviewer, el.open]));
+  const comparisonPanels = new Map([...document.querySelectorAll("[data-rc-round]")].map(el => [el.dataset.rcRound, el.open]));
   render();
   if (["submitted", "revision"].includes(currentPage)) {
     const searchInput = document.getElementById("searchInput");
@@ -1676,6 +1677,9 @@ function refreshSubmissionStatus() {
   });
   document.querySelectorAll("[data-revision-reviewer]").forEach(el => {
     if (reviewerPanels.has(el.dataset.revisionReviewer)) el.open = reviewerPanels.get(el.dataset.revisionReviewer);
+  });
+  document.querySelectorAll("[data-rc-round]").forEach(el => {
+    if (comparisonPanels.has(el.dataset.rcRound)) el.open = comparisonPanels.get(el.dataset.rcRound);
   });
   updateStatusBar();
   if (window.parent && window.parent !== window) window.parent.postMessage({ type: "academic-research-hub-submissions-changed" }, location.origin);
@@ -2679,6 +2683,7 @@ function renderSubmissionRevision(p, reference) {
     <div class="revision-body">
       <div class="muted">${escapeHtml(round.journal || "请先填写当前期刊，并记录到投稿历史")} · ${escapeHtml(round.date || "未填写投稿日期")}${deadline ? ` · 返修截止 ${escapeHtml(round.dueAt)}（${escapeHtml(deadline.label)}）` : ""}。输入即自动保存；按投稿轮次独立保留。</div>
       <progress class="revision-progress" max="100" value="${progress.percent}" aria-label="返修完成进度"></progress>
+      ${window.RevisionComparison ? window.RevisionComparison.render(pkey(p), reference, round) : ""}
       ${revisionGroupsWithItems(round).map(group => {
         const groupProgress = revisionProgress(group.items);
         return `<details class="revision-reviewer-group" data-revision-reviewer="${escapeHtml(p._key + ':' + token + ':' + (group.id || 'unfiled'))}" ${group.items.length ? "open" : ""}>
