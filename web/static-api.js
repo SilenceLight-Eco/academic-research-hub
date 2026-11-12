@@ -713,15 +713,38 @@
         var replications = replicationData.replications || { items: [], trash: [] };
         replications.items = Array.isArray(replications.items) ? replications.items : [];
         replications.trash = Array.isArray(replications.trash) ? replications.trash : [];
+        replications.folders = Array.isArray(replications.folders) ? replications.folders : [];
         replicationData.replications = replications;
         if (method === 'GET') return response({ ok: true, replications: replications });
         if (method !== 'POST') return response({ error: '不支持此请求方法' }, 405);
-        if (['create', 'save', 'trash', 'restore'].indexOf(body.action) < 0) return response({ error: '未知复现操作' }, 400);
+        if (['create', 'save', 'trash', 'restore', 'create-folder', 'rename-folder', 'delete-folder'].indexOf(body.action) < 0) return response({ error: '未知复现操作' }, 400);
+        var replicationFolder = replications.folders.find(function (folder) { return folder.id === body.folderId; });
+        var createdReplicationFolderId;
+        if (['rename-folder', 'delete-folder'].indexOf(body.action) >= 0 && !replicationFolder) return response({ error: '文件夹已不存在，请重新载入' }, 404);
+        if (body.action === 'create-folder' || body.action === 'rename-folder') {
+          var replicationFolderName = typeof body.name === 'string' ? body.name.trim() : '';
+          if (!replicationFolderName || replicationFolderName.length > 80 || replicationFolderName === '未分类') return response({ error: '文件夹名称须为1至80字，且不能使用保留名称' }, 422);
+          if (replications.folders.some(function (folder) { return (body.action !== 'rename-folder' || folder !== replicationFolder) && folder.name.toLowerCase() === replicationFolderName.toLowerCase(); })) return response({ error: '文件夹名称已存在' }, 409);
+          if (body.action === 'create-folder') {
+            createdReplicationFolderId = 'rf-' + nowId() + '-' + Math.random().toString(36).slice(2, 10);
+            replications.folders.push({ id: createdReplicationFolderId, name: replicationFolderName });
+          } else replicationFolder.name = replicationFolderName;
+        } else if (body.action === 'delete-folder') {
+          replications.items.concat(replications.trash.map(function (entry) { return entry.item; })).forEach(function (item) {
+            if (item && item.folderId === replicationFolder.id) item.folderId = '';
+          });
+          replications.folders = replications.folders.filter(function (folder) { return folder !== replicationFolder; });
+        }
+        if ((body.action === 'create' || body.action === 'save') && body.folderId !== undefined && (typeof body.folderId !== 'string' || body.folderId !== '' && !replicationFolder)) return response({ error: '请选择已有文件夹' }, 422);
         var replicationId = String(body.id || '');
         var replicationItem = replications.items.find(function (item) { return String(item.id) === replicationId; });
+        if (body.action.indexOf('-folder') >= 0) {
+          await saveWorkspace(replicationData, dataRevision);
+          return response({ ok: true, replications: replications, createdFolderId: createdReplicationFolderId });
+        }
         if (body.action === 'create') {
           replicationId = 'rp-' + nowId() + '-' + Math.random().toString(36).slice(2, 10);
-          replications.items.push({ id: replicationId, title: '未命名复现论文', authors: '', doi: '', status: '未开始', environment: '', runOrder: '', results: '', notes: '', created: nowText(), updated: nowText() });
+          replications.items.push({ id: replicationId, folderId: body.folderId || '', title: '未命名复现论文', authors: '', doi: '', status: '未开始', environment: '', runOrder: '', results: '', notes: '', created: nowText(), updated: nowText() });
         } else if (body.action === 'restore') {
           var replicationTrash = replications.trash.find(function (entry) { return String(entry.id) === replicationId; });
           if (!replicationTrash || !replicationTrash.item) return response({ error: '回收站记录已不存在' }, 404);
@@ -731,7 +754,7 @@
         } else {
           if (!replicationItem) return response({ error: '复现任务已不存在，请重新载入' }, 404);
           if (body.action === 'save') {
-            var replicationFields = ['title', 'authors', 'doi', 'status', 'environment', 'runOrder', 'results', 'notes'];
+            var replicationFields = ['title', 'authors', 'doi', 'status', 'environment', 'runOrder', 'results', 'notes', 'folderId'];
             for (var ri = 0; ri < replicationFields.length; ri++) {
               var replicationField = replicationFields[ri];
               if (body[replicationField] === undefined) continue;
@@ -747,7 +770,7 @@
           }
         }
         await saveWorkspace(replicationData, dataRevision);
-        return response({ ok: true, replications: replications, createdId: body.action === 'create' ? replicationId : undefined });
+        return response({ ok: true, replications: replications, createdId: body.action === 'create' ? replicationId : undefined, createdFolderId: createdReplicationFolderId });
       }
       if (path === '/api/peer-reviews') {
         var reviewData = copyPayload(data);

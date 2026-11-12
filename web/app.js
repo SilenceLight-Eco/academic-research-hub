@@ -59,7 +59,9 @@
     projectTrashOpen: false,
     projectCategoryFilter: 'all',
     peerReviews: { items: [], trash: [], folders: [] },
-    replications: { items: [], trash: [] },
+    replications: { items: [], trash: [], folders: [] },
+    replicationFolderId: '',
+    replicationFolderCollapsed: {},
     replicationId: null,
     replicationTrashOpen: false,
     replicationBusy: false,
@@ -996,7 +998,9 @@
     account = user || null;
     if (previousReviewAccount !== (account && account.id)) {
       replicationLoadRequest++;
-      state.replications = { items: [], trash: [] }; state.replicationId = null;
+      state.replications = { items: [], trash: [], folders: [] }; state.replicationId = null;
+      state.replicationFolderId = ''; state.replicationFolderCollapsed = {}; replicationFolderEditingId = '';
+      $('#replicationFolderForm').hidden = true; $('#replicationFolderName').value = '';
       state.replicationBusy = false; state.replicationLoading = false; state.replicationTrashOpen = false; state.replicationQuery = '';
       if (state.panel === 'replications') { renderReplications(); if (account) loadReplications(); }
       peerReviewLoadRequest++; peerReviewReminderRequest++;
@@ -1311,7 +1315,7 @@
     addLine('提示词库', ['promptLibrary'], data.promptLibrary, countBackupItems(data.promptLibrary, ['prompts', 'trash']));
     addLine('研究项目', ['researchProjects'], data.researchProjects, countBackupItems(data.researchProjects, ['projects', 'trash']));
     addLine('审稿任务', ['peerReviews'], data.peerReviews, countBackupItems(data.peerReviews, ['items', 'trash']));
-    addLine('论文复现', ['replications'], data.replications, countBackupItems(data.replications, ['items', 'trash']));
+    addLine('论文复现', ['replications'], data.replications, countBackupItems(data.replications, ['items', 'trash', 'folders']));
     addLine('变量库', ['variableLibrary'], data.variableLibrary, countBackupItems(data.variableLibrary, ['items', 'trash']));
     addLine('数据与代码', ['dataCodeLibrary'], data.dataCodeLibrary, countBackupItems(data.dataCodeLibrary, ['items', 'trash']));
     addLine('文献与引用', ['referenceLibrary'], data.referenceLibrary, countBackupItems(data.referenceLibrary, ['items', 'trash']));
@@ -9482,36 +9486,53 @@
   }
 
   // ===== 论文复现 =====
-  var replicationFields = { title: 'replicationTitle', authors: 'replicationAuthors', doi: 'replicationDoi', status: 'replicationStatus', environment: 'replicationEnvironment', runOrder: 'replicationRunOrder', results: 'replicationResults', notes: 'replicationNotes' };
+  var replicationFields = { title: 'replicationTitle', authors: 'replicationAuthors', doi: 'replicationDoi', status: 'replicationStatus', environment: 'replicationEnvironment', runOrder: 'replicationRunOrder', results: 'replicationResults', notes: 'replicationNotes', folderId: 'replicationFolder' };
   var replicationFileTypes = { paper: '论文 PDF', supplement: '附件与数据', code: '代码' };
   var replicationLoadRequest = 0;
+  var replicationFolderEditingId = '';
   function activeReplication() {
     return state.replications.items.find(function (item) { return String(item.id) === String(state.replicationId); });
   }
   function applyReplications(library) {
-    state.replications = Object.assign({ items: [], trash: [] }, library || {});
+    state.replications = Object.assign({ items: [], trash: [], folders: [] }, library || {});
+    if (!(state.replications.folders || []).some(function (folder) { return folder.id === state.replicationFolderId; })) state.replicationFolderId = '';
     state.replications.items.forEach(function (item) {
       var slot = autoSaveSlots['replication:' + item.id];
-      if (slot && slot.dirty) Object.keys(replicationFields).forEach(function (field) { item[field] = slot.payload[field]; });
+      if (slot && slot.dirty) Object.keys(replicationFields).forEach(function (field) { if (slot.payload[field] !== undefined) item[field] = slot.payload[field]; });
     });
   }
   function renderReplicationList() {
     var query = (state.replicationQuery || '').toLowerCase();
     var entries = state.replicationTrashOpen ? state.replications.trash : state.replications.items;
-    $('#replicationList').innerHTML = entries.filter(function (entry) {
+    var filtered = entries.filter(function (entry) {
       var item = entry.item || entry;
       return Object.keys(replicationFields).map(function (field) { return item[field] || ''; }).join(' ').toLowerCase().indexOf(query) >= 0;
-    }).map(function (entry) {
+    });
+    function taskHtml(entry) {
       var item = entry.item || entry;
       if (state.replicationTrashOpen) return '<div class="peer-review-task"><strong>' + escapeHtml(item.title) + '</strong><button type="button" data-replication-restore="' + escapeAttribute(entry.id) + '">恢复</button></div>';
       return '<button type="button" class="peer-review-task' + (String(item.id) === String(state.replicationId) ? ' is-active' : '') + '" data-replication-open="' + escapeAttribute(item.id) + '"><strong>' + escapeHtml(item.title) + '</strong><small>' + escapeHtml(item.status || '未开始') + ' · ' + escapeHtml(item.authors || '未填写作者') + '</small></button>';
-    }).join('') || '<p class="replication-help">' + (state.replicationLoading ? '正在载入…' : '暂无匹配记录') + '</p>';
+    }
+    if (state.replicationTrashOpen) { $('#replicationList').innerHTML = filtered.map(taskHtml).join('') || '<p class="replication-help">回收站暂无匹配记录</p>'; return; }
+    var folders = (state.replications.folders || []).concat([{ id: '', name: '未分类' }]);
+    var folderIds = new Set(folders.map(function (folder) { return folder.id; }));
+    state.replicationFolderCollapsed = state.replicationFolderCollapsed || {};
+    $('#replicationList').innerHTML = folders.map(function (folder) {
+      var grouped = filtered.filter(function (item) {
+        var folderId = folderIds.has(item.folderId) ? item.folderId : '';
+        return folderId === folder.id;
+      });
+      if (query && !grouped.length) return '';
+      var expanded = query || (state.replicationFolderCollapsed[folder.id] === undefined ? grouped.some(function (item) { return String(item.id) === String(state.replicationId); }) : !state.replicationFolderCollapsed[folder.id]);
+      return '<details class="peer-review-folder" data-replication-folder="' + escapeAttribute(folder.id) + '"' + (expanded ? ' open' : '') + '><summary><span title="' + escapeAttribute(folder.name) + '">' + escapeHtml(folder.name) + ' (' + grouped.length + ')</span>' + (folder.id ? '<button type="button" data-replication-folder-rename="' + escapeAttribute(folder.id) + '">重命名</button><button type="button" data-replication-folder-delete="' + escapeAttribute(folder.id) + '">删除</button>' : '') + '</summary><div>' + (grouped.map(taskHtml).join('') || '<p class="replication-help">此文件夹暂无复现任务</p>') + '</div></details>';
+    }).join('') || '<p class="replication-help">暂无匹配记录</p>';
   }
   function renderReplications() {
     var item = state.replicationTrashOpen ? null : activeReplication();
     var locked = state.replicationBusy || state.replicationLoading || !account;
     $('#replicationSearch').value = state.replicationQuery || '';
     renderReplicationList();
+    $('#replicationFolder').innerHTML = '<option value="">未分类</option>' + (state.replications.folders || []).map(function (folder) { return '<option value="' + escapeAttribute(folder.id) + '">' + escapeHtml(folder.name) + '</option>'; }).join('');
     $('#replicationEditor').hidden = !item;
     $('#replicationEmpty').hidden = Boolean(item);
     $('#replicationEmpty').textContent = !account ? '登录后新建论文复现任务并使用云端附件。' : state.replicationTrashOpen ? '选择左侧记录恢复任务及其材料入口。' : '新建或选择一篇论文，上传材料并记录复现过程。';
@@ -9521,6 +9542,8 @@
       input.disabled = locked || !item;
     });
     ['replicationNew', 'replicationTrash', 'replicationSearch'].forEach(function (id) { $('#' + id).disabled = locked; });
+    ['replicationFolderNew', 'replicationFolderName', 'replicationFolderSubmit'].forEach(function (id) { $('#' + id).disabled = locked || state.replicationTrashOpen; });
+    if (state.replicationTrashOpen) $('#replicationFolderForm').hidden = true;
     ['replicationSave', 'replicationDelete'].forEach(function (id) { $('#' + id).disabled = locked || !item; });
     $$('#replicationFiles button').forEach(function (button) { button.disabled = locked || !item; });
     $('#replicationTrash').textContent = state.replicationTrashOpen ? '返回复现列表' : '回收站';
@@ -9557,7 +9580,12 @@
     var item = activeReplication();
     if (!item || state.replicationBusy || state.replicationLoading || state.replicationTrashOpen || !account) return;
     var payload = { action: 'save', id: item.id };
+    var previousFolderId = item.folderId || '';
     Object.keys(replicationFields).forEach(function (field) { payload[field] = $('#' + replicationFields[field]).value; item[field] = payload[field]; });
+    if (previousFolderId !== item.folderId) {
+      state.replicationFolderCollapsed = state.replicationFolderCollapsed || {};
+      state.replicationFolderCollapsed[item.folderId] = false; state.replicationFolderId = item.folderId;
+    }
     queueAutoSave('replication:' + item.id, payload, persistReplication);
     renderReplicationList();
     $('#replicationSaveStatus').textContent = '修改待保存 · 每 3 分钟及切换任务、模块时自动保存';
@@ -9583,11 +9611,14 @@
     state.replicationBusy = true; renderReplications();
     return afterCurrentEditorSaved('replications', function () {
       if (!account || account.id !== owner) return;
-      return api('/api/replications', { method: 'POST', body: JSON.stringify({ action: action, id: id }) }).then(function (result) {
+      return api('/api/replications', { method: 'POST', body: JSON.stringify({ action: action, id: id, folderId: action === 'create' ? state.replicationFolderId || '' : undefined }) }).then(function (result) {
         if (!account || account.id !== owner) return;
         if (!result.ok) throw new Error(result.error || '复现操作失败');
         applyReplications(result.replications);
-        if (action === 'create') { state.replicationTrashOpen = false; state.replicationQuery = ''; $('#replicationSearch').value = ''; state.replicationId = result.createdId; }
+        if (action === 'create') {
+          state.replicationTrashOpen = false; state.replicationQuery = ''; $('#replicationSearch').value = ''; state.replicationId = result.createdId;
+          state.replicationFolderCollapsed = state.replicationFolderCollapsed || {}; state.replicationFolderCollapsed[state.replicationFolderId || ''] = false;
+        }
         if (action === 'trash') state.replicationId = (state.replications.items[0] || {}).id || null;
         changed = true;
       });
@@ -9612,6 +9643,15 @@
     return window.__academicOpenAttachments('paper', contextId, (activeReplication() || item).title + ' · ' + replicationFileTypes[kind], '材料随当前账号保存，单个文件最大 50 MB。上传后可在其他设备下载。');
   }
   function bindReplicationEvents() {
+    $('#replicationFolderNew').addEventListener('click', function () { editReplicationFolder(''); });
+    $('#replicationFolderCancel').addEventListener('click', function () { $('#replicationFolderForm').hidden = true; });
+    $('#replicationFolderForm').addEventListener('submit', function (event) { event.preventDefault(); saveReplicationFolder(replicationFolderEditingId ? 'rename-folder' : 'create-folder', replicationFolderEditingId); });
+    $('#replicationList').addEventListener('toggle', function (event) {
+      if (event.target.matches && event.target.matches('[data-replication-folder]') && event.target.isConnected) {
+        state.replicationFolderCollapsed = state.replicationFolderCollapsed || {};
+        state.replicationFolderCollapsed[event.target.dataset.replicationFolder] = !event.target.open;
+      }
+    }, true);
     $('#replicationNew').addEventListener('click', function () { mutateReplication('create'); });
     $('#replicationSave').addEventListener('click', saveReplication);
     $('#replicationDelete').addEventListener('click', function () { mutateReplication('trash', state.replicationId); });
@@ -9622,6 +9662,19 @@
     $('#replicationSearch').addEventListener('input', function () { state.replicationQuery = this.value; renderReplicationList(); });
     $('#replicationList').addEventListener('click', function (event) {
       if (state.replicationBusy || state.replicationLoading) return;
+      var rename = event.target.closest('[data-replication-folder-rename]'), remove = event.target.closest('[data-replication-folder-delete]');
+      if (rename || remove) {
+        event.preventDefault(); event.stopPropagation();
+        if (rename) editReplicationFolder(rename.dataset.replicationFolderRename);
+        else saveReplicationFolder('delete-folder', remove.dataset.replicationFolderDelete);
+        return;
+      }
+      var summary = event.target.closest('summary');
+      if (summary) {
+        var folder = summary.closest('[data-replication-folder]');
+        if (folder) state.replicationFolderId = folder.dataset.replicationFolder;
+        return;
+      }
       var restore = event.target.closest('[data-replication-restore]'), open = event.target.closest('[data-replication-open]');
       if (restore) mutateReplication('restore', restore.dataset.replicationRestore);
       if (open) afterCurrentEditorSaved('replications', function () { state.replicationId = open.dataset.replicationOpen; renderReplications(); });
@@ -9632,6 +9685,44 @@
     });
     Object.keys(replicationFields).forEach(function (field) {
       ['input', 'change'].forEach(function (type) { $('#' + replicationFields[field]).addEventListener(type, queueReplicationAutoSave); });
+    });
+  }
+
+  function editReplicationFolder(id) {
+    if (state.replicationBusy || state.replicationLoading || state.replicationTrashOpen || !account) return;
+    var folder = (state.replications.folders || []).find(function (entry) { return entry.id === id; });
+    if (id && !folder) return;
+    replicationFolderEditingId = id;
+    $('#replicationFolderName').value = folder ? folder.name : '';
+    $('#replicationFolderSubmit').textContent = id ? '保存名称' : '创建文件夹';
+    $('#replicationFolderForm').hidden = false;
+    $('#replicationFolderName').focus();
+  }
+  function saveReplicationFolder(action, folderId) {
+    if (state.replicationBusy || state.replicationLoading || state.replicationTrashOpen || !account) return Promise.resolve(false);
+    var name = $('#replicationFolderName').value.trim();
+    if (action !== 'delete-folder' && (!name || name.length > 80)) { toast('请输入1至80字的文件夹名称'); return Promise.resolve(false); }
+    if (action === 'delete-folder' && !confirm('删除此文件夹，并将其中的复现任务移到“未分类”？')) return Promise.resolve(false);
+    queueReplicationAutoSave();
+    var owner = account.id, saved = false;
+    state.replicationBusy = true; renderReplications();
+    return afterCurrentEditorSaved('replications', function () {
+      if (!account || account.id !== owner) return;
+      return api('/api/replications', { method: 'POST', body: JSON.stringify({ action: action, folderId: folderId, name: name }) }).then(function (result) {
+        if (!account || account.id !== owner) return;
+        if (!result.ok) throw new Error(result.error || '文件夹保存失败');
+        applyReplications(result.replications);
+        if (action === 'create-folder') {
+          state.replicationQuery = '';
+          state.replicationFolderId = result.createdFolderId;
+          state.replicationFolderCollapsed = state.replicationFolderCollapsed || {}; state.replicationFolderCollapsed[result.createdFolderId] = false;
+        }
+        if (action === 'delete-folder' && state.replicationFolderId === folderId) state.replicationFolderId = '';
+        $('#replicationFolderForm').hidden = true; replicationFolderEditingId = ''; saved = true;
+      });
+    }).then(function () {
+      if (account && account.id === owner) { state.replicationBusy = false; renderReplications(); }
+      return saved;
     });
   }
 

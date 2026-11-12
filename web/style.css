@@ -7474,7 +7474,7 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .peer-review-workspace { display:grid; grid-template-columns:260px minmax(0,1fr); height:min(72vh,850px); min-height:460px; overflow:hidden; border:1px solid var(--hairline); border-radius:12px; background:var(--glass); }
 .replication-workspace { display:grid; grid-template-columns:260px minmax(0,1fr); height:min(74vh,900px); min-height:480px; overflow:hidden; border:1px solid var(--hairline); border-radius:12px; background:var(--glass); }
 .replication-sidebar { display:flex; flex-direction:column; gap:14px; min-height:0; padding:16px 12px; border-right:1px solid var(--hairline); }
-.replication-sidebar > input { width:100%; box-sizing:border-box; padding:9px 10px; border:1px solid var(--hairline); border-radius:7px; background:var(--glass-strong); color:var(--text); font:inherit; }
+.replication-sidebar input { width:100%; box-sizing:border-box; padding:9px 10px; border:1px solid var(--hairline); border-radius:7px; background:var(--glass-strong); color:var(--text); font:inherit; }
 #replicationList { overflow:auto; min-height:0; }
 .replication-help { margin:0; font-size:12px; color:var(--text-muted); line-height:1.7; }
 @media(max-width:760px) { .replication-workspace { grid-template-columns:1fr; height:auto; } .replication-sidebar { max-height:240px; border-right:0; border-bottom:1px solid var(--hairline); } .replication-workspace > .peer-review-content { max-height:75vh; } }
@@ -7534,7 +7534,7 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .peer-review-folder summary::before { content:'▸'; flex:none; color:var(--accent); }
 .peer-review-folder[open] summary::before { content:'▾'; }
 .peer-review-folder summary span { flex:1; min-width:60px; overflow-wrap:anywhere; }
-.peer-review-folder summary button,.peer-review-folder-form button,#peerReviewFolderNew { padding:4px 6px; border:1px solid var(--hairline); border-radius:5px; background:var(--glass-strong); color:var(--text-secondary); cursor:pointer; font:11px/1.6 "Noto Sans SC",sans-serif; }
+.peer-review-folder summary button,.peer-review-folder-form button,#peerReviewFolderNew,#replicationFolderNew { padding:4px 6px; border:1px solid var(--hairline); border-radius:5px; background:var(--glass-strong); color:var(--text-secondary); cursor:pointer; font:11px/1.6 "Noto Sans SC",sans-serif; }
 .peer-review-folder > div { padding:0 7px; }
 .peer-review-folder-empty { font-size:11px; color:var(--text-muted); }
 .peer-review-folder-form[hidden] { display:none; }
