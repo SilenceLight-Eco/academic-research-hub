@@ -82,7 +82,7 @@ test('account logout cancels late reminder responses and removes cached tasks an
 });
 
 test('dashboard load/entry/foreground and shared save hooks are connected without adding polling or writes', () => {
-  assert.ok(source.includes('loadJournal(), loadPeerReviewReminders()')); assert.ok(source.includes("if (panel === 'dashboard' && prev !== panel) { renderTodayBoard(); loadPeerReviewReminders(); }"));
+  assert.ok(source.includes('loadJournal(), loadPeerReviewReminders()')); assert.match(source, /if \(panel === 'dashboard' && prev !== panel\) \{[^}]*loadPeerReviewReminders\(\)/);
   assert.ok(source.includes("if (!document.hidden && state.panel === 'dashboard') renderTodayBoard();")); assert.ok(source.includes('if (handlePeerReviewReminderClick(e)) return;')); assert.ok(css.includes('.today-grid-reminders'));
 });
 

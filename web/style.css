@@ -7493,6 +7493,10 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .peer-review-title-row > label { flex:1; min-width:0; }
 .peer-review-title-row button { flex:none; color:#c64444; }
 .peer-review-title-row #peerReviewNextRound { color:var(--accent); }
+.peer-review-new-round { display:flex; align-items:flex-end; flex:none; gap:8px; }
+.peer-review-new-round label { width:92px; }
+.peer-review-new-round button { white-space:nowrap; }
+@media(max-width:900px) { .peer-review-title-row { flex-wrap:wrap; } .peer-review-title-row > label { flex-basis:100%; } }
 .peer-review-title-row button:disabled { opacity:.45; cursor:not-allowed; }
 .peer-review-history[hidden] { display:none; }
 .peer-review-history { margin-top:24px; padding-top:16px; border-top:1px solid var(--hairline); }

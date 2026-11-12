@@ -119,14 +119,45 @@ test('legacy tasks without history migrate on first archive, using their current
   assert.equal(result.status, 200); assert.equal(result.body.peerReviews.items[0].round, 5); assert.equal(result.body.peerReviews.items[0].history[0].round, 4); assert.equal(result.body.peerReviews.items[0].history[0].notes, 'Keep note');
 });
 
-test('round limits, missing tasks, signed-out requests and cloud failures leave history and opinions untouched', async () => {
+test('invalid target rounds, missing tasks, signed-out requests and cloud failures preserve current opinions', async () => {
   const data = initial(); data.peerReviews.items.push({ id: 'limit', round: 20, summary: 'Keep', history: [] });
-  const h = harness(data); assert.equal((await request(h, { action: 'next-round', id: 'limit', expectedRound: 20 })).status, 422);
+  const h = harness(data); assert.equal((await request(h, { action: 'next-round', id: 'limit', expectedRound: 20, targetRound: 20 })).status, 422);
   assert.equal((await request(h, { action: 'next-round', id: 'missing', expectedRound: 1 })).status, 404); assert.equal(h.writeCount(), 0);
   const guest = harness(data, { signedOut: true }); assert.equal((await request(guest, { action: 'next-round', id: 'limit', expectedRound: 20 })).status, 401);
   data.peerReviews.items[0].round = 1;
   const failed = harness(data, { failWrites: true }); assert.equal((await request(failed, { action: 'next-round', id: 'limit', expectedRound: 1 })).status, 500);
   assert.equal(failed.writeCount(), 0); assert.deepEqual(failed.readWorkspace(), data);
+});
+
+test('third and fourth rounds persist and retain every actual earlier review across reload', async () => {
+  let h = harness(initial()); const id = await create(h);
+  for (const nextRound of [2, 3, 4, 21]) {
+    const current = h.readWorkspace().peerReviews.items[0].round;
+    await request(h, { action: 'save', id, round: current, summary: 'Opinion ' + current });
+    const result = await request(h, { action: 'next-round', id, expectedRound: current, targetRound: nextRound });
+    assert.equal(result.status, 200); assert.equal(result.body.peerReviews.items[0].round, nextRound);
+    h = harness(h.readWorkspace());
+  }
+  const item = h.readWorkspace().peerReviews.items[0];
+  assert.deepEqual(item.history.map(entry => entry.round), [1, 2, 3, 4]);
+  assert.deepEqual(item.history.map(entry => entry.summary), ['Opinion 1', 'Opinion 2', 'Opinion 3', 'Opinion 4']);
+  assert.equal(item.summary, '');
+  await request(h, { action: 'save', id, round: 21, summary: 'Latest opinion' });
+  assert.equal(h.readWorkspace().peerReviews.items[0].summary, 'Latest opinion');
+});
+
+test('invalid manual targets and replayed requests cannot create phantom rounds or erase current work', async () => {
+  const h = harness(initial()); const id = await create(h);
+  await request(h, { action: 'save', id, round: 1, summary: 'Keep' });
+  const before = h.readWorkspace(), writes = h.writeCount();
+  for (const targetRound of [null, '', 0, -1, 1, 1.5, 'NaN', 9007199254740992]) {
+    assert.equal((await request(h, { action: 'next-round', id, expectedRound: 1, targetRound })).status, 422);
+  }
+  assert.equal(h.writeCount(), writes); assert.deepEqual(h.readWorkspace(), before);
+  await request(h, { action: 'next-round', id, expectedRound: 1, targetRound: 4 });
+  const saved = h.readWorkspace();
+  assert.equal((await request(h, { action: 'next-round', id, expectedRound: 1, targetRound: 4 })).status, 409);
+  assert.deepEqual(h.readWorkspace(), saved); assert.deepEqual(saved.peerReviews.items[0].history.map(entry => entry.round), [1]);
 });
 
 const checkRow = (id, extras = {}) => ({ id, kind: '主要意见', status: '待核对', issue: 'Identification strategy\n\nSecond paragraph', response: 'Author reply', assessment: 'My private judgment', sourceHistoryId: '', sourceKey: '', ...extras });

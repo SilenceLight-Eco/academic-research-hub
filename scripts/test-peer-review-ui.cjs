@@ -12,7 +12,7 @@ const end = source.indexOf('  // ===== 变量库：', start);
 function harness(options = {}) {
   const state = { panel: 'peer-reviews', peerReviews: { items: [], trash: [] }, peerReviewId: null, peerReviewTrashOpen: false, peerReviewFilter: 'all', peerReviewQuery: '', peerReviewBusy: false, peerReviewLoading: false };
   const nodes = new Map(), slots = {}, toasts = [], calls = [], downloads = []; let flushes = 0;
-  function node(id) { if (!nodes.has(id)) nodes.set(id, { value: '', textContent: '', innerHTML: '', disabled: false, hidden: false, handlers: {}, focus() {}, addEventListener(type, handler) { this.handlers[type] = handler; } }); return nodes.get(id); }
+  function node(id) { if (!nodes.has(id)) nodes.set(id, { value: '', textContent: '', innerHTML: '', disabled: false, hidden: false, dataset: {}, handlers: {}, focus() {}, addEventListener(type, handler) { this.handlers[type] = handler; } }); return nodes.get(id); }
   const context = vm.createContext({ state, autoSaveSlots: slots, Date, console, Blob, account: { id: 'test-user' }, renderTodayBoard() {},
     downloadBlob: (blob, filename) => { if (options.downloadFails) throw new Error('Download blocked'); downloads.push({ blob, filename }); },
     $: selector => node(selector.slice(1)), escapeHtml: text => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'), escapeAttribute: text => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'),
@@ -50,7 +50,7 @@ test('editor export includes only decision and confidential comments, never auth
 });
 
 test('export filenames are safe on Windows and header fields cannot inject additional lines', () => {
-  const h = harness(); const output = h.context.buildPeerReviewExport({ title: 'CON:<bad>/\\*?"|\n# Injected\t标题', journal: 'Journal\n## Not a section', manuscriptCode: 'Code\r\nOther', round: 99, summary: '中文意见' }, 'author');
+  const h = harness(); const output = h.context.buildPeerReviewExport({ title: 'CON:<bad>/\\*?"|\n# Injected\t标题', journal: 'Journal\n## Not a section', manuscriptCode: 'Code\r\nOther', round: 1.5, summary: '中文意见' }, 'author');
   assert.ok(!/[<>:"/\\|?*\x00-\x1f]/.test(output.filename)); assert.ok(output.filename.startsWith('审稿-'));
   assert.ok(output.filename.includes('第1轮')); assert.ok(!output.text.includes('\n## Not a section')); assert.ok(output.text.includes('中文意见'));
   assert.throws(() => h.context.buildPeerReviewExport({}, 'other'), /未知/);
@@ -136,12 +136,35 @@ test('failed save or failed archive never clears the current opinions or shows n
   }
 });
 
-test('next-round controls reject cancellation, unavailable tasks, round limits and loading without writes', async () => {
+test('next-round controls reject cancellation, unavailable tasks, invalid targets and loading without writes', async () => {
   const cancelled = harness({ confirm: false }); addTask(cancelled, { summary: 'Keep' }); assert.equal(await cancelled.context.startNextPeerReviewRound(), false); assert.equal(cancelled.calls.length, 0);
   for (const flag of ['peerReviewBusy', 'peerReviewLoading', 'peerReviewTrashOpen']) { const h = harness(); addTask(h); h.state[flag] = true; assert.equal(await h.context.startNextPeerReviewRound(), false); assert.equal(h.calls.length, 0); }
-  const max = harness(); addTask(max, { round: 20 }); assert.equal(max.node('peerReviewNextRound').disabled, true); assert.equal(await max.context.startNextPeerReviewRound(), false); assert.equal(max.calls.length, 0);
+  const later = harness(); addTask(later, { round: 20 }); assert.equal(later.node('peerReviewNextRound').disabled, false); assert.equal(Number(later.node('peerReviewNewRound').value), 21);
+  for (const value of ['', '0', '1', '2.5', 'NaN', '9007199254740992']) { const invalid = harness(); addTask(invalid); invalid.node('peerReviewNewRound').value = value; assert.equal(await invalid.context.startNextPeerReviewRound(), false); assert.equal(invalid.calls.length, 0); }
   const empty = harness(); assert.equal(await empty.context.startNextPeerReviewRound(), false);
   const blocked = harness({ flushFails: true }); addTask(blocked); assert.equal(await blocked.context.startNextPeerReviewRound(), false); assert.equal(blocked.state.peerReviewBusy, false); assert.equal(blocked.calls.length, 0);
+});
+
+test('manually selected later rounds reach the API after the current opinion has been saved', async () => {
+  const h = harness({ api: async (_endpoint, init) => {
+    const body = JSON.parse(init.body);
+    if (body.action === 'save') return { ok: true, peerReviews: { items: [{ ...body, history: [] }], trash: [] } };
+    return { ok: true, peerReviews: { items: [{ id: 'one', round: body.targetRound, history: [{ id: 'r2', round: body.expectedRound, summary: '保存二审意见' }] }], trash: [] } };
+  } });
+  addTask(h, { round: 2 }); h.node('peerReviewSummary').value = '保存二审意见'; h.node('peerReviewNewRound').value = '4';
+  assert.equal(await h.context.startNextPeerReviewRound(), true);
+  assert.equal(h.calls[0].body.summary, '保存二审意见');
+  assert.deepEqual(h.calls[1].body, { action: 'next-round', id: 'one', expectedRound: 2, targetRound: 4 });
+  assert.equal(Number(h.node('peerReviewNewRound').value), 5); assert.equal(h.state.peerReviews.items[0].round, 4);
+  assert.match(h.context.buildPeerReviewExport({ title: 'Later review', round: 27, summary: 'Opinion' }, 'author').text, /第 27 轮/);
+});
+
+test('target round survives redraws of the same task and resets when switching tasks', () => {
+  const h = harness(); addTask(h, { round: 2 }); h.node('peerReviewNewRound').value = '4';
+  h.context.renderPeerReviews(); assert.equal(h.node('peerReviewNewRound').value, '4');
+  h.state.peerReviews.items.push({ id: 'two', title: 'Another task', round: 5 }); h.state.peerReviewId = 'two';
+  h.context.renderPeerReviews(); assert.equal(Number(h.node('peerReviewNewRound').value), 6);
+  assert.match(html, /id="peerReviewNewRound"/); assert.match(html, /本轮核对清单/);
 });
 
 test('dirty old-round drafts cannot overwrite an incoming new round, but same-round drafts still win', () => {

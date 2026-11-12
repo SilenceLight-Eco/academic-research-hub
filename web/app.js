@@ -10591,7 +10591,15 @@
     $('#peerReviewEditor').hidden = !item; $('#peerReviewEmpty').hidden = Boolean(item);
     $('#peerReviewSave').disabled = !item || state.peerReviewBusy || state.peerReviewLoading; $('#peerReviewDelete').disabled = !item || state.peerReviewBusy || state.peerReviewLoading;
     ['peerReviewExportAuthor', 'peerReviewExportEditor'].forEach(function (id) { $('#' + id).disabled = !item || state.peerReviewBusy || state.peerReviewLoading; });
-    $('#peerReviewNextRound').disabled = !item || state.peerReviewBusy || state.peerReviewLoading || Number(item.round || 1) >= 20;
+    $('#peerReviewNextRound').disabled = !item || state.peerReviewBusy || state.peerReviewLoading;
+    var nextRoundInput = $('#peerReviewNewRound');
+    var roundContext = item ? String(item.id) + ':' + Number(item.round || 1) : '';
+    if (nextRoundInput.dataset.roundContext !== roundContext) {
+      nextRoundInput.value = item ? Number(item.round || 1) + 1 : '';
+      nextRoundInput.dataset.roundContext = roundContext;
+    }
+    nextRoundInput.min = item ? Number(item.round || 1) + 1 : 2;
+    nextRoundInput.disabled = !item || state.peerReviewBusy || state.peerReviewLoading;
     ['peerReviewNew', 'peerReviewTrash', 'peerReviewSearch', 'peerReviewFilter', 'peerReviewFolderFilter', 'peerReviewFolderNew', 'peerReviewFolderName', 'peerReviewFolderSubmit'].forEach(function (id) { $('#' + id).disabled = state.peerReviewBusy || state.peerReviewLoading; });
     $('#peerReviewFolderNew').disabled = state.peerReviewBusy || state.peerReviewLoading || state.peerReviewTrashOpen;
     if (state.peerReviewTrashOpen) $('#peerReviewFolderForm').hidden = true;
@@ -10682,7 +10690,7 @@
     function body(value) { return String(value == null ? '' : value); }
     var title = inline(item.title) || '未命名审稿任务';
     var round = Number(item.round);
-    if (!Number.isInteger(round) || round < 1 || round > 20) round = 1;
+    if (!Number.isSafeInteger(round) || round < 1) round = 1;
     var lines = ['# 审稿意见 · ' + (audience === 'author' ? '给作者' : '仅供编辑（保密）'), '', '稿件：' + title];
     if (inline(item.journal)) lines.push('期刊：' + inline(item.journal));
     if (inline(item.manuscriptCode)) lines.push('稿件编号：' + inline(item.manuscriptCode));
@@ -10718,7 +10726,7 @@
       }).join('');
       var checks = (Array.isArray(snapshot.checklist) ? snapshot.checklist : []).map(function (row, index) { return '<div class="peer-review-history-field"><strong>核对 ' + (index + 1) + ' · ' + escapeHtml(row.kind) + ' · ' + escapeHtml(row.status) + '</strong><div>问题：' + escapeHtml(row.issue) + '\n作者回应：' + escapeHtml(row.response) + '\n我的判断：' + escapeHtml(row.assessment) + '</div></div>'; }).join('');
       return '<details class="peer-review-history-round"><summary>第 ' + escapeHtml(snapshot.round || 1) + ' 轮 · ' + escapeHtml(snapshot.status || '待决定') + ' · 归档于 ' + escapeHtml(snapshot.archivedAt || '') + '</summary><div class="peer-review-actions"><button type="button" data-review-history-author="' + escapeHtml(snapshot.id) + '"' + (state.peerReviewBusy || state.peerReviewLoading ? ' disabled' : '') + '>导出本轮给作者</button><button type="button" data-review-history-editor="' + escapeHtml(snapshot.id) + '"' + (state.peerReviewBusy || state.peerReviewLoading ? ' disabled' : '') + '>导出本轮给编辑</button></div>' + content + checks + '</details>';
-    }).join('') : '<p class="peer-review-history-empty">暂无历史轮次。点击“开始下一轮”会先保存并归档当前轮次。</p>';
+    }).join('') : '<p class="peer-review-history-empty">暂无历史轮次。点击“新建轮次”会先保存并归档当前轮次。</p>';
   }
   function exportPeerReviewHistory(id, audience) {
     var item = activePeerReview();
@@ -10730,8 +10738,9 @@
   function startNextPeerReviewRound() {
     var item = activePeerReview();
     if (!item || state.peerReviewTrashOpen || state.peerReviewBusy || state.peerReviewLoading) return Promise.resolve(false);
-    if (Number(item.round || 1) >= 20) { toast('最多支持 20 轮审稿'); return Promise.resolve(false); }
-    if (!confirm('先保存并归档第 ' + (item.round || 1) + ' 轮，然后开始下一轮？本轮意见和核对清单会保留在历史中，新一轮意见、日期、核对清单和个人备注将清空。')) return Promise.resolve(false);
+    var targetRound = Number($('#peerReviewNewRound').value);
+    if (!Number.isSafeInteger(targetRound) || targetRound <= Number(item.round || 1)) { toast('请填写大于当前轮次的正整数'); return Promise.resolve(false); }
+    if (!confirm('先保存并归档第 ' + (item.round || 1) + ' 轮，然后新建第 ' + targetRound + ' 轮审稿？本轮意见和核对清单会保留在历史中，新一轮意见、日期、核对清单和个人备注将清空。')) return Promise.resolve(false);
     // Queue the live form before locking it; never archive a stale server-only version.
     queuePeerReviewAutoSave();
     var id = item.id, expectedRound = Number(item.round || 1), started = false, reviewRoundAccount = account && account.id;
@@ -10740,7 +10749,7 @@
       if ((account && account.id) !== reviewRoundAccount) throw new Error('账号已变化，请重新操作');
       var slot = autoSaveSlots['peer-review:' + id];
       if (slot && slot.dirty) throw new Error('当前意见尚未保存，未开始下一轮，请重试');
-      return api('/api/peer-reviews', { method: 'POST', body: JSON.stringify({ action: 'next-round', id: id, expectedRound: expectedRound }) }).then(function (result) {
+      return api('/api/peer-reviews', { method: 'POST', body: JSON.stringify({ action: 'next-round', id: id, expectedRound: expectedRound, targetRound: targetRound }) }).then(function (result) {
         if ((account && account.id) !== reviewRoundAccount) throw new Error('账号已变化，已忽略原账号的响应');
         if (!result.ok) throw new Error(result.error || '开始下一轮失败');
         applyPeerReviewData(result.peerReviews); started = true;

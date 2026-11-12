@@ -739,8 +739,8 @@
           var reviewRecommendations = ['尚未决定', '接收', '小修', '大修', '拒稿'];
           if (body.status !== undefined && reviewStatuses.indexOf(body.status) < 0) return response({ error: '请选择有效的审稿状态' }, 422);
           if (body.recommendation !== undefined && reviewRecommendations.indexOf(body.recommendation) < 0) return response({ error: '请选择有效的审稿建议' }, 422);
-          if (body.round !== undefined && (!Number.isInteger(Number(body.round)) || Number(body.round) < 1 || Number(body.round) > 20)) return response({ error: '审稿轮次须为 1 至 20 的整数' }, 422);
-          if (body.round !== undefined && Number(body.round) !== Number(reviewItem.round || 1)) return response({ error: '审稿轮次已变化，请重新载入；开始下一轮请使用“开始下一轮”' }, 409);
+          if (body.round !== undefined && (!Number.isSafeInteger(Number(body.round)) || Number(body.round) < 1)) return response({ error: '审稿轮次须为正整数' }, 422);
+          if (body.round !== undefined && Number(body.round) !== Number(reviewItem.round || 1)) return response({ error: '审稿轮次已变化，请重新载入；增加轮次请使用“新建轮次”' }, 409);
           if (body.round === undefined && Array.isArray(reviewItem.history) && reviewItem.history.length) return response({ error: '请重新载入并确认当前审稿轮次后保存' }, 409);
           var invalidReviewDate = ['invitedAt', 'dueAt', 'submittedAt'].find(function (field) {
             if (body[field] === undefined || body[field] === '') return false;
@@ -781,7 +781,8 @@
         if (body.action === 'next-round') {
           var currentReviewRound = Number(reviewItem.round || 1);
           if (!Number.isInteger(Number(body.expectedRound)) || Number(body.expectedRound) !== currentReviewRound) return response({ error: '审稿轮次已变化，请重新载入后再操作' }, 409);
-          if (currentReviewRound >= 20) return response({ error: '最多支持 20 轮审稿，当前意见已保留' }, 422);
+          var nextReviewRound = body.targetRound === undefined ? currentReviewRound + 1 : Number(body.targetRound);
+          if (!Number.isSafeInteger(currentReviewRound) || currentReviewRound < 1 || !Number.isSafeInteger(nextReviewRound) || nextReviewRound <= currentReviewRound) return response({ error: '新建轮次须为大于当前轮次的正整数' }, 422);
           var reviewSnapshot = { id: 'review-round-' + nowId() + '-' + Math.random().toString(36).slice(2, 10), archivedAt: nowText() };
           // Immutable snapshots contain only review fields, never nested history or unrelated workspace data.
           ['title', 'journal', 'manuscriptCode', 'round', 'status', 'invitedAt', 'dueAt', 'submittedAt', 'recommendation', 'manuscriptUrl', 'summary', 'majorComments', 'minorComments', 'editorComments', 'notes'].forEach(function (field) { reviewSnapshot[field] = reviewItem[field] === undefined ? '' : reviewItem[field]; });
@@ -789,7 +790,7 @@
           reviewSnapshot.checklist = copyPayload(Array.isArray(reviewItem.checklist) ? reviewItem.checklist : []);
           reviewItem.history = Array.isArray(reviewItem.history) ? reviewItem.history : [];
           reviewItem.history.push(reviewSnapshot);
-          reviewItem.round = currentReviewRound + 1;
+          reviewItem.round = nextReviewRound;
           reviewItem.status = '审稿中'; reviewItem.recommendation = '尚未决定';
           reviewItem.checklist = [];
           ['invitedAt', 'dueAt', 'submittedAt', 'summary', 'majorComments', 'minorComments', 'editorComments', 'notes'].forEach(function (field) { reviewItem[field] = ''; });
