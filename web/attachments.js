@@ -139,7 +139,6 @@
     try {
       for (var i = 0; i < selected.length; i++) {
         var file = selected[i];
-        if (file.size > 50 * 1024 * 1024) throw new Error(file.name + ' 超过 50 MB 上限');
         setStatus('正在上传 ' + (i + 1) + '/' + selected.length + '：' + file.name + '（0%）');
         await window.__academicAttachments.upload(context.kind, context.id, file, function (percent) {
           setStatus('正在上传 ' + (i + 1) + '/' + selected.length + '：' + file.name + '（' + percent + '%）');
@@ -173,14 +172,14 @@
         setStatus('附件已删除');
       } else {
         var result = await window.__academicAttachments.download(file.id);
-        var url = URL.createObjectURL(result.blob);
+        var url = result.url || URL.createObjectURL(result.blob);
         var link = document.createElement('a');
         link.href = url;
         link.download = result.name;
         document.body.appendChild(link);
         link.click();
         link.remove();
-        setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+        if (!result.url) setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
         setStatus('已开始下载 ' + result.name);
       }
     } catch (error) {

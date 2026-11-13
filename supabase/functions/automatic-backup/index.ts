@@ -71,7 +71,7 @@ async function createSnapshot(userId: string) {
   const [subscriptions, articles, attachmentRows] = await Promise.all([
     readAll(`journal_subscriptions?user_id=eq.${encodeURIComponent(userId)}&select=*&order=created_at.asc`),
     readAll(`journal_articles?user_id=eq.${encodeURIComponent(userId)}&select=*&order=discovered_at.asc`),
-    readAll(`research_attachments?user_id=eq.${encodeURIComponent(userId)}&select=id,context_kind,context_id,file_name,file_size,content_type,created_at&order=created_at.asc`),
+    readAll(`research_attachments?user_id=eq.${encodeURIComponent(userId)}&select=id,context_kind,context_id,file_name,file_size,content_type,created_at,storage_provider&order=created_at.asc`),
   ]);
   const payload = {
     format: "academic-research-hub-auto-backup",

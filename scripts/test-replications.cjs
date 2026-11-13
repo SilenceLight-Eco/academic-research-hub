@@ -401,7 +401,7 @@ test('every material category accepts drag uploads and partial failures preserve
 test('invalid files, oversize batches, directories and drops outside a material region never upload or navigate', async () => {
   let uploaded = 0;
   const h = uiHarness({ attachments: { list: async () => [], upload: async () => uploaded++ } }); h.select(); h.context.bindReplicationEvents();
-  assert.equal(await h.context.uploadReplicationFiles('paper', [{ name: 'large.pdf', size: 50 * 1024 * 1024 + 1 }]), false);
+  assert.equal(await h.context.uploadReplicationFiles('paper', [{ name: 'large.pdf', size: 5000000000001 }]), false);
   assert.equal(await h.context.uploadReplicationFiles('paper', [{ name: '', size: 10 }]), false);
   assert.equal(await h.context.uploadReplicationFiles('paper', []), false);
   assert.equal(await h.context.uploadReplicationFiles('bad', [{ name: 'one', size: 1 }]), false);

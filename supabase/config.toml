@@ -3,3 +3,7 @@ verify_jwt = false
 
 [functions.automatic-backup]
 verify_jwt = false
+
+[functions.r2-attachments]
+# The function verifies the bearer token with Supabase Auth on every request.
+verify_jwt = false

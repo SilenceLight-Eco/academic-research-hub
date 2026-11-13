@@ -1373,7 +1373,7 @@
         if (!backup.journal || !Array.isArray(backup.journal.subscriptions) || !Array.isArray(backup.journal.articles) || !Array.isArray(backup.attachments)) throw new Error('完整备份中的文献追踪或附件清单无效');
         var declaredAttachmentBytes = backup.attachments.reduce(function (total, item) {
           var size = Number(item && item.metadata && item.metadata.file_size);
-          if (!Number.isFinite(size) || size < 0 || size > 50 * 1024 * 1024) throw new Error('附件大小超出允许范围');
+          if (!Number.isFinite(size) || size < 0 || size > 500 * 1024 * 1024) throw new Error('备份附件大小超出允许范围');
           return total + size;
         }, 0);
         if (declaredAttachmentBytes > 500 * 1024 * 1024) throw new Error('备份内附件总量超过 500 MB');
@@ -9688,7 +9688,10 @@
       else {
         var result = await window.__academicAttachments.download(file.id);
         if (!account || account.id !== owner) return false;
-        downloadBlob(result.blob, result.name);
+        if (result.url) {
+          var link = document.createElement('a'); link.href = result.url; link.download = result.name;
+          document.body.appendChild(link); link.click(); link.remove();
+        } else downloadBlob(result.blob, result.name);
       }
       return true;
     } catch (error) { if (account && account.id === owner) toast(error.message || '文件操作失败'); return false; }
@@ -9711,7 +9714,7 @@
     var id = String(item.id);
     if (!await saveReplication()) return false;
     if (!account || account.id !== owner || state.panel !== 'replications' || state.replicationTrashOpen || String(state.replicationId) !== id) return false;
-    return window.__academicOpenAttachments('paper', contextId, (activeReplication() || item).title + ' · ' + replicationFileTypes[kind], '材料随当前账号保存，单个文件最大 50 MB。上传后可在其他设备下载。');
+    return window.__academicOpenAttachments('paper', contextId, (activeReplication() || item).title + ' · ' + replicationFileTypes[kind], '材料随当前账号保存。配置 R2 后支持大文件分片上传，已有附件仍可下载。');
   }
   function renderReplicationUploadStatus(kind) {
     var node = $('#replicationUploadStatus_' + kind), item = activeReplication();
@@ -9734,7 +9737,7 @@
       if (!files.length) throw new Error('请拖入需要上传的文件');
       files.forEach(function (file) {
         if (!file || typeof file.name !== 'string' || !file.name || file.name.length > 255 || !Number.isFinite(file.size) || file.size < 0) throw new Error('文件名或文件大小无效');
-        if (file.size > 50 * 1024 * 1024) throw new Error(file.name + ' 超过单文件50 MB上限，请调整后重试');
+        if (file.size > 5000000000000) throw new Error(file.name + ' 超过R2单文件5 TB上限');
       });
     } catch (error) { toast(error.message); return false; }
     replicationAttachmentCache();
@@ -11236,7 +11239,7 @@
     if (!account || account.id !== reviewAccount || state.panel !== 'peer-reviews' || state.peerReviewTrashOpen || !item || String(item.id) !== taskId || Number(item.round || 1) !== currentRound) return false;
     snapshot = historyId ? (item.history || []).find(function (entry) { return String(entry.id) === String(historyId); }) : item;
     if (!snapshot || Number(snapshot.round || 1) !== round) return false;
-    return window.__academicOpenAttachments('paper', contextId, (snapshot.title || item.title || '审稿任务') + ' · 第 ' + round + ' 轮 · ' + peerReviewMaterialTypes[kind], '审稿材料按任务、轮次和类型分别保存。可上传、下载或删除本分类中的单个附件，每个文件最大 50 MB。');
+    return window.__academicOpenAttachments('paper', contextId, (snapshot.title || item.title || '审稿任务') + ' · 第 ' + round + ' 轮 · ' + peerReviewMaterialTypes[kind], '审稿材料按任务、轮次和类型分别保存。配置 R2 后支持大文件分片上传。');
   }
   function renderPeerReviewHistory() {
     var item = state.peerReviewTrashOpen ? null : activePeerReview();

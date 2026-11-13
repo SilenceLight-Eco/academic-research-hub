@@ -268,6 +268,15 @@
     if (result.error || !result.data || !result.data.session) throw new Error('请先登录后使用云端附件');
     return result.data.session;
   }
+  var attachmentR2 = window.__academicR2 && window.__academicR2(async function (body, session) {
+    var response = await window.__nativeFetch(url + '/functions/v1/r2-attachments', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + session.access_token, apikey: key },
+      body: JSON.stringify(body), signal: AbortSignal.timeout(60000)
+    });
+    var data = await response.json().catch(function () { return {}; });
+    if (!response.ok) throw Object.assign(new Error(data.error || 'R2 附件服务暂时不可用'), { status: response.status });
+    return data;
+  }, attachmentSession);
   function loadAttachmentTus() {
     if (window.tus && window.tus.Upload) return Promise.resolve(window.tus);
     if (!attachmentTusPromise) attachmentTusPromise = new Promise(function (resolve, reject) {
@@ -315,6 +324,7 @@
     list: async function (kind, id) {
       var context = attachmentContext(kind, id);
       await attachmentSession();
+      if (attachmentR2 && window.__academicR2UploadsEnabled === true) await attachmentR2.recover(context.kind, context.id);
       var result = await client.from('research_attachments')
         .select('id,file_name,file_size,content_type,created_at')
         .eq('context_kind', context.kind).eq('context_id', context.id)
@@ -325,8 +335,14 @@
     upload: async function (kind, id, file, onProgress) {
       var context = attachmentContext(kind, id);
       var session = await attachmentSession();
-      if (!file || !file.name || file.size > 50 * 1024 * 1024) throw new Error('请选择不超过 50 MB 的文件');
+      if (!file || !file.name || !Number.isSafeInteger(file.size) || file.size < 0) throw new Error('请选择有效的文件');
       if (file.name.length > 255) throw new Error('文件名不能超过 255 个字符');
+      var capability = attachmentR2 && window.__academicR2UploadsEnabled === true ? await attachmentR2.capabilities() : { ready: false };
+      if (capability.ready) {
+        if (file.size > capability.maxBytes) throw new Error('文件超出 R2 支持的大小范围（最大5 TB）');
+        return attachmentR2.upload(context.kind, context.id, file, session, onProgress);
+      }
+      if (file.size > 50 * 1024 * 1024) throw new Error('R2 尚未启用，当前存储单文件上限为50 MB；请先完成 R2 配置');
       var extension = (file.name.match(/\.([A-Za-z0-9]{1,12})$/) || [,'bin'])[1].toLowerCase();
       var path = session.user.id + '/' + context.kind + '/' + crypto.randomUUID() + '.' + extension;
       var storage = client.storage.from(attachmentBucket);
@@ -348,18 +364,31 @@
       }
       return result.data;
     },
-    download: async function (id) {
+    download: async function (id, options) {
       await attachmentSession();
-      var record = await client.from('research_attachments').select('object_path,file_name').eq('id', id).single();
+      var record = await client.from('research_attachments').select('*').eq('id', id).single();
       if (record.error) throw record.error;
+      if (record.data.storage_provider === 'r2') {
+        if (!attachmentR2) throw new Error('R2 附件组件尚未加载，请刷新页面');
+        var signed = await attachmentR2.call({ action: 'download', id: id });
+        if (!options || !options.blob) return signed;
+        var response = await window.__nativeFetch(signed.url);
+        if (!response.ok) throw new Error('读取 R2 备份附件失败');
+        return { blob: await response.blob(), name: signed.name };
+      }
       var downloaded = await client.storage.from(attachmentBucket).download(record.data.object_path);
       if (downloaded.error) throw downloaded.error;
       return { blob: downloaded.data, name: record.data.file_name };
     },
     remove: async function (id) {
       await attachmentSession();
-      var record = await client.from('research_attachments').select('object_path').eq('id', id).single();
+      var record = await client.from('research_attachments').select('*').eq('id', id).single();
       if (record.error) throw record.error;
+      if (record.data.storage_provider === 'r2') {
+        if (!attachmentR2) throw new Error('R2 附件组件尚未加载，请刷新页面');
+        await attachmentR2.call({ action: 'remove', id: id });
+        return;
+      }
       var removed = await client.storage.from(attachmentBucket).remove([record.data.object_path]);
       if (removed.error) throw removed.error;
       var deleted = await client.from('research_attachments').delete().eq('id', id);
@@ -463,12 +492,13 @@
     exportAttachments: async function () {
       await attachmentSession();
       var records = await readAllOwnRows('research_attachments', '*', 'created_at');
+      // ZIP creation is memory-based. Refuse before downloading multi-GB datasets.
+      if (records.reduce(function (sum, item) { return sum + Number(item.file_size || 0); }, 0) > 500 * 1024 * 1024) throw new Error('附件总量超过500 MB，请使用工作台数据备份，并从各模块单独下载大文件');
       var result = [];
       for (var i = 0; i < records.length; i += 1) {
         var item = records[i];
-        var downloaded = await client.storage.from(attachmentBucket).download(item.object_path);
-        if (downloaded.error) throw downloaded.error;
-        result.push({ metadata: item, blob: downloaded.data });
+        var downloaded = await window.__academicAttachments.download(item.id, { blob: true });
+        result.push({ metadata: item, blob: downloaded.blob });
       }
       return result;
     },

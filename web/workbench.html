@@ -8,7 +8,7 @@
   <link rel="apple-touch-icon" href="icon-180.png">
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#174e4a">
-  <link rel="stylesheet" href="style.css?v=20261112-09">
+  <link rel="stylesheet" href="style.css?v=20261113-01">
   <style>.sidebar-nav .retired-content{display:none!important}</style>
 </head>
 <body>
@@ -394,11 +394,11 @@
                 <section class="replication-file-group" data-replication-drop="supplement"><div class="replication-file-heading"><h4>附件</h4><button type="button" data-replication-file="supplement">上传</button><button type="button" data-replication-file-refresh="supplement">刷新</button></div><div class="replication-drop-hint">将文件拖到此区域上传，支持多选</div><p id="replicationUploadStatus_supplement" class="replication-upload-status" role="status" aria-live="polite" hidden></p><div id="replicationFileList_supplement" aria-live="polite"></div></section>
                 <section class="replication-file-group" data-replication-drop="data"><div class="replication-file-heading"><h4>数据</h4><button type="button" data-replication-file="data">上传</button><button type="button" data-replication-file-refresh="data">刷新</button></div><div class="replication-drop-hint">将文件拖到此区域上传，支持多选</div><p id="replicationUploadStatus_data" class="replication-upload-status" role="status" aria-live="polite" hidden></p><div id="replicationFileList_data" aria-live="polite"></div></section>
                 <section class="replication-file-group" data-replication-drop="code"><div class="replication-file-heading"><h4>代码</h4><button type="button" data-replication-file="code">上传</button><button type="button" data-replication-file-refresh="code">刷新</button></div><div class="replication-drop-hint">将文件拖到此区域上传，支持多选</div><p id="replicationUploadStatus_code" class="replication-upload-status" role="status" aria-live="polite" hidden></p><div id="replicationFileList_code" aria-live="polite"></div></section>
-              </div><p class="replication-help">支持 PDF、Word、Stata／Python／R 代码和 ZIP 等文件，每个文件最大 50 MB。</p></section>
+              </div><p class="replication-help">支持 PDF、Word、Stata／Python／R 代码和 ZIP 等文件。启用 R2 后支持大文件分片上传；未配置时单文件仍为50 MB。</p></section>
               <label>运行环境<input id="replicationEnvironment" maxlength="1000" placeholder="例如 Stata 19，所需扩展包和版本"></label>
               <label>运行步骤<textarea id="replicationRunOrder" maxlength="100000" placeholder="按顺序记录数据准备和代码运行步骤"></textarea></label>
               <label>复现结果<textarea id="replicationResults" maxlength="100000" placeholder="记录对应表图、运行结果及与原文的差异"></textarea></label>
-              <section id="replicationResultFiles" class="replication-file-group" data-replication-drop="result" aria-label="复现结果文档"><div class="replication-file-heading"><h4>复现结果文档</h4><button type="button" data-replication-file="result">上传文档</button><button type="button" data-replication-file-refresh="result">刷新</button></div><div class="replication-drop-hint">将结果文档拖到此区域上传，支持 Word、PDF、Excel、图片等，单文件最大50 MB</div><p id="replicationUploadStatus_result" class="replication-upload-status" role="status" aria-live="polite" hidden></p><div id="replicationFileList_result" aria-live="polite"></div></section>
+              <section id="replicationResultFiles" class="replication-file-group" data-replication-drop="result" aria-label="复现结果文档"><div class="replication-file-heading"><h4>复现结果文档</h4><button type="button" data-replication-file="result">上传文档</button><button type="button" data-replication-file-refresh="result">刷新</button></div><div class="replication-drop-hint">将结果文档拖到此区域上传，支持 Word、PDF、Excel、图片等</div><p id="replicationUploadStatus_result" class="replication-upload-status" role="status" aria-live="polite" hidden></p><div id="replicationFileList_result" aria-live="polite"></div></section>
               <label>复现笔记<textarea id="replicationNotes" maxlength="100000" placeholder="记录报错、处理方法和待解决的问题"></textarea></label>
             </section>
             <p id="replicationSaveStatus" class="peer-review-save-status" role="status" aria-live="polite"></p>
@@ -1565,7 +1565,7 @@
     <button class="auth-close" id="fileModalClose" type="button" aria-label="关闭">×</button>
     <h2 id="fileModalTitle">附件</h2>
     <p class="auth-desc" id="fileContextDescription" hidden></p>
-    <p class="auth-desc">文件单独保存在账号的私有云端空间，不占用工作台文档正文。每个文件最多 50 MB。</p>
+    <p class="auth-desc">文件保存在账号的私有云端空间。启用 R2 后支持大文件分片上传；未配置时单文件上限为50 MB。</p>
     <div class="file-list" id="fileList"></div>
     <p class="file-status" id="fileStatus" role="status" aria-live="polite"></p>
     <button class="btn-primary" id="fileUpload" type="button">上传文件</button>
@@ -1601,10 +1601,11 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-<script src="static-api.js?v=20261112-09"></script>
+<script src="r2-attachments.js?v=20261113-01"></script>
+<script src="static-api.js?v=20261113-01"></script>
 <script src="reference-export.js?v=20260927-01"></script>
 <script src="submission-deadlines.js?v=20261007-12"></script>
-  <script src="app.js?v=20261112-09"></script>
-  <script src="attachments.js?v=20261112-09"></script>
+  <script src="app.js?v=20261113-01"></script>
+  <script src="attachments.js?v=20261113-01"></script>
 </body>
 </html>
