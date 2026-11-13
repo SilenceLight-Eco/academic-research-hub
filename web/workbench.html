@@ -8,7 +8,7 @@
   <link rel="apple-touch-icon" href="icon-180.png">
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#174e4a">
-  <link rel="stylesheet" href="style.css?v=20261113-02">
+  <link rel="stylesheet" href="style.css?v=20261113-03">
   <style>.sidebar-nav .retired-content{display:none!important}</style>
 </head>
 <body>
@@ -389,7 +389,7 @@
             <section id="replicationEditor" class="peer-review-editor" hidden>
               <div class="peer-review-title-row"><label>论文标题<input id="replicationTitle" maxlength="1000" placeholder="输入论文标题"></label><button type="button" id="replicationDelete">移入回收站</button></div>
               <div class="peer-review-meta"><label>作者<input id="replicationAuthors" maxlength="1000"></label><label>DOI<input id="replicationDoi" maxlength="1000"></label><label>文件夹<select id="replicationFolder"><option value="">未分类</option></select></label><label>复现状态<select id="replicationStatus"><option>未开始</option><option>复现中</option><option>已完成</option><option>暂时搁置</option></select></label></div>
-              <label>文献引用<textarea id="replicationCitation" maxlength="100000" placeholder="填写作者、年份、论文标题、期刊、卷期页码等引用信息"></textarea></label>
+              <label>文献引用<textarea id="replicationCitation" rows="1" maxlength="100000" placeholder="填写作者、年份、论文标题、期刊、卷期页码等引用信息"></textarea></label>
               <section class="peer-review-materials"><h3>复现材料</h3><div id="replicationFiles" class="replication-file-groups">
                 <section class="replication-file-group" data-replication-drop="paper"><div class="replication-file-heading"><h4>论文 PDF</h4><button type="button" data-replication-file="paper">上传</button><button type="button" data-replication-file-refresh="paper">刷新</button></div><div class="replication-drop-hint">将文件拖到此区域上传，支持多选</div><p id="replicationUploadStatus_paper" class="replication-upload-status" role="status" aria-live="polite" hidden></p><div id="replicationFileList_paper" aria-live="polite"></div></section>
                 <section class="replication-file-group" data-replication-drop="supplement"><div class="replication-file-heading"><h4>附件</h4><button type="button" data-replication-file="supplement">上传</button><button type="button" data-replication-file-refresh="supplement">刷新</button></div><div class="replication-drop-hint">将文件拖到此区域上传，支持多选</div><p id="replicationUploadStatus_supplement" class="replication-upload-status" role="status" aria-live="polite" hidden></p><div id="replicationFileList_supplement" aria-live="polite"></div></section>
@@ -1602,11 +1602,11 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-<script src="r2-attachments.js?v=20261113-02"></script>
-<script src="static-api.js?v=20261113-02"></script>
+<script src="r2-attachments.js?v=20261113-03"></script>
+<script src="static-api.js?v=20261113-03"></script>
 <script src="reference-export.js?v=20260927-01"></script>
 <script src="submission-deadlines.js?v=20261007-12"></script>
-  <script src="app.js?v=20261113-02"></script>
-  <script src="attachments.js?v=20261113-02"></script>
+  <script src="app.js?v=20261113-03"></script>
+  <script src="attachments.js?v=20261113-03"></script>
 </body>
 </html>

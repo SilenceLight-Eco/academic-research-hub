@@ -9531,6 +9531,12 @@
       return '<details class="peer-review-folder" data-replication-folder="' + escapeAttribute(folder.id) + '"' + (expanded ? ' open' : '') + '><summary><span title="' + escapeAttribute(folder.name) + '">' + escapeHtml(folder.name) + ' (' + grouped.length + ')</span>' + (folder.id ? '<button type="button" data-replication-folder-rename="' + escapeAttribute(folder.id) + '">重命名</button><button type="button" data-replication-folder-delete="' + escapeAttribute(folder.id) + '">删除</button>' : '') + '</summary><div>' + (grouped.map(taskHtml).join('') || '<p class="replication-help">此文件夹暂无复现任务</p>') + '</div></details>';
     }).join('') || '<p class="replication-help">暂无匹配记录</p>';
   }
+  function resizeReplicationCitation() {
+    var input = $('#replicationCitation');
+    if (!input || !input.isConnected || (window.CSS && window.CSS.supports('field-sizing', 'content'))) return;
+    input.style.height = 'auto';
+    input.style.height = Math.max(40, input.scrollHeight + 2) + 'px';
+  }
   function renderReplications() {
     var item = state.replicationTrashOpen ? null : activeReplication();
     var locked = state.replicationBusy || state.replicationLoading || !account;
@@ -9545,6 +9551,7 @@
       input.value = item ? item[field] || '' : '';
       input.disabled = locked || !item;
     });
+    resizeReplicationCitation();
     ['replicationNew', 'replicationTrash', 'replicationSearch'].forEach(function (id) { $('#' + id).disabled = locked; });
     ['replicationFolderNew', 'replicationFolderName', 'replicationFolderSubmit'].forEach(function (id) { $('#' + id).disabled = locked || state.replicationTrashOpen; });
     if (state.replicationTrashOpen) $('#replicationFolderForm').hidden = true;
@@ -9856,8 +9863,14 @@
       });
     });
     Object.keys(replicationFields).forEach(function (field) {
-      ['input', 'change'].forEach(function (type) { $('#' + replicationFields[field]).addEventListener(type, queueReplicationAutoSave); });
+      ['input', 'change'].forEach(function (type) {
+        $('#' + replicationFields[field]).addEventListener(type, function () {
+          if (field === 'citation') resizeReplicationCitation();
+          queueReplicationAutoSave();
+        });
+      });
     });
+    window.addEventListener('resize', resizeReplicationCitation);
   }
 
   function editReplicationFolder(id) {
