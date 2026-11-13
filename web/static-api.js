@@ -774,7 +774,7 @@
         }
         if (body.action === 'create') {
           replicationId = 'rp-' + nowId() + '-' + Math.random().toString(36).slice(2, 10);
-          replications.items.push({ id: replicationId, folderId: body.folderId || '', title: '未命名复现论文', authors: '', doi: '', status: '未开始', environment: '', runOrder: '', results: '', notes: '', created: nowText(), updated: nowText() });
+          replications.items.push({ id: replicationId, folderId: body.folderId || '', title: '未命名复现论文', authors: '', doi: '', citation: '', status: '未开始', environment: '', runOrder: '', results: '', notes: '', created: nowText(), updated: nowText() });
         } else if (body.action === 'restore') {
           var replicationTrash = replications.trash.find(function (entry) { return String(entry.id) === replicationId; });
           if (!replicationTrash || !replicationTrash.item) return response({ error: '回收站记录已不存在' }, 404);
@@ -784,11 +784,11 @@
         } else {
           if (!replicationItem) return response({ error: '复现任务已不存在，请重新载入' }, 404);
           if (body.action === 'save') {
-            var replicationFields = ['title', 'authors', 'doi', 'status', 'environment', 'runOrder', 'results', 'notes', 'folderId'];
+            var replicationFields = ['title', 'authors', 'doi', 'citation', 'status', 'environment', 'runOrder', 'results', 'notes', 'folderId'];
             for (var ri = 0; ri < replicationFields.length; ri++) {
               var replicationField = replicationFields[ri];
               if (body[replicationField] === undefined) continue;
-              if (typeof body[replicationField] !== 'string' || body[replicationField].length > (['runOrder', 'results', 'notes'].indexOf(replicationField) >= 0 ? 100000 : 1000)) return response({ error: '复现字段格式或长度无效' }, 422);
+              if (typeof body[replicationField] !== 'string' || body[replicationField].length > (['citation', 'runOrder', 'results', 'notes'].indexOf(replicationField) >= 0 ? 100000 : 1000)) return response({ error: '复现字段格式或长度无效' }, 422);
               replicationItem[replicationField] = body[replicationField];
             }
             if (['未开始', '复现中', '已完成', '暂时搁置'].indexOf(replicationItem.status) < 0) return response({ error: '复现状态无效' }, 422);

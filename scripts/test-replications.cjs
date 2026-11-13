@@ -24,12 +24,12 @@ test('legacy workspaces load an empty replication library without writes and gue
 test('replication create/save/reload preserves complete content, other modules and immutable IDs', async () => {
   const h = apiHarness({ peerReviews: { items: [{ id: 'keep' }] } });
   const id = await create(h), anotherId = await create(h); assert.notEqual(id, anotherId);
-  const payload = { action: 'save', id, title: '复现论文', authors: 'A; B', doi: '10.1234/example', status: '复现中', environment: 'Stata 19', runOrder: '1. 清理\n2. 回归\n\n', results: '表 1\n\n结果', notes: ' 保留空格\n\n', unexpected: 'ignore', created: 'fake' };
+  const payload = { action: 'save', id, title: '复现论文', authors: 'A; B', doi: '10.1234/example', citation: '作者（2026）. 论文标题. 期刊, 1(2), 3–4.\n补充引用', status: '复现中', environment: 'Stata 19', runOrder: '1. 清理\n2. 回归\n\n', results: '表 1\n\n结果', notes: ' 保留空格\n\n', unexpected: 'ignore', created: 'fake' };
   assert.equal((await request(h, payload)).status, 200);
   const loaded = apiHarness(h.readWorkspace());
   const library = (await (await loaded.get('/api/replications')).json()).replications;
   const item = library.items.find(item => item.id === id);
-  for (const field of ['title', 'authors', 'doi', 'status', 'environment', 'runOrder', 'results', 'notes']) assert.equal(item[field], payload[field]);
+  for (const field of ['title', 'authors', 'doi', 'citation', 'status', 'environment', 'runOrder', 'results', 'notes']) assert.equal(item[field], payload[field]);
   assert.equal(item.unexpected, undefined); assert.notEqual(item.created, 'fake');
   assert.equal(h.readWorkspace().peerReviews.items[0].id, 'keep');
   await request(h, { action: 'save', id, notes: 'Changed' });
@@ -96,6 +96,12 @@ test('normal input handlers queue all fields without replacing the active form; 
   assert.equal(h.slots['replication:rp-one'].payload.notes, '具体报错说明\n\n');
   h.state.replicationQuery = '报错'; h.context.renderReplicationList(); assert.ok(h.node('replicationList').innerHTML.includes('Test'));
   assert.equal(h.node('replicationNotes').value, '具体报错说明\n\n');
+  h.node('replicationCitation').value = '引用作者（2026）. 研究论文.';
+  h.node('replicationCitation').handlers.input();
+  assert.equal(h.slots['replication:rp-one'].payload.citation, '引用作者（2026）. 研究论文.');
+  h.state.replicationQuery = '引用作者'; h.context.renderReplicationList();
+  assert.ok(h.node('replicationList').innerHTML.includes('Test'));
+  assert.ok(html.includes('id="replicationCitation"'));
 });
 
 test('manual save succeeds only after cloud confirmation; failed saves preserve dirty edits and block file opening', async () => {

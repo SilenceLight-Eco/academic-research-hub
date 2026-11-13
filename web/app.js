@@ -9486,7 +9486,7 @@
   }
 
   // ===== 论文复现 =====
-  var replicationFields = { title: 'replicationTitle', authors: 'replicationAuthors', doi: 'replicationDoi', status: 'replicationStatus', environment: 'replicationEnvironment', runOrder: 'replicationRunOrder', results: 'replicationResults', notes: 'replicationNotes', folderId: 'replicationFolder' };
+  var replicationFields = { title: 'replicationTitle', authors: 'replicationAuthors', doi: 'replicationDoi', citation: 'replicationCitation', status: 'replicationStatus', environment: 'replicationEnvironment', runOrder: 'replicationRunOrder', results: 'replicationResults', notes: 'replicationNotes', folderId: 'replicationFolder' };
   var replicationFileTypes = { paper: '论文 PDF', supplement: '附件', data: '数据', code: '代码', result: '复现结果文档' };
   var replicationFileCache = {};
   var replicationFileOwner = '';
@@ -13463,7 +13463,7 @@
     items = items.concat(cmdkSearchGroup(searchableVariables, '变量库', 'name', ['symbol', 'role', 'definition', 'measure', 'source', 'paper', 'measureReferenceText', 'notes'], needle, function (item) { openCmdkRecord('variable-library', item, 'variables'); }));
     items = items.concat(cmdkSearchGroup((data.projects || {}).projects, '研究项目', 'title', ['category', 'goal', 'milestones', 'resources', 'members'], needle, function (item) { openCmdkRecord('research-projects', item, 'projects'); }));
     items = items.concat(cmdkSearchGroup((data.reviews || {}).items, '审稿任务', 'title', ['journal', 'manuscriptCode', 'summary', 'majorComments', 'minorComments', 'editorComments', 'notes'], needle, function (item) { openCmdkRecord('peer-reviews', item, 'reviews'); }));
-    items = items.concat(cmdkSearchGroup((data.replications || {}).items, '论文复现', 'title', ['authors', 'doi', 'environment', 'runOrder', 'results', 'notes'], needle, function (item) { openCmdkRecord('replications', item, 'replications'); }));
+    items = items.concat(cmdkSearchGroup((data.replications || {}).items, '论文复现', 'title', ['authors', 'doi', 'citation', 'environment', 'runOrder', 'results', 'notes'], needle, function (item) { openCmdkRecord('replications', item, 'replications'); }));
     items = items.concat(cmdkSearchGroup((data.prompts || {}).prompts, '提示词', 'title', ['category', 'tags', 'body'], needle, function (item) { openCmdkRecord('prompt-library', item, 'prompts'); }));
     items = items.concat(cmdkPaperItems(needle));
     return items;
