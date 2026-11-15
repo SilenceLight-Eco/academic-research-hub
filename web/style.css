@@ -7372,12 +7372,14 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .variable-reference-recent > em { padding:5px; color:var(--text-muted); font-size:11px; font-style:normal; }
 .variable-reference-add { justify-self:start; padding:4px 10px; border:1px dashed var(--hairline); border-radius:5px; background:transparent; color:var(--accent); cursor:pointer; font:10px "Noto Sans SC",sans-serif; }
 .variable-reference-add:hover { border-color:var(--accent); background:var(--accent-dim); }
-.variable-measure-reference { min-width:0; margin:12px 0; padding:12px; border:1px solid var(--hairline-soft); border-radius:8px; background:var(--glass); }
-.variable-measure-reference-entry { min-width:0; padding:0 0 12px; margin-bottom:12px; border-bottom:1px solid var(--hairline-soft); }
-.variable-measure-reference-entry-head { display:flex; justify-content:flex-end; height:0; position:relative; z-index:1; }
+.variable-measure-reference { min-width:0; margin:12px 0; }
+#variableMeasureReferences { display:grid; gap:22px; margin-bottom:16px; }
+.variable-measure-reference-entry { min-width:0; padding:16px; border:1px solid var(--hairline); border-inline-start:4px solid var(--accent); border-radius:9px; background:var(--glass); }
+.variable-measure-reference-entry-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; padding-bottom:10px; border-bottom:1px solid var(--hairline); }
+.variable-measure-reference-entry-head h3 { margin:0; color:var(--text); font-size:14px; font-weight:600; line-height:1.6; }
 .variable-measure-reference-entry-head button { width:23px; height:23px; border:0; border-radius:5px; background:transparent; color:var(--text-muted); cursor:pointer; font:17px/1 sans-serif; }
 .variable-measure-reference-entry-head button:hover { background:rgba(190,68,68,.1); color:#bc4444; }
-.variable-entry-role { margin:0 0 10px; padding-right:28px; }
+.variable-entry-role { margin:0 0 10px; }
 .variable-entry-role > span { display:block; margin:0 0 6px; color:var(--text-muted); font-size:10px; }
 .variable-entry-role .variable-role-options { display:flex; flex-wrap:wrap; gap:6px 12px; }
 .variable-measure-reference-entry .variable-field { min-width:0; margin:0 0 9px; }
@@ -7407,7 +7409,7 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .variable-trash-row b,.variable-trash-row span { display:block; max-width:145px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .variable-trash-row b { color:var(--text-secondary); font-size:11px; }
 .variable-trash-row span { margin-top:4px; color:var(--text-muted); font-size:9px; }
-@media (max-width:760px) { .variable-measure-reference { padding:9px; } }
+@media (max-width:760px) { .variable-measure-reference-entry { padding:12px; } }
 .variable-trash-row button { margin-left:3px; padding:4px 6px; border:1px solid var(--hairline); border-radius:4px; background:transparent; color:var(--text-secondary); cursor:pointer; font-size:10px; }
 .variable-trash-row button[data-variable-purge] { color:#bc4444; }
 .tracker-visible-count { display:inline-flex; align-items:center; margin-left:7px; padding:3px 8px; border:1px solid var(--hairline-soft); border-radius:999px; color:var(--text-muted); font:500 10px/1.3 "Noto Sans SC",sans-serif; vertical-align:middle; }
