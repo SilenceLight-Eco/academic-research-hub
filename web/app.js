@@ -1032,6 +1032,8 @@
     var previousReviewAccount = account && account.id;
     account = user || null;
     if (previousReviewAccount !== (account && account.id)) {
+      academicCvItems = []; academicCvOwner = ''; $('#academicCvPanel').hidden = true;
+      knowledgeImportJob = null; state.kbImportFolderId = null; $('#kbRetryImport').hidden = true; $('#kbTransferStatus').textContent = '';
       replicationLoadRequest++;
       state.replications = { items: [], trash: [], folders: [] }; state.replicationId = null;
       state.replicationFolderId = ''; state.replicationFolderCollapsed = {}; replicationFolderEditingId = '';
@@ -8172,6 +8174,7 @@
     $('#gradCJrnlRequired').addEventListener('change', saveGraduationCounts);
 
     $('#kbNewDoc').addEventListener('click', newKnowledgeDoc);
+    bindResearchTransferEvents();
     $('#kbNewFolder').addEventListener('click', newKnowledgeFolder);
     $('#noteTitle').addEventListener('input', function () { renderNotePreview(); queueNoteAutoSave(); });
     $('#noteEditor').addEventListener('input', function () { renderNotePreview(); queueNoteAutoSave(); });
@@ -9459,7 +9462,7 @@
         var savedDetails = savedDraft.details || {};
         var fields = '<label>名称<input name="title" required maxlength="160" placeholder="填写' + group.title + '名称" value="' + escapeHtml(savedDraft.title || '') + '"></label>';
         if (group.key === 'conferences') fields += '<label>会议地点<input name="location" maxlength="160" placeholder="如：北京" value="' + escapeHtml(savedDetails.location || '') + '"></label><label>会议时间<input name="time" maxlength="80" placeholder="如：2026-09-19" value="' + escapeHtml(savedDetails.time || '') + '"></label><label>报告论文/题目<input name="paper" maxlength="240" placeholder="填写报告论文或题目" value="' + escapeHtml(savedDetails.paper || '') + '"></label>';
-        else fields += '<label>补充说明<input name="meta" maxlength="240" placeholder="可填写单位、等级、项目编号或角色" value="' + escapeHtml(savedDraft.meta || '') + '"></label>';
+        else fields += '<label>年份<input name="year" type="number" min="1900" max="2100" placeholder="可选" value="' + escapeHtml(savedDetails.year || '') + '"></label><label>补充说明<input name="meta" maxlength="240" placeholder="可填写单位、等级、项目编号或角色" value="' + escapeHtml(savedDraft.meta || '') + '"></label>';
         editor = '<form class="academic-record-editor" data-academic-form data-academic-kind="' + group.key + '"><div class="academic-editor-fields">' + fields + '</div><small class="academic-record-autosave">填写内容会自动保存为草稿，提交后登记。</small><div class="academic-editor-actions"><button type="submit">保存</button><button type="button" data-academic-cancel>取消</button></div></form>';
       }
       return '<article class="academic-record-card academic-' + group.key + '" data-academic-kind="' + group.key + '"><div class="academic-record-top"><div><div class="academic-record-kicker">' + group.title + '</div><div class="academic-record-count">' + items.length + '</div></div><span class="academic-record-hint">' + group.hint + '</span></div>' + (editor || (latest ? '<ul class="academic-record-list">' + latest + '</ul>' : '<div class="academic-record-empty">尚未登记</div>')) + (editor ? '' : '<button class="academic-record-add" type="button" data-academic-add="' + group.key + '">' + group.add + '</button>') + '</article>';
@@ -9474,7 +9477,7 @@
       location: (form.elements.location.value || '').trim(),
       time: (form.elements.time.value || '').trim(),
       paper: (form.elements.paper.value || '').trim()
-    } : {};
+    } : { year: form.elements.year ? (form.elements.year.value || '').trim() : '' };
     var meta = kind === 'conferences' ? [details.location, details.time, details.paper].filter(Boolean).join(' · ') : (form.elements.meta.value || '').trim();
     return { kind: kind, title: title, meta: meta, details: details };
   }
@@ -9495,7 +9498,7 @@
   function queueAcademicRecordAutoSave(form) {
     if (!form) return;
     var draft = readAcademicRecordDraft(form);
-    var hasContent = Boolean(draft.title || draft.meta || draft.details.location || draft.details.time || draft.details.paper);
+    var hasContent = Boolean(draft.title || draft.meta || draft.details.year || draft.details.location || draft.details.time || draft.details.paper);
     var body = { action: hasContent ? 'save-draft' : 'clear-draft', kind: draft.kind, draft: draft };
     if (hasContent) state.overview.academic_record_drafts[draft.kind] = draft;
     else delete state.overview.academic_record_drafts[draft.kind];
@@ -9538,6 +9541,7 @@
     state.replications.items.forEach(function (item) {
       var slot = autoSaveSlots['replication:' + item.id];
       if (slot && slot.dirty) Object.keys(replicationFields).forEach(function (field) { if (slot.payload[field] !== undefined) item[field] = slot.payload[field]; });
+      if (slot && slot.dirty && slot.payload.checks) item.checks = slot.payload.checks;
     });
   }
   function renderReplicationList() {
@@ -9545,7 +9549,7 @@
     var entries = state.replicationTrashOpen ? state.replications.trash : state.replications.items;
     var filtered = entries.filter(function (entry) {
       var item = entry.item || entry;
-      return Object.keys(replicationFields).map(function (field) { return item[field] || ''; }).join(' ').toLowerCase().indexOf(query) >= 0;
+      return (Object.keys(replicationFields).map(function (field) { return item[field] || ''; }).join(' ') + ' ' + JSON.stringify(item.checks || [])).toLowerCase().indexOf(query) >= 0;
     });
     function taskHtml(entry) {
       var item = entry.item || entry;
@@ -9590,7 +9594,8 @@
     ['replicationNew', 'replicationTrash', 'replicationSearch'].forEach(function (id) { $('#' + id).disabled = locked; });
     ['replicationFolderNew', 'replicationFolderName', 'replicationFolderSubmit'].forEach(function (id) { $('#' + id).disabled = locked || state.replicationTrashOpen; });
     if (state.replicationTrashOpen) $('#replicationFolderForm').hidden = true;
-    ['replicationSave', 'replicationDelete'].forEach(function (id) { $('#' + id).disabled = locked || !item; });
+    ['replicationSave', 'replicationDelete', 'replicationExport', 'replicationCheckAdd'].forEach(function (id) { $('#' + id).disabled = locked || !item; });
+    renderReplicationChecks(item, locked || !item);
     $$('#replicationFiles button, #replicationResultFiles button').forEach(function (button) { button.disabled = locked || !item; });
     $('#replicationTrash').textContent = state.replicationTrashOpen ? '返回复现列表' : '回收站';
     var slot = item && autoSaveSlots['replication:' + item.id];
@@ -9630,6 +9635,8 @@
     var payload = { action: 'save', id: item.id };
     var previousFolderId = item.folderId || '';
     Object.keys(replicationFields).forEach(function (field) { payload[field] = $('#' + replicationFields[field]).value; item[field] = payload[field]; });
+    payload.checks = readReplicationChecks(); item.checks = payload.checks;
+    renderReplicationCheckProgress();
     if (previousFolderId !== item.folderId) {
       state.replicationFolderCollapsed = state.replicationFolderCollapsed || {};
       state.replicationFolderCollapsed[item.folderId] = false; state.replicationFolderId = item.folderId;
@@ -9817,6 +9824,23 @@
     }
   }
   function bindReplicationEvents() {
+    $('#replicationCheckAdd').addEventListener('click', function () {
+      var item = activeReplication();
+      if (!item || state.replicationBusy || state.replicationLoading || state.replicationTrashOpen) return;
+      var rows = readReplicationChecks();
+      if (rows.length >= 300) { toast('核对表最多支持300项'); return; }
+      rows.push({ id: 'check-' + Date.now() + '-' + Math.random().toString(36).slice(2, 9), label: '', original: '', reproduced: '', difference: '', explanation: '', status: '待核对' });
+      item.checks = rows; renderReplicationChecks(item, false); queueReplicationAutoSave();
+      var last = $('#replicationChecks tr:last-child textarea'); if (last) last.focus();
+    });
+    ['input', 'change'].forEach(function (event) { $('#replicationChecks').addEventListener(event, queueReplicationAutoSave); });
+    $('#replicationChecks').addEventListener('click', function (event) {
+      var button = event.target.closest('[data-replication-check-remove]'), item = activeReplication();
+      if (!button || !item || state.replicationBusy || state.replicationLoading || state.replicationTrashOpen) return;
+      item.checks = readReplicationChecks().filter(function (row) { return row.id !== button.dataset.replicationCheckRemove; });
+      renderReplicationChecks(item, false); queueReplicationAutoSave();
+    });
+    $('#replicationExport').addEventListener('click', exportReplicationReport);
     $('#panel-replications').addEventListener('dragenter', function (event) {
       if (!event.dataTransfer || !Array.from(event.dataTransfer.types || []).includes('Files')) return;
       var zone = event.target.closest('[data-replication-drop]');
@@ -9908,6 +9932,40 @@
     window.addEventListener('resize', resizeReplicationCitation);
   }
 
+  function readReplicationChecks() {
+    return $$('#replicationChecks tr[data-replication-check]').map(function (row) {
+      var result = { id: row.dataset.replicationCheck };
+      ['label', 'original', 'reproduced', 'difference', 'explanation', 'status'].forEach(function (field) { result[field] = $('[data-check-field="' + field + '"]', row).value; });
+      return result;
+    });
+  }
+  function renderReplicationCheckProgress() {
+    var rows = (activeReplication() || {}).checks || [];
+    var completed = rows.filter(function (row) { return row.status !== '待核对'; }).length;
+    $('#replicationCheckProgress').textContent = '已核对 ' + completed + ' / ' + rows.length;
+  }
+  function renderReplicationChecks(item, disabled) {
+    var rows = item && item.checks || [], statuses = ['待核对', '一致', '存在差异', '无法复现'];
+    $('#replicationChecks').innerHTML = rows.length ? rows.map(function (row) {
+      var cells = ['label', 'original', 'reproduced', 'difference', 'explanation'].map(function (field) {
+        var labels = { label: '表图／核对项', original: '原文结果', reproduced: '复现结果', difference: '差异', explanation: '原因与说明' };
+        return '<td><textarea data-check-field="' + field + '" aria-label="' + labels[field] + '" maxlength="' + (field === 'label' ? 300 : 10000) + '"' + (disabled ? ' disabled' : '') + '>' + escapeHtml(row[field] || '') + '</textarea></td>';
+      }).join('');
+      return '<tr data-replication-check="' + escapeAttribute(row.id) + '">' + cells + '<td><select data-check-field="status" aria-label="核对状态"' + (disabled ? ' disabled' : '') + '>' + statuses.map(function (status) { return '<option' + (row.status === status ? ' selected' : '') + '>' + status + '</option>'; }).join('') + '</select></td><td><button type="button" data-replication-check-remove="' + escapeAttribute(row.id) + '"' + (disabled ? ' disabled' : '') + '>删除</button></td></tr>';
+    }).join('') : '<tr><td colspan="7" class="file-empty">尚未添加核对项</td></tr>';
+    renderReplicationCheckProgress();
+  }
+  async function exportReplicationReport() {
+    var item = activeReplication(), owner = account && account.id;
+    if (!item || !owner) return;
+    var id = item.id;
+    try {
+      if (!await saveReplication() || !account || account.id !== owner || state.replicationId !== id) return;
+      item = activeReplication();
+      var tools = window.__academicResearchTools;
+      downloadBlob(new Blob([tools.replicationReport(item)], { type: 'text/markdown;charset=utf-8' }), tools.safeName(item.title, '论文复现') + '-复现报告.md');
+    } catch (error) { if (account && account.id === owner) toast(error.message || '报告导出失败'); }
+  }
   function editReplicationFolder(id) {
     if (state.replicationBusy || state.replicationLoading || state.replicationTrashOpen || !account) return;
     var folder = (state.replications.folders || []).find(function (entry) { return entry.id === id; });
@@ -12635,6 +12693,168 @@
     }
   }
 
+  // ===== Markdown 文件交换与学术简历 =====
+  var knowledgeImportJob = null;
+  var knowledgeImportBusy = false;
+  var academicCvItems = [];
+  var academicCvOwner = '';
+  function renderKnowledgeTransferControls() {
+    var select = $('#kbImportFolder'), folders = (state.knowledgeBase || {}).folders || [];
+    var selected = state.kbImportFolderId == null ? (state.kbFolderId === 'all' ? '' : state.kbFolderId || '') : state.kbImportFolderId;
+    select.innerHTML = '<option value="">未分类</option>' + folders.map(function (folder) { return '<option value="' + escapeAttribute(folder.id) + '">' + escapeHtml(folder.title) + '</option>'; }).join('');
+    select.value = folders.some(function (folder) { return String(folder.id) === String(selected); }) ? String(selected) : '';
+    select.disabled = knowledgeImportBusy || state.kbTrashOpen;
+    $('#kbImportMarkdown').disabled = knowledgeImportBusy || state.kbTrashOpen;
+    $('#kbRetryImport').disabled = knowledgeImportBusy;
+    $('#kbExportMarkdown').disabled = state.kbTrashOpen || !state.kbDocId;
+    $('#kbExportFolder').disabled = state.kbTrashOpen;
+  }
+  async function prepareKnowledgeImport(files) {
+    if (knowledgeImportBusy || !files.length) return;
+    var owner = account && account.id, folderId = $('#kbImportFolder').value;
+    if (!owner) { toast('请先登录后导入文档'); return; }
+    knowledgeImportJob = null; $('#kbRetryImport').hidden = true;
+    knowledgeImportBusy = true; renderKnowledgeTransferControls();
+    $('#kbTransferStatus').textContent = '正在读取 Markdown 文件…';
+    try {
+      if (files.length > 200) throw new Error('每批最多导入200篇，请分批选择');
+      var total = 0;
+      files.forEach(function (file) {
+        if (!/\.(md|markdown)$/i.test(file.name)) throw new Error('请选择 .md 或 .markdown 文件');
+        if (file.size > 2000000) throw new Error(file.name + ' 超过单篇2 MB限制，请拆分后导入');
+        total += file.size;
+      });
+      if (total > 10000000) throw new Error('单批文件总量不能超过10 MB，请分批导入');
+      var documents = [];
+      for (var file of files) documents.push({ title: file.name.replace(/\.(md|markdown)$/i, '').trim().slice(0, 300) || '未命名文档', content: await file.text() });
+      if (!account || account.id !== owner) return;
+      knowledgeImportJob = { owner: owner, body: { action: 'import-docs', batchId: crypto.randomUUID(), folderId: folderId, documents: documents } };
+    } catch (error) {
+      if (account && account.id === owner) $('#kbTransferStatus').textContent = error.message;
+      return;
+    } finally { knowledgeImportBusy = false; renderKnowledgeTransferControls(); }
+    return submitKnowledgeImport();
+  }
+  async function submitKnowledgeImport() {
+    var job = knowledgeImportJob;
+    if (!job || knowledgeImportBusy || !account || account.id !== job.owner) return;
+    knowledgeImportBusy = true; renderKnowledgeTransferControls();
+    $('#kbTransferStatus').textContent = '正在保存本批文档…';
+    try {
+      var key = editorAutoSaveKey('knowledge-base');
+      if (key) await flushAutoSaveKey(key);
+      if (!account || account.id !== job.owner) return;
+      var result = await api('/api/knowledge-base', { method: 'POST', body: JSON.stringify(job.body) });
+      if (!account || account.id !== job.owner) return;
+      if (!result.ok) throw new Error(result.error || '导入失败，请重试本批');
+      var slot = autoSaveSlots['knowledge:' + state.kbDocId];
+      var draft = state.panel === 'knowledge-base' && slot && slot.dirty ? readKnowledgeDraft() : null;
+      state.knowledgeBase = result.knowledgeBase;
+      if (state.panel === 'knowledge-base') {
+        state.kbDraft = draft;
+        if (!draft) { state.kbFolderId = job.body.folderId || 'all'; state.kbDocId = result.importedIds[0]; }
+        renderKnowledgeBase();
+      }
+      knowledgeImportJob = null; $('#kbRetryImport').hidden = true;
+      $('#kbTransferStatus').textContent = '已导入 ' + result.importedIds.length + ' 篇文档';
+    } catch (error) {
+      if (account && account.id === job.owner) { $('#kbTransferStatus').textContent = error.message; $('#kbRetryImport').hidden = false; }
+    } finally { knowledgeImportBusy = false; renderKnowledgeTransferControls(); }
+  }
+  async function exportKnowledgeMarkdown(folder) {
+    var owner = account && account.id;
+    if (!owner || state.kbTrashOpen) { toast('请先登录并选择知识库文档'); return; }
+    var folderId = state.kbFolderId || 'all', docId = state.kbDocId;
+    try {
+      var key = editorAutoSaveKey('knowledge-base');
+      if (key) await flushAutoSaveKey(key);
+      if (!account || account.id !== owner) return;
+      var kb = JSON.parse(JSON.stringify(state.knowledgeBase)), tools = window.__academicResearchTools;
+      if (!folder) {
+        var doc = kb.docs.find(function (item) { return item.id === docId; });
+        if (!doc) throw new Error('请先选择文档');
+        downloadBlob(new Blob([doc.content || ''], { type: 'text/markdown;charset=utf-8' }), tools.safeName(doc.title, '未命名文档') + '.md');
+        return;
+      }
+      var entries = tools.markdownPaths(kb, folderId);
+      if (!entries.length) throw new Error('当前目录还没有可导出的文档');
+      var Zip = await loadBackupZip(), zip = new Zip();
+      entries.forEach(function (entry) { zip.file(entry.path, entry.content); });
+      var blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+      if (!account || account.id !== owner) return;
+      var target = kb.folders.find(function (entry) { return String(entry.id) === String(folderId); });
+      downloadBlob(blob, tools.safeName(target ? target.title : '知识库', '知识库') + '-Markdown.zip');
+      $('#kbTransferStatus').textContent = '已导出 ' + entries.length + ' 篇文档';
+    } catch (error) { if (account && account.id === owner) toast(error.message || '导出失败'); }
+  }
+  async function openAcademicCv() {
+    var owner = account && account.id;
+    if (!owner) { toast('请先登录后生成简历'); return; }
+    academicCvItems = []; academicCvOwner = ''; $('#academicCvSelection').innerHTML = ''; $('#academicCvPreview').innerHTML = '';
+    $('#academicCvPanel').hidden = false; $('#academicCvStatus').textContent = '正在读取学术履历…';
+    $('#academicCvMarkdown').disabled = true; $('#academicCvHtml').disabled = true;
+    try {
+      await flushAllAutoSaves();
+      await apiWriteChain;
+      if (!account || account.id !== owner) return;
+      if (hasUnsavedChanges()) throw new Error('部分修改尚未保存，请保存成功后生成简历');
+      var result = await api('/api/backup');
+      if (!account || account.id !== owner) return;
+      if (!result.ok || !result.data) throw new Error(result.error || '无法读取履历');
+      academicCvItems = window.__academicResearchTools.cvItems(result.data); academicCvOwner = owner;
+      var years = Array.from(new Set(academicCvItems.map(function (item) { return item.year; }).filter(Boolean))).sort().reverse();
+      $('#academicCvYear').innerHTML = '<option value="all">全部年份</option>' + years.map(function (year) { return '<option>' + year + '</option>'; }).join('') + '<option value="">未注明年份</option>';
+      var groups = window.__academicResearchTools.cvGroups;
+      $('#academicCvSelection').innerHTML = Object.keys(groups).map(function (kind) {
+        var items = academicCvItems.filter(function (item) { return item.kind === kind; });
+        return '<fieldset><legend><label><input type="checkbox" data-cv-group="' + kind + '" checked> ' + groups[kind] + '</label></legend>' + (items.length ? items.map(function (item) { return '<label class="academic-cv-item" data-cv-year="' + escapeAttribute(item.year) + '"><input type="checkbox" data-cv-item="' + item.id + '" data-cv-kind="' + kind + '" checked><span>' + escapeHtml(item.text) + (item.year ? '' : '（未注明年份）') + '</span></label>'; }).join('') : '<p>暂无记录</p>') + '</fieldset>';
+      }).join('');
+      updateAcademicCv();
+    } catch (error) { if (account && account.id === owner) $('#academicCvStatus').textContent = error.message; }
+  }
+  function selectedAcademicCv() {
+    var selected = new Set($$('#academicCvSelection [data-cv-item]:checked').map(function (input) { return input.dataset.cvItem; }));
+    var year = $('#academicCvYear').value;
+    return academicCvItems.filter(function (item) { return selected.has(item.id) && (year === 'all' || item.year === year); });
+  }
+  function updateAcademicCv() {
+    if (!account || account.id !== academicCvOwner) return;
+    var year = $('#academicCvYear').value;
+    $$('#academicCvSelection [data-cv-year]').forEach(function (row) { row.hidden = year !== 'all' && row.dataset.cvYear !== year; });
+    var items = selectedAcademicCv(), tools = window.__academicResearchTools;
+    var text = tools.cvMarkdown(items, { name: $('#academicCvName').value.trim(), affiliation: $('#academicCvAffiliation').value.trim() });
+    $('#academicCvPreview').innerHTML = tools.printableHtml(text).body;
+    $('#academicCvStatus').textContent = '已选择 ' + items.length + ' 条记录';
+    $('#academicCvMarkdown').disabled = !items.length; $('#academicCvHtml').disabled = !items.length;
+  }
+  function exportAcademicCv(format) {
+    if (!account || account.id !== academicCvOwner) return;
+    var items = selectedAcademicCv();
+    if (!items.length) { toast('请先选择需要导出的内容'); return; }
+    var tools = window.__academicResearchTools, name = $('#academicCvName').value.trim();
+    var markdown = tools.cvMarkdown(items, { name: name, affiliation: $('#academicCvAffiliation').value.trim() });
+    var content = format === 'html' ? tools.printableHtml(markdown).document : markdown;
+    downloadBlob(new Blob([content], { type: format === 'html' ? 'text/html;charset=utf-8' : 'text/markdown;charset=utf-8' }), tools.safeName(name || '学术简历', '学术简历') + '.' + (format === 'html' ? 'html' : 'md'));
+  }
+  function bindResearchTransferEvents() {
+    $('#kbImportFolder').addEventListener('change', function () { state.kbImportFolderId = this.value; });
+    $('#kbImportMarkdown').addEventListener('click', function () { $('#kbMarkdownFiles').click(); });
+    $('#kbMarkdownFiles').addEventListener('change', function () { var files = Array.from(this.files || []); this.value = ''; prepareKnowledgeImport(files); });
+    $('#kbRetryImport').addEventListener('click', submitKnowledgeImport);
+    $('#kbExportMarkdown').addEventListener('click', function () { exportKnowledgeMarkdown(false); });
+    $('#kbExportFolder').addEventListener('click', function () { exportKnowledgeMarkdown(true); });
+    $('#academicCvOpen').addEventListener('click', openAcademicCv);
+    $('#academicCvClose').addEventListener('click', function () { $('#academicCvPanel').hidden = true; });
+    $('#academicCvPanel').addEventListener('input', updateAcademicCv);
+    $('#academicCvPanel').addEventListener('change', function (event) {
+      var group = event.target.closest('[data-cv-group]');
+      if (group) $$('#academicCvSelection [data-cv-kind="' + group.dataset.cvGroup + '"]').forEach(function (input) { input.checked = group.checked; });
+      updateAcademicCv();
+    });
+    $('#academicCvMarkdown').addEventListener('click', function () { exportAcademicCv('markdown'); });
+    $('#academicCvHtml').addEventListener('click', function () { exportAcademicCv('html'); });
+  }
+
   // ===== 知识库：目录、文档与账号同步 =====
   function loadKnowledgeBase() {
     return Promise.all([api('/api/knowledge-base'), api('/api/research-projects')]).then(function (results) {
@@ -12676,6 +12896,7 @@
     var trashToggle = $('#kbTrashToggle');
     if (trashToggle) trashToggle.textContent = state.kbTrashOpen ? '返回知识库' : '回收站' + (trash.length ? ' (' + trash.length + ')' : '');
     if (state.kbTrashOpen) {
+      renderKnowledgeTransferControls();
       $('#kbFolders').innerHTML = '<div class="kb-trash-note">回收站中的内容不会自动删除。</div>';
       $('#kbDocs').innerHTML = recycleBinToolbar('knowledge', '知识库', trash.length) + (trash.length ? trash.map(function (entry) { var item = entry.item || {}; return '<div class="kb-trash-item"><div><b>' + escapeHtml(item.title || '未命名项目') + '</b><span>' + (entry.type === 'folder' ? '文件夹' : '文档') + ' · ' + escapeHtml(entry.deletedAt || '') + '</span></div><div><button type="button" data-kb-restore-trash="' + entry.id + '">恢复</button><button type="button" class="kb-purge-button" data-kb-purge-trash="' + entry.id + '">彻底删除</button></div></div>'; }).join('') : '<div class="kb-empty">回收站为空</div>');
       $('#kbEditor').innerHTML = '<div class="kb-editor-empty">可在此恢复误删内容，或选择彻底删除。</div>';
@@ -12684,6 +12905,7 @@
     var folderId = state.kbFolderId || 'all';
     var visibleDocs = folderId === 'all' ? docs : docs.filter(function (doc) { return String(doc.folderId) === String(folderId); });
     if (!visibleDocs.some(function (doc) { return doc.id === state.kbDocId; })) state.kbDocId = visibleDocs[0] ? visibleDocs[0].id : null;
+    renderKnowledgeTransferControls();
     var active = docs.filter(function (doc) { return doc.id === state.kbDocId; })[0] || null;
     var draft = state.kbDraft && active && state.kbDraft.id === active.id ? state.kbDraft : active;
     $('#kbFolders').innerHTML = '<button class="kb-folder' + (folderId === 'all' ? ' is-active' : '') + '" data-kb-folder="all">全部文档 <span>' + docs.length + '</span></button>' + folders.map(function (folder) { return '<div class="kb-folder-row"><button class="kb-folder' + (String(folder.id) === String(folderId) ? ' is-active' : '') + '" data-kb-folder="' + folder.id + '">' + escapeHtml(folder.title) + '<span>' + docs.filter(function (doc) { return String(doc.folderId) === String(folder.id); }).length + '</span></button><button type="button" class="kb-delete-button" data-kb-delete-folder="' + folder.id + '" title="删除文件夹" aria-label="删除文件夹">×</button></div>'; }).join('');

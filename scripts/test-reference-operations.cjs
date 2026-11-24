@@ -65,6 +65,7 @@ function createApiHarness(payload, options = {}) {
   const window = {
     fetch: async () => new Response('{}'),
     supabase: { createClient: () => client },
+    __academicResearchTools: options.researchTools,
     dispatchEvent() {},
     addEventListener() {}
   };

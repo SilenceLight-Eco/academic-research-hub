@@ -784,7 +784,7 @@
         }
         if (body.action === 'create') {
           replicationId = 'rp-' + nowId() + '-' + Math.random().toString(36).slice(2, 10);
-          replications.items.push({ id: replicationId, folderId: body.folderId || '', title: '未命名复现论文', authors: '', doi: '', citation: '', status: '未开始', environment: '', runOrder: '', results: '', notes: '', created: nowText(), updated: nowText() });
+          replications.items.push({ id: replicationId, folderId: body.folderId || '', title: '未命名复现论文', authors: '', doi: '', citation: '', checks: [], status: '未开始', environment: '', runOrder: '', results: '', notes: '', created: nowText(), updated: nowText() });
         } else if (body.action === 'restore') {
           var replicationTrash = replications.trash.find(function (entry) { return String(entry.id) === replicationId; });
           if (!replicationTrash || !replicationTrash.item) return response({ error: '回收站记录已不存在' }, 404);
@@ -794,6 +794,10 @@
         } else {
           if (!replicationItem) return response({ error: '复现任务已不存在，请重新载入' }, 404);
           if (body.action === 'save') {
+            if (body.checks !== undefined) {
+              try { replicationItem.checks = window.__academicResearchTools.validateChecks(body.checks); }
+              catch (error) { return response({ error: error.message || '核对表格式无效' }, 422); }
+            }
             var replicationFields = ['title', 'authors', 'doi', 'citation', 'status', 'environment', 'runOrder', 'results', 'notes', 'folderId'];
             for (var ri = 0; ri < replicationFields.length; ri++) {
               var replicationField = replicationFields[ri];
@@ -1430,6 +1434,38 @@
         kb.docs = Array.isArray(kb.docs) ? kb.docs : [];
         kb.trash = Array.isArray(kb.trash) ? kb.trash : [];
         if (method === 'GET') return response({ ok: true, knowledgeBase: kb });
+        if (body.action === 'import-docs') {
+          if (!await getUser()) return response({ error: '请先登录后导入文档' }, 401);
+          if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(body.batchId || '') || !Array.isArray(body.documents) || !body.documents.length || body.documents.length > 200) return response({ error: '导入批次无效，每批最多200篇文档' }, 422);
+          if (body.folderId && !kb.folders.some(function (folder) { return String(folder.id) === String(body.folderId); })) return response({ error: '目标文件夹已不存在，请重新选择' }, 422);
+          var importBytes = 0;
+          for (var importDoc of body.documents) {
+            if (!importDoc || typeof importDoc.title !== 'string' || !importDoc.title.trim() || importDoc.title.length > 300 || typeof importDoc.content !== 'string' || importDoc.content.length > 2000000) return response({ error: 'Markdown 文档标题或内容格式无效，单篇最多200万字符' }, 422);
+            importBytes += importDoc.content.length;
+          }
+          if (importBytes > 10000000) return response({ error: '单批文档内容不能超过1000万字符，请分批导入' }, 413);
+          var importBase = parseInt(body.batchId.replace(/-/g, '').slice(0, 11), 16) * 256 + 1;
+          var importedIds = [];
+          var plannedDocuments = [];
+          var usedTitles = new Set(kb.docs.filter(function (doc) { return String(doc.folderId || '') === String(body.folderId || ''); }).map(function (doc) { return String(doc.title || '').toLocaleLowerCase(); }));
+          for (var importIndex = 0; importIndex < body.documents.length; importIndex++) {
+            var sourceDoc = body.documents[importIndex], docId = importBase + importIndex;
+            var existingDoc = kb.docs.find(function (doc) { return doc.id === docId; });
+            if (existingDoc) {
+              if (existingDoc.importBatchId !== body.batchId || existingDoc.importIndex !== importIndex || existingDoc.content !== sourceDoc.content) return response({ error: '导入编号已被使用，请重新选择文件' }, 409);
+              importedIds.push(docId); continue;
+            }
+            if (kb.trash.some(function (entry) { return entry.type === 'doc' && entry.item && entry.item.id === docId; })) return response({ error: '该批文档已在回收站，请先恢复或重新选择文件' }, 409);
+            var importTitle = sourceDoc.title.trim(), suffix = 2, uniqueTitle = importTitle;
+            while (usedTitles.has(uniqueTitle.toLocaleLowerCase())) uniqueTitle = importTitle + ' (' + suffix++ + ')';
+            usedTitles.add(uniqueTitle.toLocaleLowerCase());
+            plannedDocuments.push({ id: docId, title: uniqueTitle, content: sourceDoc.content, format: 'markdown', folderId: body.folderId || '', importBatchId: body.batchId, importIndex: importIndex, updated: nowText() });
+            importedIds.push(docId);
+          }
+          kb.docs = kb.docs.concat(plannedDocuments);
+          await saveWorkspace(data, dataRevision);
+          return response({ ok: true, knowledgeBase: kb, importedIds: importedIds });
+        }
         if (body.action === 'create-folder' && String(body.title || '').trim()) kb.folders.push({ id: nowId(), title: String(body.title).trim() });
         if (body.action === 'create-doc') kb.docs.unshift({ id: nowId(), title: String(body.title || '未命名文档').trim(), content: String(body.content || '').trim(), format: 'markdown', folderId: body.folderId || '', feishuUrl: '', feishuDocId: '', feishuExportedAt: '', updated: nowText() });
         if (body.action === 'save-doc') kb.docs.forEach(function (doc) { if (doc.id === body.id) { doc.title = String(body.title || '未命名文档').trim(); doc.content = String(body.content || ''); doc.format = 'markdown'; doc.folderId = body.folderId || ''; if (typeof body.feishuUrl === 'string') doc.feishuUrl = body.feishuUrl.trim().slice(0, 2048); if (typeof body.feishuDocId === 'string') doc.feishuDocId = body.feishuDocId.trim().slice(0, 256); if (typeof body.feishuExportedAt === 'string') doc.feishuExportedAt = body.feishuExportedAt.trim().slice(0, 64); doc.updated = nowText(); } });
