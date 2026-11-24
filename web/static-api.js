@@ -4,7 +4,10 @@
 
   var url = 'https://gqopwqpysoixcgdacurx.supabase.co';
   var key = 'sb_publishable_83K9_IrwPtRpagaYZqEvxw_nOsYpEZs';
-  var client = window.supabase.createClient(url, key, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
+  var client = window.supabase.createClient(url, key, {
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+    global: { fetch: window.__academicFetchWithTimeout ? window.__academicFetchWithTimeout(window.__nativeFetch) : window.__nativeFetch }
+  });
   // Exposed so the workbench waits until the saved session has been restored.
   window.__academicAuthReady = client.auth.getSession();
   // MyMemory uses this contact email to apply its higher daily usage limit.
@@ -253,7 +256,14 @@
   function overview() { var payload = currentPayload(); return { field_name: 'Academic Research Hub', phd: calculateStudyProgress(payload.studyProgress), graduation: graduation(payload.publications, payload.graduationConfig), academic_records: payload.academicRecords || { funding: [], awards: [], conferences: [] }, academic_record_drafts: payload.academicRecordDrafts || {}, sections: [], tree: { name: '浏览器版不访问本地文件', children: [], count: 0 } }; }
   // Read the persisted browser session first. Unlike getUser(), this does not
   // depend on a network round-trip during a page refresh.
-  async function getUser() { await window.__academicAuthReady; var result = await client.auth.getSession(); var user = result.data.session ? result.data.session.user : null; activateAccountCache(user); return user; }
+  async function getUser() {
+    var sessionTask = Promise.resolve(window.__academicAuthReady).then(function () { return client.auth.getSession(); });
+    var result = await (window.__academicWaitForSession ? window.__academicWaitForSession(sessionTask) : sessionTask);
+    if (result.error) throw result.error;
+    var user = result.data.session ? result.data.session.user : null;
+    activateAccountCache(user);
+    return user;
+  }
   var attachmentBucket = 'research-attachments';
   var attachmentTusPromise = null;
   function attachmentContext(kind, id) {
@@ -1434,7 +1444,7 @@
       return response({ ok: false, error: '此功能需要本地 Python 服务' }, 501);
     } catch (error) {
       if (error.workspaceConflict) return response({ ok: false, workspaceConflict: error.workspaceConflict, error: error.message }, 409);
-      return response({ ok: false, error: error.message || '云端同步失败' }, 500);
+      return response({ ok: false, error: error.message || '云端同步失败', errorCode: error.code || '', errorStatus: error.status || 0 }, 500);
     }
   };
   client.auth.onAuthStateChange(function (_event, session) {

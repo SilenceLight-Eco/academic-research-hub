@@ -6732,6 +6732,13 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .global-save-state[data-state="error"] i { background:#bc4444; }
 .global-save-state[data-state="offline"] { color:#bc4444; }
 .global-save-state[data-state="offline"] i { background:#bc4444; }
+.global-save-state { flex-wrap:wrap; max-width:260px; white-space:normal; }
+.global-save-state > span { min-width:0; flex:1; }
+.global-save-state small { width:100%; padding-left:13px; color:var(--text-muted); font-size:9px; line-height:1.5; }
+.global-save-state small:empty { display:none; }
+.sync-retry { flex:none; padding:5px 8px; border:1px solid var(--hairline); border-radius:6px; background:var(--glass); color:var(--accent); cursor:pointer; font:inherit; font-size:11px; line-height:1.5; }
+.sync-retry[hidden] { display:none; }
+.sync-retry:disabled { opacity:.5; cursor:wait; }
 @keyframes autosavePulse { 50% { opacity:.35; transform:scale(.8); } }
 @media (max-width:900px) { .global-save-state { min-width:0; max-width:132px; font-size:9px; }.global-save-state span { display:block; overflow:hidden; text-overflow:ellipsis; } }
 .backup-open-button { padding:7px 10px; border:1px solid var(--hairline); border-radius:7px; background:var(--glass-strong); color:var(--text-secondary); cursor:pointer; font:11px "Noto Sans SC",sans-serif; white-space:nowrap; }

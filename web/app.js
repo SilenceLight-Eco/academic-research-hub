@@ -435,6 +435,7 @@
       return fetch(url, requestOptions)
         .then(function (r) { return r.json(); })
         .then(function (data) {
+          if (data && data.ok === false && !data.workspaceConflict && window.__academicSyncErrorMessage) data.error = window.__academicSyncErrorMessage({ message: data.error, errorCode: data.errorCode, errorStatus: data.errorStatus }, navigator.onLine === false);
           if (window.__academicCloudRefreshRequired) {
             window.__academicCloudRefreshRequired = false;
             scheduleCloudWorkspaceRefresh();
@@ -637,11 +638,40 @@
   function setGlobalSaveState(text, status) {
     var target = $('#globalSaveState');
     if (!target) return;
+    var owner = account && account.id || '';
+    if (setGlobalSaveState.owner !== owner) { setGlobalSaveState.owner = owner; setGlobalSaveState.lastSuccessAt = 0; }
+    if (status === 'saved' && account) setGlobalSaveState.lastSuccessAt = Date.now();
+    var pending = Object.keys(autoSaveSlots).filter(function (key) { return autoSaveSlots[key].dirty; }).length;
+    var details = [];
+    if (setGlobalSaveState.lastSuccessAt) details.push('最近同步 ' + new Date(setGlobalSaveState.lastSuccessAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }));
+    if (pending) details.push('待保存 ' + pending + ' 项');
     target.dataset.state = status || 'idle';
-    target.title = text;
-    target.setAttribute('aria-label', text);
+    target.title = [text].concat(details).join(' · ');
+    target.setAttribute('aria-label', target.title);
     var label = $('span', target);
     if (label) label.textContent = text;
+    var detail = $('#syncSaveDetails');
+    if (detail) detail.textContent = details.join(' · ');
+    var retry = $('#syncRetry');
+    if (retry) retry.hidden = !account || ['error', 'offline', 'pending'].indexOf(status) < 0;
+  }
+
+  function showSyncFailure(error) {
+    var message = window.__academicSyncErrorMessage ? window.__academicSyncErrorMessage(error, navigator.onLine === false) : error && error.message || '云端同步失败';
+    setGlobalSaveState(message, navigator.onLine === false ? 'offline' : 'error');
+  }
+
+  function retryCloudSync() {
+    var button = $('#syncRetry');
+    if (!account || button.disabled) return Promise.resolve();
+    if (activeWorkspaceConflict) { setGlobalSaveState('请先处理同步冲突', 'error'); return Promise.resolve(); }
+    var owner = account.id;
+    button.disabled = true;
+    setGlobalSaveState('正在重试同步…', 'saving');
+    return flushAllAutoSaves().then(function () {
+      if (!account || account.id !== owner || hasUnsavedChanges()) return;
+      return syncAndPullCloudData();
+    }).catch(showSyncFailure).finally(function () { button.disabled = false; });
   }
 
   function saveStateAfterSuccess() {
@@ -652,7 +682,7 @@
   window.addEventListener('academic-workspace-preference-save-error', function (event) {
     if (!account || activeWorkspaceConflict || hasPendingAutoSave()) return;
     var message = event.detail && event.detail.message;
-    setGlobalSaveState((message ? '偏好同步失败：' + message : '偏好同步失败') + ' · 将自动重试', navigator.onLine === false ? 'offline' : 'error');
+    showSyncFailure(new Error(message || '偏好同步失败'));
   });
   window.addEventListener('academic-workspace-preference-save-success', function () {
     if (account && !activeWorkspaceConflict && !hasPendingAutoSave() && !hasUnsavedChanges()) saveStateAfterSuccess();
@@ -685,6 +715,7 @@
   }
 
   function runAutoSave(key, revision, payload, persist, automatic) {
+    var saveAccount = account && account.id;
     autoSaveRunning += 1;
     var activeSlot = autoSaveSlots[key];
     if (activeSlot && activeSlot.revision === revision && !(activeSlot.draftRevisionTimes && activeSlot.draftRevisionTimes[revision])) {
@@ -697,6 +728,7 @@
     setGlobalSaveState('保存中…', 'saving');
     autoSaveChain = autoSaveChain.catch(function () {}).then(function () { return persist(payload, automatic); }).then(function () {
       autoSaveRunning = Math.max(0, autoSaveRunning - 1);
+      if ((account && account.id) !== saveAccount) { if (activeSlot) activeSlot.inFlight = Math.max(0, activeSlot.inFlight - 1); return; }
       var slot = autoSaveSlots[key];
       if (slot) {
         slot.inFlight = Math.max(0, (slot.inFlight || 0) - 1);
@@ -706,11 +738,12 @@
       if (slot && slot.revision === revision && !hasPendingAutoSave() && !hasUnsavedChanges()) {
         saveStateAfterSuccess();
       }
-    }, function () {
+    }, function (error) {
       autoSaveRunning = Math.max(0, autoSaveRunning - 1);
+      if ((account && account.id) !== saveAccount) { if (activeSlot) activeSlot.inFlight = Math.max(0, activeSlot.inFlight - 1); return; }
       var slot = autoSaveSlots[key];
       if (slot) slot.inFlight = Math.max(0, (slot.inFlight || 0) - 1);
-      setGlobalSaveState(navigator.onLine === false ? '离线 · 修改暂存本机，联网后重试' : '同步失败 · 将自动重试', navigator.onLine === false ? 'offline' : 'error');
+      showSyncFailure(error);
       retryAutoSave(key, slot, revision);
     });
     return autoSaveChain;
@@ -928,18 +961,20 @@
   var syncDataInFlight = false;
   function syncData() {
     if (!account || document.hidden || syncDataInFlight) return Promise.resolve();
+    var owner = account.id;
     syncDataInFlight = true;
     return api('/api/sync', { method: 'POST', body: JSON.stringify({ data: {
       todos: state.todos, journal: state.journal,
       researchHub: researchHubSnapshot()
     } }) }).then(function (result) {
+      if (!account || account.id !== owner) return;
       if (!result || result.ok === false) throw new Error((result && result.error) || '云端同步失败');
       if (!hasPendingAutoSave() && !hasUnsavedChanges() && !activeWorkspaceConflict) {
         var time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
         setGlobalSaveState('云端同步正常 ' + time, 'saved');
       }
-    }).catch(function () {
-      if (!activeWorkspaceConflict && !hasPendingAutoSave()) setGlobalSaveState(navigator.onLine === false ? '离线 · 修改暂存本机，联网后重试' : '云端同步失败 · 1 分钟后自动重试', navigator.onLine === false ? 'offline' : 'error');
+    }).catch(function (error) {
+      if (account && account.id === owner && !activeWorkspaceConflict && !hasPendingAutoSave()) showSyncFailure(error);
     }).then(function () { syncDataInFlight = false; });
   }
 
@@ -1033,11 +1068,11 @@
         if (!sync || !sync.data) throw new Error((sync && sync.error) || '无法读取云端工作区');
         applySyncData(sync.data);
         return syncData().then(restoreAutoSaveDrafts);
-      }).catch(function () {
-        setGlobalSaveState(navigator.onLine === false ? '离线 · 已保留登录状态，联网后重试' : '已登录 · 云端同步失败，将自动重试', navigator.onLine === false ? 'offline' : 'error');
+      }).catch(function (error) {
+        showSyncFailure(error);
       });
-    }).catch(function () {
-      if (account) setGlobalSaveState(navigator.onLine === false ? '离线 · 已保留登录状态，联网后重试' : '登录状态检查失败 · 请稍后重试', navigator.onLine === false ? 'offline' : 'error');
+    }).catch(function (error) {
+      if (account) showSyncFailure(error);
       else { setAccount(null); restoreAutoSaveDrafts(); }
     });
   }
@@ -13598,6 +13633,7 @@
     initTopbarStuck();
     $('#projectReportYear').value = String(new Date().getFullYear());
     initCmdk();
+    $('#syncRetry').addEventListener('click', retryCloudSync);
     window.addEventListener('beforeunload', handleBeforeUnload);
     window.addEventListener('pageshow', function () { pendingExitFlush = false; exitFlushStarted = false; });
     window.addEventListener('hashchange', applyHash);
