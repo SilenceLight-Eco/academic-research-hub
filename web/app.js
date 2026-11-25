@@ -713,7 +713,7 @@
   }
 
   function hasUnsavedChanges() {
-    return Object.keys(autoSaveSlots).some(function (key) { return Boolean(autoSaveSlots[key].dirty); });
+    return (typeof knowledgeImages !== 'undefined' && knowledgeImages && knowledgeImages.hasPending()) || Object.keys(autoSaveSlots).some(function (key) { return Boolean(autoSaveSlots[key].dirty); });
   }
 
   function runAutoSave(key, revision, payload, persist, automatic) {
@@ -769,6 +769,7 @@
   }
 
   function flushAllAutoSaves(forceInFlight) {
+    if (typeof knowledgeImages !== 'undefined' && knowledgeImages && knowledgeImages.hasPending()) return knowledgeImages.wait().then(function () { return flushAllAutoSaves(forceInFlight); }).catch(function (error) { setGlobalSaveState(error.message, 'error'); return false; });
     var started = false;
     Object.keys(autoSaveSlots).forEach(function (key) {
       var slot = autoSaveSlots[key];
@@ -781,6 +782,7 @@
   }
 
   function flushAutoSaveKey(key) {
+    if (String(key).indexOf('knowledge:') === 0 && typeof knowledgeImages !== 'undefined' && knowledgeImages && knowledgeImages.hasPending()) return knowledgeImages.wait().then(function () { return flushAutoSaveKey(key); });
     var slot = autoSaveSlots[key];
     if (!slot || !slot.dirty) return autoSaveChain.then(function () { return true; });
     var requestedRevision = slot.revision;
@@ -1034,6 +1036,7 @@
     var previousReviewAccount = account && account.id;
     account = user || null;
     if (previousReviewAccount !== (account && account.id)) {
+      if (knowledgeImages) knowledgeImages.reset();
       state.variableSearchLocation = null; state.variableSearchOpenRequest++;
       $('#variableSearchLocationBar').hidden = true;
       academicCvItems = []; academicCvOwner = ''; $('#academicCvPanel').hidden = true;
@@ -13002,6 +13005,16 @@
   }
 
   // ===== 知识库：目录、文档与账号同步 =====
+  var knowledgeImages = window.__academicKnowledgeImages ? window.__academicKnowledgeImages.create({
+    context: function () { return { owner: account && account.id, id: state.kbDocId, active: state.panel === 'knowledge-base' && !state.kbTrashOpen }; },
+    attachments: function () { return window.__academicAttachments; },
+    changed: function () { queueKnowledgeAutoSave(); },
+    report: function (text, error) { var node = $('#kbImageStatus'); if (node) { node.textContent = text; node.classList.toggle('is-error', Boolean(error)); } },
+    idle: function () {
+      var owner = account && account.id, id = state.kbDocId;
+      flushAutoSaveKey('knowledge:' + id).then(function () { if (account && account.id === owner && state.kbDocId === id) { var node = $('#kbImageStatus'); if (node) { node.textContent = '图片和文档已同步保存'; node.classList.remove('is-error'); } } }).catch(function (error) { if (account && account.id === owner && state.kbDocId === id) { var node = $('#kbImageStatus'); if (node) { node.textContent = '图片已上传，文档同步失败，请点击立即保存重试：' + error.message; node.classList.add('is-error'); } } });
+    }
+  }) : null;
   function loadKnowledgeBase() {
     return Promise.all([api('/api/knowledge-base'), api('/api/research-projects')]).then(function (results) {
       if (!results[0].ok) { toast(results[0].error || '请先登录后使用知识库'); return; }
@@ -13154,6 +13167,18 @@
     });
   };
 
+  const renderKnowledgeBaseWithFormatting = renderKnowledgeBase;
+  renderKnowledgeBase = function () {
+    renderKnowledgeBaseWithFormatting();
+    var editor = $('#kbRichEditor'), toolbar = $('.kb-rich-toolbar', $('#kbEditor'));
+    if (editor && toolbar) bindKnowledgeImages(editor, toolbar);
+  };
+
+  function bindKnowledgeImages(editor, toolbar) {
+    if (!knowledgeImages) return;
+    var status = document.createElement('p'); status.id = 'kbImageStatus'; status.className = 'kb-image-status'; status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite'); toolbar.after(status);
+    knowledgeImages.bind(editor, toolbar);
+  }
   function editorContainsSelection(editor, selection) {
     return !!(selection.anchorNode && selection.focusNode && editor.contains(selection.anchorNode) && editor.contains(selection.focusNode));
   }
@@ -13354,6 +13379,7 @@
       if (node.nodeType === Node.TEXT_NODE) return (node.nodeValue || '').replace(/\u00a0/g, ' ');
       if (node.nodeType !== Node.ELEMENT_NODE) return '';
       var tag = node.tagName.toLowerCase();
+      if (typeof window !== 'undefined' && window.__academicKnowledgeImages) { var imageMarkdown = window.__academicKnowledgeImages.serialize(node); if (imageMarkdown !== null) return imageMarkdown; }
       var inner = walkChildren(node);
       if (node.classList.contains('kb-inline-formula')) return '$' + (node.dataset.formula || '') + '$';
       if (node.classList.contains('kb-formula-block')) return '$$' + (node.dataset.formula || '') + '$$';
@@ -13425,7 +13451,7 @@
   function knowledgePayload() { var draft = readKnowledgeDraft(); return { action: 'save-doc', id: draft.id, title: draft.title, content: draft.content, folderId: draft.folderId }; }
   function persistKnowledgeDoc(body, automatic) { return api('/api/knowledge-base', { method: 'POST', body: JSON.stringify(body) }).then(function (res) { if (!res.ok) throw new Error(res.error || '保存失败'); state.knowledgeBase = res.knowledgeBase; if (!automatic) { state.kbDraft = null; var savedDoc = (res.knowledgeBase.docs || []).filter(function (doc) { return String(doc.id) === String(body.id); })[0]; var row = $('#kbDocs [data-kb-doc="' + body.id + '"]'); if (row && row.parentElement) row.parentElement.outerHTML = renderKnowledgeDocItem(savedDoc || body); var label = $('.kb-editor-foot > span', $('#kbEditor')); if (label && savedDoc) label.textContent = 'Markdown · 最近更新：' + (savedDoc.updated || '已保存'); setManualSaveStatus($('#kbSaveDoc'), 'saved'); toast('Markdown 文档已同步保存'); } }).catch(function (error) { if (!automatic) setManualSaveStatus($('#kbSaveDoc'), 'error'); throw error; }); }
   function queueKnowledgeAutoSave() { if (!state.kbDocId || state.kbTrashOpen) return; var body = knowledgePayload(); queueAutoSave('knowledge:' + body.id, body, persistKnowledgeDoc); }
-  function saveKnowledgeDoc() { if (!state.kbDocId) return; var body = knowledgePayload(); setManualSaveStatus($('#kbSaveDoc'), 'saving'); return saveImmediately('knowledge:' + body.id, body, persistKnowledgeDoc); }
+  function saveKnowledgeDoc() { if (!state.kbDocId) return; if (knowledgeImages && knowledgeImages.hasPending()) return knowledgeImages.wait().then(saveKnowledgeDoc).catch(function (error) { setManualSaveStatus($('#kbSaveDoc'), 'error'); toast(error.message); return false; }); var body = knowledgePayload(); setManualSaveStatus($('#kbSaveDoc'), 'saving'); return saveImmediately('knowledge:' + body.id, body, persistKnowledgeDoc); }
 
   function readKnowledgeDraft() {
     var active = ((state.knowledgeBase && state.knowledgeBase.docs) || []).filter(function (doc) { return doc.id === state.kbDocId; })[0] || {};
@@ -13575,7 +13601,9 @@
   }
 
   function markdownInline(text) {
-    return text.replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/~~([^~]+)~~/g, '<s>$1</s>').replace(/\*([^*]+)\*/g, '<em>$1</em>').replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>').replace(/\$([^$]+)\$/g, '<span class="kb-inline-formula" data-formula="$1">$1</span>');
+    var images = typeof window !== 'undefined' && window.__academicKnowledgeImages ? window.__academicKnowledgeImages.tokenize(text) : null;
+    var html = (images ? images.text : text).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/~~([^~]+)~~/g, '<s>$1</s>').replace(/\*([^*]+)\*/g, '<em>$1</em>').replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>').replace(/\$([^$]+)\$/g, '<span class="kb-inline-formula" data-formula="$1">$1</span>');
+    return images ? images.restore(html) : html;
   }
 
   // ===== 操作：文件夹 =====
