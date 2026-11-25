@@ -81,6 +81,8 @@
     variableQuery: '',
     variableSearchMode: 'all',
     variableSearchCollapsedRoles: {},
+    variableSearchLocation: null,
+    variableSearchOpenRequest: 0,
     dataCodeLibrary: { items: [], trash: [] },
     dataCodeId: null,
     dataCodeTrashOpen: false,
@@ -1032,6 +1034,8 @@
     var previousReviewAccount = account && account.id;
     account = user || null;
     if (previousReviewAccount !== (account && account.id)) {
+      state.variableSearchLocation = null; state.variableSearchOpenRequest++;
+      $('#variableSearchLocationBar').hidden = true;
       academicCvItems = []; academicCvOwner = ''; $('#academicCvPanel').hidden = true;
       knowledgeImportJob = null; state.kbImportFolderId = null; $('#kbRetryImport').hidden = true; $('#kbTransferStatus').textContent = '';
       replicationLoadRequest++;
@@ -8287,11 +8291,12 @@
     $('#variableSearchMode').addEventListener('change', function () { state.variableSearchMode = this.value; updateVariableSearch($('#variableSearch').value); });
     $('#variableSearchClear').addEventListener('click', function () { $('#variableSearch').value = ''; updateVariableSearch(''); $('#variableSearch').focus(); });
     $('#variableCategories').addEventListener('click', function (event) { var category = event.target.closest('[data-variable-category]'); if (!category) return; var nextCategory = category.dataset.variableCategory; afterCurrentEditorSaved('variable-library', function () { state.variableCategoryFilter = nextCategory; state.variableId = null; renderVariableLibrary(); }); });
-    $('#variableList').addEventListener('click', function (event) { if (Date.now() < (state.variableSuppressClickUntil || 0)) { event.preventDefault(); return; } var restore = event.target.closest('[data-variable-restore]'); if (restore) { restoreVariable(restore.dataset.variableRestore); return; } var purge = event.target.closest('[data-variable-purge]'); if (purge) { purgeVariable(purge.dataset.variablePurge); return; } var add = event.target.closest('[data-variable-role-add]'); if (add) { afterCurrentEditorSaved('variable-library', function () { newVariable([add.dataset.variableRoleAdd]); }); return; } var collapse = event.target.closest('[data-variable-collapse]'); if (collapse) { toggleVariableRole(collapse.dataset.variableCollapse, collapse); return; } var item = event.target.closest('[data-variable-id]'); if (!item) return; var selectedId = String(item.dataset.variableId); if (selectedId === String(state.variableId)) return; afterCurrentEditorSaved('variable-library', function () { state.variableId = selectedId; renderVariableLibrary(); }); });
+    $('#variableList').addEventListener('click', function (event) { if (Date.now() < (state.variableSuppressClickUntil || 0)) { event.preventDefault(); return; } var restore = event.target.closest('[data-variable-restore]'); if (restore) { restoreVariable(restore.dataset.variableRestore); return; } var purge = event.target.closest('[data-variable-purge]'); if (purge) { purgeVariable(purge.dataset.variablePurge); return; } var add = event.target.closest('[data-variable-role-add]'); if (add) { afterCurrentEditorSaved('variable-library', function () { newVariable([add.dataset.variableRoleAdd]); }); return; } var collapse = event.target.closest('[data-variable-collapse]'); if (collapse) { toggleVariableRole(collapse.dataset.variableCollapse, collapse); return; } var item = event.target.closest('[data-variable-id]'); if (!item) return; var target = event.target.closest('[data-variable-search-target]'); openVariableSearchResult(String(item.dataset.variableId), target && target.dataset.variableSearchTarget); });
     $('#variableList').addEventListener('dragstart', function (event) { var item = event.target.closest('[data-variable-id]'); if (!item || state.variableTrashOpen) { event.preventDefault(); return; } state.variableDragId = String(item.dataset.variableId); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', state.variableDragId); item.classList.add('is-dragging'); });
     $('#variableList').addEventListener('dragover', function (event) { if (!state.variableDragId) return; var target = event.target.closest('[data-variable-id]'); if (!target || String(target.dataset.variableId) === state.variableDragId) return; var source = $$('[data-variable-id]', this).filter(function (node) { return String(node.dataset.variableId) === state.variableDragId; })[0]; if (!source || source.closest('.variable-role-group') !== target.closest('.variable-role-group')) return; event.preventDefault(); event.dataTransfer.dropEffect = 'move'; target.classList.add('is-drop-target'); });
     $('#variableList').addEventListener('drop', function (event) { if (!state.variableDragId) return; var target = event.target.closest('[data-variable-id]'); if (!target || String(target.dataset.variableId) === state.variableDragId) return; var source = $$('[data-variable-id]', this).filter(function (node) { return String(node.dataset.variableId) === state.variableDragId; })[0]; event.preventDefault(); if (source && source.closest('.variable-role-group') === target.closest('.variable-role-group')) reorderVariableItems(state.variableDragId, String(target.dataset.variableId)); state.variableSuppressClickUntil = Date.now() + 350; state.variableDragId = null; });
     $('#variableList').addEventListener('dragend', function () { state.variableDragId = null; $$('.is-dragging,.is-drop-target', this).forEach(function (node) { node.classList.remove('is-dragging', 'is-drop-target'); }); });
+    bindVariableSearchLocationEvents();
     $('#variableEditor').addEventListener('dblclick', function (event) {
       if (state.variableTrashOpen || state.variableCreating || state.variableCreatePending) return;
       var field = event.target.closest('#variableName, #variableDefinition, [data-variable-source], [data-variable-paper], [data-variable-measure], [data-variable-instrument]');
@@ -8335,6 +8340,7 @@
       }
     });
     $('#variableMeasureReferences').addEventListener('focusin', function (event) {
+      if (state.variableSearchNavigating) return;
       var input = event.target.closest('[data-variable-paper]');
       if (input) openVariableRecentReferences(input);
     });
@@ -12084,22 +12090,25 @@
   }
   function variableSearchFields(item) {
     var fields = [];
-    function add(label, value) {
+    function add(label, value, kind, group, index) {
       var text = String(value == null ? '' : value).normalize('NFKC').trim().replace(/\s+/g, ' ');
-      if (text) fields.push({ label: label, text: text });
+      if (text) fields.push({ label: label, text: text, raw: String(value), kind: kind, group: group, index: index, key: kind + (group == null ? '' : '-' + group) + (index == null ? '' : '-' + index) });
     }
-    add('变量名称', item.name); add('变量符号', item.symbol); add('变量定义', item.definition);
-    normalizedVariableMeasureReferences(item).forEach(function (entry) {
-      add('研究角色', displayVariableRoleText(entry.role));
-      entry.measures.forEach(function (value) { add('衡量方式', value); });
-      add('数据来源', entry.source);
-      entry.instrumentVariables.forEach(function (value) { add('工具变量', value); });
-      entry.papers.forEach(function (value) { add('参考文献', value); });
+    add('变量名称', item.name, 'name'); add('变量符号', item.symbol, 'symbol'); add('变量定义', item.definition, 'definition');
+    normalizedVariableMeasureReferences(item).forEach(function (entry, group) {
+      add('研究角色', displayVariableRoleText(entry.role), 'role', group);
+      entry.measures.forEach(function (value, index) { add('衡量方式', value, 'measure', group, index); });
+      add('数据来源', entry.source, 'source', group);
+      entry.instrumentVariables.forEach(function (value, index) { add('工具变量', value, 'instrument', group, index); });
+      entry.papers.forEach(function (value, index) { add('参考文献', value, 'paper', group, index); });
     });
-    add('工具变量', item.instrumentVariable);
-    (Array.isArray(item.instrumentVariables) ? item.instrumentVariables : []).forEach(function (value) { add('工具变量', value); });
-    add('备注', item.notes);
+    add('旧版工具变量', item.instrumentVariable, 'legacy-instrument');
+    (Array.isArray(item.instrumentVariables) ? item.instrumentVariables : []).forEach(function (value, index) { add('旧版工具变量', value, 'legacy-instruments', null, index); });
+    add('备注', item.notes, 'notes');
     return fields;
+  }
+  function variableSearchFieldLabel(field) {
+    return (field.group == null ? '' : '记录组 ' + (field.group + 1) + ' · ') + field.label + (field.index > 0 ? ' ' + (field.index + 1) : '');
   }
   function variableSearchExcerpt(item, query, namesOnly) {
     var words = normalizeVariableSearchText(query).split(' ').filter(Boolean);
@@ -12109,9 +12118,100 @@
     }).slice(0, 2).map(function (field) {
       var match = variableSearchMatchRanges(field.text, query)[0];
       var start = Math.max(0, match.start - 16), end = Math.min(field.text.length, Math.max(start + 70, match.end));
-      var excerpt = escapeHtml(field.label + '：' + (start ? '…' : '')) + highlightVariableSearchText(field.text.slice(start, end), query) + (end < field.text.length ? '…' : '');
-      return '<span class="variable-search-excerpt" title="' + escapeHtml(field.label + '：' + field.text) + '">' + excerpt + '</span>';
+      var label = variableSearchFieldLabel(field);
+      var excerpt = escapeHtml(label + '：' + (start ? '…' : '')) + highlightVariableSearchText(field.text.slice(start, end), query) + (end < field.text.length ? '…' : '');
+      return '<span class="variable-search-excerpt" data-variable-search-target="' + escapeHtml(field.key) + '" title="点击定位 · ' + escapeHtml(label + '：' + field.text) + '">' + excerpt + '</span>';
     }).join('');
+  }
+  function variableEditorSearchHits() {
+    var item = activeVariable(), query = normalizeVariableSearchText(state.variableQuery);
+    if (!item || !query || state.variableTrashOpen) return [];
+    var fields = variableSearchFields(Object.assign({}, item, readVariablePayload()));
+    return fields.reduce(function (hits, field) {
+      if ((state.variableSearchMode || 'all') !== 'all' && field.kind !== 'name' && field.kind !== 'symbol') return hits;
+      variableSearchMatchRanges(field.raw, query).forEach(function (range) {
+        hits.push(Object.assign({}, field, range));
+      });
+      return hits;
+    }, []);
+  }
+  function variableSearchHitTarget(hit) {
+    var selectors = { name: '#variableName', definition: '#variableDefinition' };
+    if (selectors[hit.kind]) return $(selectors[hit.kind]);
+    if (hit.group == null) return null;
+    var group = String(hit.group), index = String(hit.index || 0);
+    if (hit.kind === 'role') return $('[data-variable-role="' + group + '"]:checked', $('#variableMeasureReferences'));
+    if (hit.kind === 'source') return $('[data-variable-source="' + group + '"]', $('#variableMeasureReferences'));
+    if (['measure', 'instrument', 'paper'].indexOf(hit.kind) < 0) return null;
+    return $('[data-variable-' + hit.kind + '="' + group + '"][data-variable-' + hit.kind + '-index="' + index + '"]', $('#variableMeasureReferences'));
+  }
+  function variableSearchHitIndex(hits) {
+    var location = state.variableSearchLocation;
+    if (!location || location.variableId !== String(state.variableId) || location.query !== normalizeVariableSearchText(state.variableQuery)) return -1;
+    return hits.findIndex(function (hit) { return hit.key === location.key && hit.start === location.start; });
+  }
+  function clearVariableSearchFocus() {
+    $$('.variable-search-location-focus', $('#variableEditor')).forEach(function (node) { node.classList.remove('variable-search-location-focus'); });
+  }
+  function refreshVariableSearchLocation() {
+    var bar = $('#variableSearchLocationBar');
+    if (!bar) return;
+    var query = normalizeVariableSearchText(state.variableQuery);
+    bar.hidden = !query || state.variableTrashOpen || !activeVariable();
+    var context = $('#variableSearchLegacyContext');
+    if (bar.hidden) { state.variableSearchLocation = null; clearVariableSearchFocus(); context.hidden = true; context.innerHTML = ''; return; }
+    var hits = variableEditorSearchHits(), index = variableSearchHitIndex(hits);
+    $('#variableSearchPrevious').disabled = $('#variableSearchNext').disabled = !hits.length;
+    $('#variableSearchLocationStatus').textContent = index >= 0 ? '第 ' + (index + 1) + ' / ' + hits.length + ' 处 · ' + variableSearchFieldLabel(hits[index]) : hits.length ? '共 ' + hits.length + ' 处命中 · 点击摘要或切换位置' : '当前变量无命中，请选择左侧检索结果';
+    if (index < 0) { state.variableSearchLocation = null; clearVariableSearchFocus(); }
+    context.hidden = true; context.innerHTML = '';
+    if (index >= 0 && !variableSearchHitTarget(hits[index])) {
+      var hit = hits[index], start = Math.max(0, hit.start - 40), end = Math.max(hit.end, Math.min(hit.raw.length, hit.start + 120));
+      context.innerHTML = '旧版保存内容 · ' + escapeHtml(hit.label) + '：' + (start ? '…' : '') + highlightVariableSearchText(hit.raw.slice(start, end), query) + (end < hit.raw.length ? '…' : '');
+      context.hidden = false;
+    }
+  }
+  function focusVariableSearchHit(index) {
+    var hits = variableEditorSearchHits();
+    if (!hits.length) { refreshVariableSearchLocation(); return; }
+    index = (index % hits.length + hits.length) % hits.length;
+    var hit = hits[index];
+    state.variableSearchLocation = { variableId: String(state.variableId), query: normalizeVariableSearchText(state.variableQuery), key: hit.key, start: hit.start };
+    clearVariableSearchFocus(); refreshVariableSearchLocation();
+    var target = variableSearchHitTarget(hit) || $('#variableSearchLegacyContext');
+    state.variableSearchNavigating = true;
+    try {
+      if (target.focus) target.focus({ preventScroll: true });
+      if (typeof target.setSelectionRange === 'function' && hit.kind !== 'role') target.setSelectionRange(hit.start, hit.end);
+    } finally { state.variableSearchNavigating = false; }
+    $$('#variableMeasureReferences [data-variable-reference-recent]').forEach(function (menu) { menu.hidden = true; });
+    target.classList.add('variable-search-location-focus');
+    target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }
+  function moveVariableSearchHit(direction) {
+    var hits = variableEditorSearchHits(), index = variableSearchHitIndex(hits);
+    focusVariableSearchHit(index < 0 ? (direction > 0 ? 0 : hits.length - 1) : index + direction);
+  }
+  function openVariableSearchResult(id, key) {
+    var query = normalizeVariableSearchText(state.variableQuery), owner = account && account.id, panel = state.panel;
+    var request = state.variableSearchOpenRequest = (state.variableSearchOpenRequest || 0) + 1;
+    function locate() {
+      if (!query) return;
+      var hits = variableEditorSearchHits(), index = key ? hits.findIndex(function (hit) { return hit.key === key; }) : 0;
+      if (index < 0) { refreshVariableSearchLocation(); toast('该命中内容已变化，请重新检索'); return; }
+      focusVariableSearchHit(index);
+    }
+    if (String(state.variableId) === id) { locate(); return Promise.resolve(); }
+    return afterCurrentEditorSaved('variable-library', function () {
+      if ((account && account.id) !== owner || request !== state.variableSearchOpenRequest || state.panel !== panel || state.variableTrashOpen || normalizeVariableSearchText(state.variableQuery) !== query) return;
+      if (!(state.variableLibrary.items || []).some(function (item) { return String(item.id) === id; })) return;
+      state.variableId = id; state.variableSearchLocation = null;
+      renderVariableLibrary(); locate();
+    });
+  }
+  function bindVariableSearchLocationEvents() {
+    $('#variableSearchPrevious').addEventListener('click', function () { moveVariableSearchHit(-1); });
+    $('#variableSearchNext').addEventListener('click', function () { moveVariableSearchHit(1); });
   }
   function searchVariableItems(items, query, mode) {
     query = normalizeVariableSearchText(query);
@@ -12132,7 +12232,9 @@
     if (state.variableTrashOpen) return;
     state.variableQuery = query;
     state.variableSearchCollapsedRoles = {};
+    state.variableSearchLocation = null; state.variableSearchOpenRequest = (state.variableSearchOpenRequest || 0) + 1;
     renderVariableNavigation();
+    refreshVariableSearchLocation();
   }
   function renderVariableNavigation(chooseActive) {
     var library = state.variableLibrary || { items: [], trash: [] }, items = library.items || [];
@@ -12184,6 +12286,7 @@
       $('#variableSaveInline').disabled = true;
       $('#variableSaveStatus').textContent = '回收站中的变量可恢复或彻底删除。';
       renderProjectBacklinks('variable', null, $('#variableProjectLinks'));
+      refreshVariableSearchLocation();
       return;
     }
     renderVariableNavigation(true);
@@ -12197,6 +12300,7 @@
     renderVariableMeasureReferences(normalizedVariableMeasureReferences(active), !active);
     $('#variableSaveStatus').textContent = active ? '修改会自动保存；双击右侧变量名称或内容字段可新建同角色变量。最近保存：' + (active.updated || '尚未保存') : '双击右侧变量名称或下方任一内容字段即可新建；左侧研究角色只用于分组和折叠。';
     renderProjectBacklinks('variable', active && active.id, $('#variableProjectLinks'));
+    refreshVariableSearchLocation();
   }
   function newVariable(roleOverride) {
     if (state.variableCreating) return Promise.resolve();
@@ -12352,6 +12456,7 @@
     var body = readVariablePayload();
     $('#variableSaveStatus').textContent = '正在保存…';
     queueAutoSave('variable:' + body.id, body, persistVariable);
+    refreshVariableSearchLocation();
   }
   function saveVariable() {
     if (!state.variableId || state.variableTrashOpen) return;

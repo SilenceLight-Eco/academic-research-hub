@@ -31,9 +31,10 @@ function harness() {
     localStorage: { setItem() { writes++; } },
     $: node,
     escapeHtml: value => String(value).replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;'),
-    renderVariableLibrary() { throw Error('Searching must not redraw the editor'); }
+    renderVariableLibrary() { throw Error('Searching must not redraw the editor'); },
+    refreshVariableSearchLocation() {}
   });
-  for (const name of ['normalizeVariableRoles', 'displayVariableRoleText', 'normalizedVariableMeasureReferences', 'normalizeVariableSearchText', 'variableSearchMatchRanges', 'highlightVariableSearchText', 'variableNameMatches', 'variableSearchFields', 'variableSearchExcerpt', 'searchVariableItems', 'renderVariableNavigation', 'updateVariableSearch', 'toggleVariableRole']) vm.runInContext(functionSource(name), context);
+  for (const name of ['normalizeVariableRoles', 'displayVariableRoleText', 'normalizedVariableMeasureReferences', 'normalizeVariableSearchText', 'variableSearchMatchRanges', 'highlightVariableSearchText', 'variableNameMatches', 'variableSearchFields', 'variableSearchFieldLabel', 'variableSearchExcerpt', 'searchVariableItems', 'renderVariableNavigation', 'updateVariableSearch', 'toggleVariableRole']) vm.runInContext(functionSource(name), context);
   const start = source.indexOf("    $('#variableSearch').addEventListener('input'");
   vm.runInContext(source.slice(start, source.indexOf("    $('#variableCategories').addEventListener", start)), context);
   return { context, node, events, writes: () => writes, search: (query, mode) => context.searchVariableItems(context.state.variableLibrary.items, query, mode) };
@@ -87,7 +88,7 @@ test('results display the matching field and relevant text, escaping content and
   item.measureReferences[0].measures.push('前缀'.repeat(80) + '特殊计算<img src=x onerror=alert(1)>后缀');
   h.context.state.variableId = 'partial'; h.context.updateVariableSearch('特殊计算');
   const html = h.node('#variableList').innerHTML;
-  assert.match(html, /衡量方式：…[^<]*<mark class="variable-search-hit">特殊计算<\/mark>/);
+  assert.match(html, /记录组 1 · 衡量方式 2：…[^<]*<mark class="variable-search-hit">特殊计算<\/mark>/);
   assert.match(html, /&lt;img/); assert.doesNotMatch(html, /<img/);
   assert.match(html, /data-variable-id="other"/); assert.equal(h.context.state.variableId, 'partial');
   h.context.updateVariableSearch('Smith'); assert.match(h.node('#variableList').innerHTML, /参考文献：<mark class="variable-search-hit">Smith<\/mark>/);

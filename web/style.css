@@ -7338,6 +7338,17 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .variable-list-item.variable-search-result > b { white-space:normal; }
 .variable-list-item .variable-search-hit { padding:0 1px; border-radius:2px; background:#fde68a; color:#713f12; font-weight:700; box-decoration-break:clone; -webkit-box-decoration-break:clone; }
 [data-theme="dark"] .variable-list-item .variable-search-hit { background:#facc15; color:#1c1917; }
+.variable-search-excerpt:hover { text-decoration:underline; text-decoration-color:var(--accent); }
+.variable-search-location { position:sticky; top:0; z-index:9; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; margin:10px 0; padding:9px 11px; border:1px solid var(--hairline); border-radius:7px; background:var(--bg); color:var(--text-secondary); font-size:12px; }
+.variable-search-location[hidden],#variableSearchLegacyContext[hidden] { display:none; }
+.variable-search-location > div { display:flex; gap:6px; }
+.variable-search-location button { padding:4px 8px; border:1px solid var(--hairline); border-radius:5px; background:var(--glass); color:var(--accent); cursor:pointer; font:inherit; }
+.variable-search-location button:disabled { opacity:.5; cursor:default; }
+#variableSearchLegacyContext { flex-basis:100%; margin:0; white-space:pre-wrap; overflow-wrap:anywhere; }
+#variableSearchLegacyContext mark { background:#fde68a; color:#713f12; }
+.variable-search-location-focus { scroll-margin-block:100px; animation:variableSearchLocationPulse 2s ease-out; }
+@keyframes variableSearchLocationPulse { 0%,60% { outline:2px solid #d99c12; outline-offset:3px; box-shadow:0 0 0 5px rgba(250,204,21,.18); } 100% { outline:2px solid transparent; outline-offset:3px; } }
+@media(prefers-reduced-motion:reduce) { .variable-search-location-focus { animation:none; outline:2px solid #d99c12; } }
 .variable-content-result .variable-sort-handle { grid-column:2; grid-row:1; }
 .variable-content-result .variable-search-exact { grid-column:1; justify-self:start; }
 .variable-empty { padding:24px 8px; color:var(--text-muted); font-size:11px; line-height:1.8; text-align:center; }
