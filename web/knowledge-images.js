@@ -3,18 +3,35 @@
   var uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
   var maxBytes = 50 * 1024 * 1024;
   function escape(text) { return String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
-  function markup(id, escapedAlt) {
-    return '<span class="kb-inline-image" data-kb-image-id="' + id + '" contenteditable="false"><img alt="' + escapedAlt + '" loading="lazy" decoding="async"><button type="button" data-kb-image-retry>正在加载图片…</button></span>';
+  function presentation(value) {
+    value = value || {};
+    var width = Number(value.width);
+    return { width: Number.isInteger(width) && width >= 10 && width <= 100 ? String(width) : '', align: ['left', 'center', 'right'].includes(value.align) ? value.align : 'left', caption: String(value.caption || '').replace(/[\x00-\x1f]/g, ' ').slice(0, 500) };
+  }
+  function parsePresentation(query) {
+    var values = {};
+    String(query || '').replace(/&amp;/g, '&').split('&').forEach(function (pair) {
+      var at = pair.indexOf('=');
+      if (at < 0) return;
+      try { var key = decodeURIComponent(pair.slice(0, at)); if (['width', 'align', 'caption'].includes(key)) values[key] = decodeURIComponent(pair.slice(at + 1)); } catch (_) { /* Ignore malformed optional layout parameters. */ }
+    });
+    return presentation(values);
+  }
+  function readPresentation(node) { return presentation({ width: node.getAttribute('data-kb-image-width'), align: node.getAttribute('data-kb-image-align'), caption: node.getAttribute('data-kb-image-caption') }); }
+  function encoded(value) { return encodeURIComponent(value).replace(/[!'()*]/g, function (character) { return '%' + character.charCodeAt(0).toString(16).toUpperCase(); }); }
+  function markup(id, escapedAlt, options) {
+    var layout = presentation(options);
+    return '<span class="kb-inline-image" data-kb-image-id="' + id + '" data-kb-image-width="' + layout.width + '" data-kb-image-align="' + layout.align + '" data-kb-image-caption="' + escape(layout.caption) + '" style="width:' + (layout.width ? layout.width + '%' : 'fit-content') + '" contenteditable="false" role="figure" tabindex="0" aria-label="图片：' + (layout.caption ? escape(layout.caption) : escapedAlt) + '"><img alt="' + escapedAlt + '" loading="lazy" decoding="async"><button type="button" data-kb-image-retry>正在加载图片…</button><span class="kb-image-caption" data-kb-image-caption-view' + (layout.caption ? '' : ' hidden') + '>' + escape(layout.caption) + '</span></span>';
   }
   function tokenize(text) {
     var images = [], prefix = '@@KB_IMAGE_';
     while (text.includes(prefix)) prefix += '_';
     var protectedText = text.split(/(`[^`]+`)/g).map(function (part, index) {
       if (index % 2) return part;
-      return part.replace(/!\[((?:\\.|[^\]\\\n])*)\]\(attachment:([0-9a-f-]{36})\)/gi, function (match, alt, id) {
+      return part.replace(/!\[((?:\\.|[^\]\\\n])*)\]\(attachment:([0-9a-f-]{36})(?:\?([^\s)]*))?\)/gi, function (match, alt, id, query) {
         if (!uuid.test(id)) return match;
         var token = prefix + images.length + '@@';
-        images.push(markup(id.toLowerCase(), alt.replace(/\\([\\[\]])/g, '$1')));
+        images.push(markup(id.toLowerCase(), alt.replace(/\\([\\[\]])/g, '$1'), parsePresentation(query)));
         return token;
       });
     }).join('');
@@ -25,7 +42,18 @@
     var id = node.getAttribute('data-kb-image-id');
     if (!id || !uuid.test(id)) return null;
     var image = node.querySelector('img'), alt = image ? image.getAttribute('alt') || '' : '';
-    return '![' + alt.replace(/\r?\n/g, ' ').replace(/[\\[\]]/g, '\\$&') + '](attachment:' + id.toLowerCase() + ')';
+    var layout = readPresentation(node), params = [];
+    if (layout.width) params.push('width=' + layout.width);
+    if (layout.align !== 'left') params.push('align=' + layout.align);
+    if (layout.caption) params.push('caption=' + encoded(layout.caption));
+    return '![' + alt.replace(/\r?\n/g, ' ').replace(/[\\[\]]/g, '\\$&') + '](attachment:' + id.toLowerCase() + (params.length ? '?' + params.join('&') : '') + ')';
+  }
+  function applyPresentation(node, value) {
+    var layout = presentation(value), caption = node.querySelector('[data-kb-image-caption-view]'), image = node.querySelector('img');
+    node.setAttribute('data-kb-image-width', layout.width); node.setAttribute('data-kb-image-align', layout.align); node.setAttribute('data-kb-image-caption', layout.caption);
+    node.style.width = layout.width ? layout.width + '%' : 'fit-content';
+    node.setAttribute('aria-label', '图片：' + (layout.caption || (image && image.getAttribute('alt')) || '图片'));
+    if (caption) { caption.textContent = layout.caption; caption.hidden = !layout.caption; }
   }
   async function imageType(blob) {
     if (!blob || !blob.size || blob.size > maxBytes) throw new Error('图片须大于0字节且不超过50 MB');
@@ -39,7 +67,7 @@
     throw new Error('仅支持 PNG、JPEG、GIF、WebP 和 AVIF 图片');
   }
   function create(config) {
-    var jobs = new Map(), cache = new Map(), generation = 0, observer = null, downloads = [], downloading = 0;
+    var jobs = new Map(), cache = new Map(), generation = 0, observer = null, downloads = [], downloading = 0, properties = null, chosen = null;
     var context = function () { return config.context() || {}; };
     function current(job) { var now = context(); return !job.cancelled && job.generation === generation && job.owner === now.owner && job.docId === String(now.id) && job.editor.isConnected; }
     function activeJobs() {
@@ -149,7 +177,39 @@
         if (observer) observer.observe(wrapper); else loadImage(wrapper);
       });
     }
+    function clearChosen() { if (chosen) chosen.node.classList.remove('is-image-selected'); chosen = null; if (properties) properties.panel.hidden = true; }
+    function bindProperties(editor, toolbar) {
+      clearChosen(); if (properties) properties.panel.remove();
+      var panel = document.createElement('section'); panel.className = 'kb-image-properties'; panel.hidden = true; panel.setAttribute('aria-label', '图片排版设置');
+      var size = document.createElement('input'), natural = document.createElement('button'), align = document.createElement('select'), caption = document.createElement('input'), close = document.createElement('button');
+      size.type = 'number'; size.min = '10'; size.max = '100'; size.step = '1'; size.placeholder = '原始'; size.setAttribute('data-kb-image-size', '');
+      caption.type = 'text'; caption.maxLength = 500; caption.placeholder = '填写图注，例如：图1 基准回归结果'; caption.setAttribute('data-kb-image-caption-input', '');
+      [['left', '左对齐'], ['center', '居中'], ['right', '右对齐']].forEach(function (entry) { var option = document.createElement('option'); option.value = entry[0]; option.textContent = entry[1]; align.appendChild(option); });
+      natural.type = close.type = 'button'; natural.textContent = '原始大小'; close.textContent = '收起';
+      function label(text, field) { var node = document.createElement('label'); node.textContent = text; node.appendChild(field); return node; }
+      panel.append(label('宽度（%）', size), natural, label('对齐', align), label('图注', caption), close); toolbar.after(panel);
+      properties = { panel: panel, size: size, align: align, caption: caption };
+      function valid() { var now = context(); if (!chosen || chosen.owner !== now.owner || chosen.id !== String(now.id) || chosen.generation !== generation || !now.active || !editor.contains(chosen.node)) { clearChosen(); return false; } return true; }
+      function update() {
+        if (!valid()) return;
+        if (size.value !== '' && (!Number.isInteger(Number(size.value)) || Number(size.value) < 10 || Number(size.value) > 100)) { size.setAttribute('aria-invalid', 'true'); report('图片宽度请输入10–100之间的整数，或选择原始大小', true); return; }
+        size.removeAttribute('aria-invalid'); applyPresentation(chosen.node, { width: size.value, align: align.value, caption: caption.value }); changed(); report('图片排版修改待保存');
+      }
+      size.addEventListener('input', update); align.addEventListener('change', update); caption.addEventListener('input', update);
+      natural.addEventListener('click', function () { if (!valid()) return; size.value = ''; update(); });
+      close.addEventListener('click', clearChosen);
+      function select(node) {
+        var now = context(); if (!now.owner || !now.active) return;
+        clearChosen(); chosen = { node: node, owner: now.owner, id: String(now.id), generation: generation }; node.classList.add('is-image-selected');
+        var layout = readPresentation(node); size.value = layout.width; align.value = layout.align; caption.value = layout.caption; size.removeAttribute('aria-invalid'); panel.hidden = false;
+        report('已选择图片，可调整宽度、对齐和图注');
+        panel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+      editor.addEventListener('click', function (event) { var image = event.target.closest('[data-kb-image-id]'); if (image && !event.target.closest('[data-kb-image-retry]')) select(image); else if (!image) clearChosen(); });
+      editor.addEventListener('keydown', function (event) { var image = event.target.closest('[data-kb-image-id]'); if (image && event.key === 'Enter') { event.preventDefault(); select(image); } });
+    }
     function bind(editor, toolbar) {
+      bindProperties(editor, toolbar);
       if (observer) observer.disconnect();
       if (typeof IntersectionObserver !== 'undefined') observer = new IntersectionObserver(function (entries) { entries.forEach(function (entry) { if (entry.isIntersecting) { observer.unobserve(entry.target); loadImage(entry.target); } }); }, { root: editor, rootMargin: '200px' });
       cache.forEach(function (entry, id) { if (entry.url && !document.querySelector('[data-kb-image-id="' + id + '"]')) { URL.revokeObjectURL(entry.url); cache.delete(id); } });
@@ -185,6 +245,7 @@
       if (activeJobs().length) return wait();
     }
     function reset() {
+      clearChosen(); if (properties) properties.caption.value = '';
       generation++; jobs.forEach(function (job) { job.cancelled = true; job.release(); job.node.remove(); }); jobs.clear();
       downloads.splice(0).forEach(function (task) { task.reject(new Error('账号已切换')); });
       if (observer) observer.disconnect(); observer = null;
@@ -193,5 +254,5 @@
     }
     return { bind: bind, hydrate: hydrate, upload: upload, wait: wait, hasPending: function () { return activeJobs().length > 0; }, reset: reset };
   }
-  window.__academicKnowledgeImages = { create: create, tokenize: tokenize, serialize: serialize, imageType: imageType };
+  window.__academicKnowledgeImages = { create: create, tokenize: tokenize, serialize: serialize, imageType: imageType, presentation: presentation, applyPresentation: applyPresentation };
 })();

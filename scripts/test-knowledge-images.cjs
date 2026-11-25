@@ -12,7 +12,7 @@ function harness(options = {}) {
   const roots = [], calls = [], reports = [], revoked = [], urls = [];
   const match = (node, selector) => selector === 'img' ? node.tagName === 'IMG' : selector.startsWith('[data-') && node.hasAttribute(selector.slice(1, -1));
   class Element {
-    constructor(tag) { this.tagName = tag.toUpperCase(); this.childNodes = []; this.dataset = {}; this.attributes = {}; this.events = {}; this.hidden = false; this.classList = { add() {}, remove() {} }; }
+    constructor(tag) { this.tagName = tag.toUpperCase(); this.childNodes = []; this.dataset = {}; this.attributes = {}; this.events = {}; this.hidden = false; this.style = {}; const classes = new Set(); this.classList = { add: value => classes.add(value), remove: value => classes.delete(value), contains: value => classes.has(value) }; }
     get children() { return this.childNodes; }
     get firstElementChild() { return this.children[0]; }
     get isConnected() { return roots.includes(this) || Boolean(this.parentElement && this.parentElement.isConnected); }
@@ -22,6 +22,9 @@ function harness(options = {}) {
     removeAttribute(name) { delete this.attributes[name]; }
     append(...nodes) { nodes.forEach(node => this.appendChild(node)); }
     appendChild(node) { node.remove(); node.parentElement = this; this.childNodes.push(node); return node; }
+    after(node) { this.afterNode = node; roots.push(node); }
+    scrollIntoView() {}
+    closest(selector) { return match(this, selector) ? this : this.parentElement ? this.parentElement.closest(selector) : null; }
     remove() { if (this.parentElement) this.parentElement.childNodes = this.parentElement.childNodes.filter(node => node !== this); this.parentElement = null; }
     replaceWith(node) { const parent = this.parentElement, at = parent.childNodes.indexOf(this); node.parentElement = parent; parent.childNodes[at] = node; this.parentElement = null; }
     contains(node) { return node === this || this.children.some(child => child.contains(node)); }
@@ -33,8 +36,11 @@ function harness(options = {}) {
       const found = html.match(/data-kb-image-id="([^"]+)"/); if (!found) return;
       const wrapper = new Element('span'), image = new Element('img'), button = new Element('button');
       wrapper.setAttribute('data-kb-image-id', found[1]);
+      const decode = value => value.replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+      for (const key of ['width', 'align', 'caption']) { const attribute = 'data-kb-image-' + key, value = (html.match(new RegExp(attribute + '="([^"]*)"')) || [,''])[1]; wrapper.setAttribute(attribute, decode(value)); }
       image.setAttribute('alt', (html.match(/alt="([^"]*)"/) || [,''])[1].replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'));
-      button.setAttribute('data-kb-image-retry', ''); wrapper.append(image, button); this.appendChild(wrapper);
+      const caption = new Element('span'); caption.setAttribute('data-kb-image-caption-view', ''); caption.textContent = wrapper.getAttribute('data-kb-image-caption');
+      button.setAttribute('data-kb-image-retry', ''); wrapper.append(image, button, caption); this.appendChild(wrapper);
     }
   }
   const editor = new Element('div'), toolbar = new Element('div'); roots.push(editor, toolbar);
@@ -69,6 +75,52 @@ test('actual file signatures are checked, including disguised HTML, SVG, empty a
   await assert.rejects(h.api.imageType(new File(['<svg onload="bad">'], 'fake.png', { type: 'image/png' })), /仅支持/);
   await assert.rejects(h.api.imageType(new File([], 'empty.png')), /50 MB/);
   await assert.rejects(h.api.imageType({ size: 51 * 1024 * 1024 }), /50 MB/);
+});
+
+test('image layout and Unicode captions survive Markdown reload without signed URLs or reuploading', () => {
+  const h = harness(), holder = new h.Element('div'), escape = text => text.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const original = h.api.tokenize('![图表](attachment:' + id + ')'); holder.innerHTML = original.restore(original.text);
+  h.api.applyPresentation(holder.firstElementChild, { width: '45', align: 'center', caption: '图1：[A] & "B" (样本) *结果*' });
+  const markdown = h.api.serialize(holder.firstElementChild);
+  assert.match(markdown, /\?width=45&align=center&caption=/); assert.doesNotMatch(markdown, /blob:|token=/);
+  const restored = h.api.tokenize(escape(markdown)), next = new h.Element('div'); next.innerHTML = restored.restore(restored.text);
+  assert.equal(next.firstElementChild.getAttribute('data-kb-image-width'), '45');
+  assert.equal(next.firstElementChild.getAttribute('data-kb-image-align'), 'center');
+  assert.equal(next.firstElementChild.getAttribute('data-kb-image-caption'), '图1：[A] & "B" (样本) *结果*');
+  assert.equal(h.api.serialize(next.firstElementChild), markdown); assert.equal(h.calls.length, 0);
+});
+
+test('untrusted layout parameters cannot add styles or HTML and malformed optional parameters do not break rendering', () => {
+  const h = harness();
+  const input = '![x](attachment:' + id + '?width=999999&amp;align=javascript&amp;caption=%3Cscript%3Ex%3C%2Fscript%3E&amp;onerror=bad)';
+  const token = h.api.tokenize(input), html = token.restore(token.text);
+  assert.match(html, /data-kb-image-width=""/); assert.match(html, /data-kb-image-align="left"/);
+  assert.doesNotMatch(html, /<script>|onerror=|width:999999/); assert.match(html, /&lt;script&gt;/);
+  const malformed = h.api.tokenize('![x](attachment:' + id + '?caption=%E0%A4%A)'); assert.match(malformed.restore(malformed.text), /data-kb-image-id=/);
+});
+
+test('normal picture controls edit only the selected image and invalid widths preserve its previous setting', async () => {
+  const h = harness(); h.controller.bind(h.editor, h.toolbar); h.controller.upload(h.editor, [png()], h.range); await h.controller.wait();
+  const image = h.editor.querySelector('[data-kb-image-id]'); h.editor.events.click({ target: image.querySelector('img') });
+  const panel = h.toolbar.afterNode, size = panel.children[0].children[0], natural = panel.children[1], align = panel.children[2].children[0], caption = panel.children[3].children[0];
+  assert.equal(panel.hidden, false);
+  size.value = '45'; size.events.input(); align.value = 'center'; align.events.change(); caption.value = '图1 回归结果'; caption.events.input();
+  assert.equal(image.style.width, '45%'); assert.equal(image.getAttribute('data-kb-image-align'), 'center');
+  assert.equal(image.querySelector('[data-kb-image-caption-view]').textContent, '图1 回归结果');
+  assert.equal(h.calls.filter(call => call[0] === 'upload').length, 1);
+  size.value = '3'; size.events.input(); assert.equal(image.style.width, '45%'); assert.equal(size.getAttribute('aria-invalid'), 'true');
+  natural.events.click(); assert.equal(image.style.width, 'fit-content'); assert.equal(image.getAttribute('data-kb-image-caption'), '图1 回归结果');
+  panel.children[4].events.click(); assert.equal(panel.hidden, true);
+});
+
+test('stale picture controls cannot change another account or a deleted picture', async () => {
+  const h = harness(); h.controller.bind(h.editor, h.toolbar); h.controller.upload(h.editor, [png()], h.range); await h.controller.wait();
+  const image = h.editor.querySelector('[data-kb-image-id]'); h.editor.events.click({ target: image });
+  const panel = h.toolbar.afterNode, caption = panel.children[3].children[0], changes = h.changed();
+  h.owner('another'); caption.value = '不得写入'; caption.events.input();
+  assert.equal(h.changed(), changes); assert.equal(image.getAttribute('data-kb-image-caption'), ''); assert.equal(panel.hidden, true);
+  h.owner('owner'); h.editor.events.click({ target: image }); image.remove(); caption.events.input();
+  assert.equal(h.changed(), changes); assert.equal(panel.hidden, true);
 });
 
 test('the Markdown renderer keeps images out of code and stores image IDs instead of downloaded URLs', () => {
