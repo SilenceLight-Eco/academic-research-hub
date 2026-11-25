@@ -33,7 +33,7 @@ function harness() {
     escapeHtml: value => String(value).replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;'),
     renderVariableLibrary() { throw Error('Searching must not redraw the editor'); }
   });
-  for (const name of ['normalizeVariableRoles', 'displayVariableRoleText', 'normalizedVariableMeasureReferences', 'normalizeVariableSearchText', 'variableNameMatches', 'variableSearchFields', 'variableSearchExcerpt', 'searchVariableItems', 'renderVariableNavigation', 'updateVariableSearch', 'toggleVariableRole']) vm.runInContext(functionSource(name), context);
+  for (const name of ['normalizeVariableRoles', 'displayVariableRoleText', 'normalizedVariableMeasureReferences', 'normalizeVariableSearchText', 'variableSearchMatchRanges', 'highlightVariableSearchText', 'variableNameMatches', 'variableSearchFields', 'variableSearchExcerpt', 'searchVariableItems', 'renderVariableNavigation', 'updateVariableSearch', 'toggleVariableRole']) vm.runInContext(functionSource(name), context);
   const start = source.indexOf("    $('#variableSearch').addEventListener('input'");
   vm.runInContext(source.slice(start, source.indexOf("    $('#variableCategories').addEventListener", start)), context);
   return { context, node, events, writes: () => writes, search: (query, mode) => context.searchVariableItems(context.state.variableLibrary.items, query, mode) };
@@ -87,11 +87,44 @@ test('results display the matching field and relevant text, escaping content and
   item.measureReferences[0].measures.push('前缀'.repeat(80) + '特殊计算<img src=x onerror=alert(1)>后缀');
   h.context.state.variableId = 'partial'; h.context.updateVariableSearch('特殊计算');
   const html = h.node('#variableList').innerHTML;
-  assert.match(html, /衡量方式：…[^<]*特殊计算/);
+  assert.match(html, /衡量方式：…[^<]*<mark class="variable-search-hit">特殊计算<\/mark>/);
   assert.match(html, /&lt;img/); assert.doesNotMatch(html, /<img/);
   assert.match(html, /data-variable-id="other"/); assert.equal(h.context.state.variableId, 'partial');
-  h.context.updateVariableSearch('Smith'); assert.match(h.node('#variableList').innerHTML, /参考文献：Smith/);
+  h.context.updateVariableSearch('Smith'); assert.match(h.node('#variableList').innerHTML, /参考文献：<mark class="variable-search-hit">Smith<\/mark>/);
   h.context.updateVariableSearch(''); assert.doesNotMatch(h.node('#variableList').innerHTML, /variable-search-excerpt/);
+});
+
+test('normal search input highlights names and every visible matching field, then clearing removes all marks', () => {
+  const h = harness(); h.context.state.variableSearchMode = 'all';
+  const input = h.node('#variableSearch'); input.value = 'CSMAR 自然对数';
+  h.events['#variableSearch:input'].call(input, { isComposing: false });
+  assert.match(h.node('#variableList').innerHTML, /<mark class="variable-search-hit">CSMAR<\/mark>/);
+  assert.match(h.node('#variableList').innerHTML, /<mark class="variable-search-hit">自然对数<\/mark>/);
+  input.value = '绿色创新'; h.events['#variableSearch:compositionend'].call(input);
+  assert.match(h.node('#variableList').innerHTML, /<b><mark class="variable-search-hit">绿色创新<\/mark>质量<\/b>/);
+  assert.match(h.node('#variableList').innerHTML, /变量定义：<mark class="variable-search-hit">绿色创新<\/mark>/);
+  h.events['#variableSearchClear:click'](); assert.doesNotMatch(h.node('#variableList').innerHTML, /<mark|variable-search-result/);
+});
+
+test('highlighting preserves original Unicode and treats punctuation as literal text', () => {
+  const h = harness(), highlight = h.context.highlightVariableSearchText;
+  assert.equal(highlight('😀 ＳＩＺＥ ﬃ e\u0301 İ', 'size ffi é i\u0307'), '😀 <mark class="variable-search-hit">ＳＩＺＥ</mark> <mark class="variable-search-hit">ﬃ</mark> <mark class="variable-search-hit">e\u0301</mark> <mark class="variable-search-hit">İ</mark>');
+  assert.equal(highlight('C++ a.b [x] & C++', 'C++ a.b [x] &'), '<mark class="variable-search-hit">C++</mark> <mark class="variable-search-hit">a.b</mark> <mark class="variable-search-hit">[x]</mark> <mark class="variable-search-hit">&amp;</mark> <mark class="variable-search-hit">C++</mark>');
+  assert.equal(highlight('x<mark onclick="bad">y</mark>', '<mark'), 'x<mark class="variable-search-hit">&lt;mark</mark> onclick=&quot;bad&quot;&gt;y&lt;/mark&gt;');
+  assert.equal(highlight('banana', 'ana an'), 'b<mark class="variable-search-hit">anana</mark>');
+  assert.equal(highlight('ΟΣ', 'ος'), '<mark class="variable-search-hit">ΟΣ</mark>');
+});
+
+test('legacy symbols visibly highlight in name-only and exact modes; long keywords are not cut out of excerpts', () => {
+  const h = harness();
+  for (const mode of ['name', 'exact']) {
+    h.context.state.variableSearchMode = mode; h.context.updateVariableSearch('ＳＩＺＥ');
+    assert.match(h.node('#variableList').innerHTML, /变量符号：<mark class="variable-search-hit">Size<\/mark>/);
+  }
+  const longTerm = '超长衡量方式'.repeat(20), item = h.context.state.variableLibrary.items.find(item => item.id === 'other');
+  item.measureReferences[0].measures = ['前文'.repeat(80) + longTerm + '后文'];
+  h.context.state.variableSearchMode = 'all'; h.context.updateVariableSearch('企业 ' + longTerm);
+  assert.ok(h.node('#variableList').innerHTML.includes('<mark class="variable-search-hit">' + longTerm + '</mark>'));
 });
 test('lookup reports live exact matches separately from the recycle bin', () => {
   const h = harness(); h.context.updateVariableSearch('绿色创新');
@@ -124,7 +157,7 @@ test('search and clearing do not change selected variable or overwrite unsaved e
 test('rendered matches escape names in labels and tooltips', () => {
   const h = harness(); h.context.updateVariableSearch('<img');
   const html = h.node('#variableList').innerHTML;
-  assert.doesNotMatch(html, /<img src/); assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt;/);
+  assert.doesNotMatch(html, /<img src/); assert.match(html, /<mark class="variable-search-hit">&lt;img<\/mark> src=x onerror=alert\(1\)&gt;/);
 });
 test('Chinese composition waits until completion and mode switching updates results without navigation', () => {
   const h = harness(), input = h.node('#variableSearch'); input.value = '绿色';

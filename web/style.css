@@ -7335,6 +7335,9 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .variable-list-item.variable-content-result { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:4px 6px; }
 .variable-content-result > b { grid-column:1; }
 .variable-list-item .variable-search-excerpt { grid-column:1 / -1; margin:0; white-space:normal; overflow-wrap:anywhere; line-height:1.6; }
+.variable-list-item.variable-search-result > b { white-space:normal; }
+.variable-list-item .variable-search-hit { padding:0 1px; border-radius:2px; background:#fde68a; color:#713f12; font-weight:700; box-decoration-break:clone; -webkit-box-decoration-break:clone; }
+[data-theme="dark"] .variable-list-item .variable-search-hit { background:#facc15; color:#1c1917; }
 .variable-content-result .variable-sort-handle { grid-column:2; grid-row:1; }
 .variable-content-result .variable-search-exact { grid-column:1; justify-self:start; }
 .variable-empty { padding:24px 8px; color:var(--text-muted); font-size:11px; line-height:1.8; text-align:center; }

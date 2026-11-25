@@ -12037,6 +12037,48 @@
   function normalizeVariableSearchText(value) {
     return String(value == null ? '' : value).normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
   }
+  function variableSearchMatchRanges(value, query) {
+    var text = String(value == null ? '' : value), words = normalizeVariableSearchText(query).split(' ').filter(Boolean);
+    if (!words.length) return [];
+    // Map normalized matches back to the original characters, including full-width letters and ligatures.
+    var segments = typeof Intl !== 'undefined' && Intl.Segmenter ? Array.from(new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text), function (part) { return part.segment; }) : Array.from(text);
+    var normalized = '', offsets = [], originalIndex = 0;
+    segments.forEach(function (segment) {
+      Array.from(segment.normalize('NFKC')).forEach(function (character) {
+        if (/\s/.test(character)) {
+          if (normalized.endsWith(' ')) { offsets[offsets.length - 1].end = originalIndex + segment.length; return; }
+          character = ' ';
+        }
+        normalized += character;
+        for (var unit = 0; unit < character.toLowerCase().length; unit++) offsets.push({ start: originalIndex, end: originalIndex + segment.length });
+      });
+      originalIndex += segment.length;
+    });
+    normalized = normalized.toLowerCase();
+    var ranges = [];
+    Array.from(new Set(words)).forEach(function (word) {
+      var at = normalized.indexOf(word);
+      while (at >= 0) {
+        ranges.push({ start: offsets[at].start, end: offsets[at + word.length - 1].end });
+        at = normalized.indexOf(word, at + 1);
+      }
+    });
+    ranges.sort(function (a, b) { return a.start - b.start || b.end - a.end; });
+    return ranges.reduce(function (merged, range) {
+      var last = merged[merged.length - 1];
+      if (last && range.start <= last.end) last.end = Math.max(last.end, range.end);
+      else merged.push(range);
+      return merged;
+    }, []);
+  }
+  function highlightVariableSearchText(value, query) {
+    var text = String(value == null ? '' : value), position = 0, html = '';
+    variableSearchMatchRanges(text, query).forEach(function (range) {
+      html += escapeHtml(text.slice(position, range.start)) + '<mark class="variable-search-hit">' + escapeHtml(text.slice(range.start, range.end)) + '</mark>';
+      position = range.end;
+    });
+    return html + escapeHtml(text.slice(position));
+  }
   function variableNameMatches(item, query) {
     return [item.name, item.symbol].some(function (name) { return normalizeVariableSearchText(name) === query; });
   }
@@ -12059,17 +12101,16 @@
     add('备注', item.notes);
     return fields;
   }
-  function variableSearchExcerpt(item, query) {
+  function variableSearchExcerpt(item, query, namesOnly) {
     var words = normalizeVariableSearchText(query).split(' ').filter(Boolean);
     if (!words.length) return '';
     return variableSearchFields(item).filter(function (field) {
-      return field.label !== '变量名称' && field.label !== '变量符号' && words.some(function (word) { return field.text.toLowerCase().includes(word); });
+      return field.label !== '变量名称' && (!namesOnly || field.label === '变量符号') && words.some(function (word) { return field.text.toLowerCase().includes(word); });
     }).slice(0, 2).map(function (field) {
-      var lower = field.text.toLowerCase();
-      var index = Math.min.apply(Math, words.map(function (word) { return lower.indexOf(word); }).filter(function (index) { return index >= 0; }));
-      var start = Math.max(0, index - 16), end = Math.min(field.text.length, Math.max(start + 70, index + words[0].length));
-      var excerpt = field.label + '：' + (start ? '…' : '') + field.text.slice(start, end) + (end < field.text.length ? '…' : '');
-      return '<span class="variable-search-excerpt" title="' + escapeHtml(field.label + '：' + field.text) + '">' + escapeHtml(excerpt) + '</span>';
+      var match = variableSearchMatchRanges(field.text, query)[0];
+      var start = Math.max(0, match.start - 16), end = Math.min(field.text.length, Math.max(start + 70, match.end));
+      var excerpt = escapeHtml(field.label + '：' + (start ? '…' : '')) + highlightVariableSearchText(field.text.slice(start, end), query) + (end < field.text.length ? '…' : '');
+      return '<span class="variable-search-excerpt" title="' + escapeHtml(field.label + '：' + field.text) + '">' + excerpt + '</span>';
     }).join('');
   }
   function searchVariableItems(items, query, mode) {
@@ -12112,8 +12153,8 @@
       var collapsedStore = query ? state.variableSearchCollapsedRoles || {} : variableCollapsedRoles;
       var collapsed = Object.prototype.hasOwnProperty.call(collapsedStore, role) ? !!collapsedStore[role] : !query;
       return '<section class="variable-role-group"><div class="variable-role-heading-row"><button type="button" class="variable-role-title' + (collapsed ? ' is-collapsed' : '') + '" data-variable-collapse="' + escapeHtml(role) + '" title="单击折叠或展开" aria-expanded="' + (!collapsed) + '"><span>' + escapeHtml(role) + '</span><span class="variable-role-count">' + group.length + '</span><span class="variable-role-chevron" aria-hidden="true">⌄</span></button><button type="button" class="variable-role-add" data-variable-role-add="' + escapeHtml(role) + '" aria-label="在' + escapeHtml(role) + '下新建变量" title="新建此研究角色的变量">＋</button></div><div class="variable-role-items"' + (collapsed ? ' hidden' : '') + '>' + (group.length ? group.map(function (item) {
-        var excerpt = query && fullContent ? variableSearchExcerpt(item, query) : '';
-        return '<button type="button" class="variable-list-item' + (excerpt ? ' variable-content-result' : '') + (String(item.id) === String(state.variableId) ? ' is-active' : '') + '" draggable="true" data-variable-id="' + escapeHtml(item.id) + '" title="' + escapeHtml(item.name || '未命名变量') + '"><b>' + escapeHtml(item.name || '未命名变量') + '</b>' + (query && result.exactIds.has(String(item.id)) ? '<span class="variable-search-exact">同名</span>' : '') + excerpt + '<span class="variable-sort-handle" aria-hidden="true">⠿</span></button>';
+        var excerpt = query ? variableSearchExcerpt(item, query, !fullContent) : '';
+        return '<button type="button" class="variable-list-item' + (query ? ' variable-search-result' : '') + (excerpt ? ' variable-content-result' : '') + (String(item.id) === String(state.variableId) ? ' is-active' : '') + '" draggable="true" data-variable-id="' + escapeHtml(item.id) + '" title="' + escapeHtml(item.name || '未命名变量') + '"><b>' + highlightVariableSearchText(item.name || '未命名变量', query) + '</b>' + (query && result.exactIds.has(String(item.id)) ? '<span class="variable-search-exact">同名</span>' : '') + excerpt + '<span class="variable-sort-handle" aria-hidden="true">⠿</span></button>';
       }).join('') : '<div class="variable-role-empty">暂无变量</div>') + '</div></section>';
     }).join('') : '<div class="variable-empty">' + (items.length ? '没有匹配的变量' : '还没有变量记录<br>点击“新建变量”开始整理') + '</div>';
     return visible;
