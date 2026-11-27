@@ -320,6 +320,7 @@
     });
   }
   window.__academicAttachments = {
+    identity: async function () { return (await attachmentSession()).user.id; },
     count: async function (kind, id) {
       var context = attachmentContext(kind, id);
       var session = await attachmentSession();
@@ -390,9 +391,12 @@
       if (downloaded.error) throw downloaded.error;
       return { blob: downloaded.data, name: record.data.file_name };
     },
-    remove: async function (id) {
-      await attachmentSession();
-      var record = await client.from('research_attachments').select('*').eq('id', id).single();
+    remove: async function (id, expected) {
+      var session = await attachmentSession();
+      if (expected && expected.owner !== session.user.id) throw new Error('账号已切换，已停止删除');
+      var query = client.from('research_attachments').select('*').eq('id', id).eq('user_id', session.user.id);
+      if (expected) { attachmentContext(expected.kind, expected.contextId); query = query.eq('context_kind', expected.kind).eq('context_id', expected.contextId); }
+      var record = await query.single();
       if (record.error) throw record.error;
       if (record.data.storage_provider === 'r2') {
         if (!attachmentR2) throw new Error('R2 附件组件尚未加载，请刷新页面');

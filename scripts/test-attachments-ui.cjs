@@ -5,6 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const source = fs.readFileSync(path.join(__dirname, '../web/attachments.js'), 'utf8');
 const page = fs.readFileSync(path.join(__dirname, '../web/workbench.html'), 'utf8');
+const bulkSource = fs.readFileSync(path.join(__dirname, '../web/attachment-bulk.js'), 'utf8');
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const tick = () => new Promise(resolve => setImmediate(resolve));
 function harness(api = {}) {
@@ -13,21 +14,24 @@ function harness(api = {}) {
   frames.contentWindow.postMessage = (data, origin) => notifications.push({ data, origin });
   function element(tag) { return { tag, hidden: true, value: '', textContent: '', dataset: {}, children: [], disabled: false, handlers: {}, classList: { toggle() {} },
     replaceChildren() { this.children = []; }, appendChild(child) { this.children.push(child); }, append(...children) { this.children.push(...children); },
-    addEventListener(type, handler) { this.handlers[type] = handler; }, click() {}, remove() {} }; }
+    addEventListener(type, handler) { this.handlers[type] = handler; }, setAttribute(name, value) { this[name] = value; }, click() {}, remove() {} }; }
   const node = id => { if (!nodes.has(id)) nodes.set(id, element(id)); return nodes.get(id); };
   const document = { getElementById: node, querySelector: () => frames, createElement: element, body: element('body'), addEventListener(type, handler) { handlers['document:' + type] = handler; } };
   const window = { __academicAttachments: {
+    identity: api.identity,
     list: api.list || (async () => []),
     upload: api.upload || (async (kind, id, file) => uploads.push({ kind, id, name: file.name })),
     download: async id => { downloaded.push(id); return { name: 'test.docx', blob: {} }; },
-    remove: async id => removed.push(id)
+    remove: api.remove || (async id => removed.push(id))
   }, alert: text => alerts.push(text), confirm: () => true, dispatchEvent(event) { events.push(event); }, addEventListener(type, handler) { handlers['window:' + type] = handler; } };
   class CustomEvent { constructor(type, options) { this.type = type; this.detail = options.detail; } }
-  vm.runInNewContext(source, { window, document, CustomEvent, location: { origin: 'https://example.test' }, Date, Array, URL: { createObjectURL: () => 'blob:test', revokeObjectURL() {} }, setTimeout() {} });
+  const environment = vm.createContext({ window, document, CustomEvent, location: { origin: 'https://example.test' }, Date, Array, URL: { createObjectURL: () => 'blob:test', revokeObjectURL() {} }, setTimeout() {} });
+  if (api.bulk) vm.runInContext(bulkSource, environment);
+  vm.runInContext(source, environment);
   function open(id, title = id, description = '', options = {}) { handlers['window:message']({ origin: options.origin || 'https://example.test', source: options.source || frames.contentWindow, data: { type: 'academic-research-hub-open-attachments', id, title, description } }); }
   const action = (id, type) => node('fileList').handlers.click({ target: { closest: () => ({ dataset: { fileId: id, fileAction: type } }) } });
   async function upload(file = { name: 'test.docx', size: 100 }) { node('fileInput').files = [file]; await node('fileInput').handlers.change(); }
-  return { node, open, action, upload, uploads, downloaded, removed, alerts, notifications, window, events };
+  return { node, open, action, upload, uploads, downloaded, removed, alerts, notifications, window, events, handlers };
 }
 
 test('review module can open round materials through the shared modal with uploads and downloads', async () => {

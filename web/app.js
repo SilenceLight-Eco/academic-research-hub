@@ -9706,19 +9706,66 @@
     if (!item || !account || state.replicationTrashOpen) { node.innerHTML = ''; return; }
     var entry = cache[replicationFileContext(item.id, kind)];
     if (!entry || entry.loading) { node.innerHTML = '<p class="replication-help">正在读取文件…</p>'; return; }
-    if (entry.error) { node.innerHTML = '<p class="replication-file-error">文件读取失败，请点击刷新重试。</p>'; return; }
-    node.innerHTML = entry.files.map(function (file) {
+    if (entry.error) { node.innerHTML = (entry.bulkStatus ? '<p class="replication-file-error">' + escapeHtml(entry.bulkStatus) + '</p>' : '') + '<p class="replication-file-error">文件读取失败，请点击刷新重试。</p>'; return; }
+    var contextId = replicationFileContext(item.id, kind), selected = new Set(entry.selected || []);
+    entry.selected = entry.files.filter(function (file) { return selected.has(String(file.id)); }).map(function (file) { return String(file.id); });
+    var locked = entry.busy || state.replicationBusy || state.replicationLoading || (window.__academicAttachmentBulk && window.__academicAttachmentBulk.busy(account.id, 'paper', contextId));
+    var selectingLocked = locked || Boolean(entry.review);
+    node.innerHTML = entry.files.length ? '<div class="attachment-bulk-toolbar"><label><input type="checkbox" data-replication-file-all="' + kind + '"' + (entry.selected.length === entry.files.length ? ' checked' : '') + (selectingLocked ? ' disabled' : '') + '>全选当前列表</label><span>已选 ' + entry.selected.length + ' / ' + entry.files.length + '</span><button type="button" data-replication-bulk="review" data-replication-file-kind="' + kind + '"' + (!entry.selected.length || selectingLocked ? ' disabled' : '') + '>删除所选</button></div>' : '';
+    if (entry.review) node.innerHTML += '<section class="attachment-bulk-review" aria-label="确认批量删除"><p>将永久删除以下 ' + entry.review.files.length + ' 个' + escapeHtml(replicationFileTypes[kind]) + '文件，此操作无法恢复。</p><ul>' + entry.review.files.map(function (file) { return '<li>' + escapeHtml(file.file_name) + '</li>'; }).join('') + '</ul><div><button type="button" data-replication-bulk="confirm" data-replication-file-kind="' + kind + '" data-replication-bulk-token="' + escapeAttribute(entry.review.token) + '">确认删除 ' + entry.review.files.length + ' 个文件</button><button type="button" data-replication-bulk="cancel" data-replication-file-kind="' + kind + '">取消</button></div></section>';
+    if (entry.bulkStatus) node.innerHTML += '<p role="status" aria-live="polite" class="' + (entry.bulkError ? 'replication-file-error' : 'replication-help') + '">' + escapeHtml(entry.bulkStatus) + '</p>';
+    node.innerHTML += entry.files.map(function (file) {
       var date = new Date(file.created_at), dateText = Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('zh-CN');
-      return '<div class="replication-file-row"><div><strong title="' + escapeAttribute(file.file_name) + '">' + escapeHtml(file.file_name) + '</strong><small>' + escapeHtml(formatBytes(file.file_size || 0)) + (dateText ? ' · ' + escapeHtml(dateText) : '') + '</small></div><div class="replication-file-actions"><button type="button" data-replication-file-action="download" data-replication-file-kind="' + kind + '" data-replication-file-id="' + escapeAttribute(file.id) + '"' + (entry.busy ? ' disabled' : '') + '>下载</button><button type="button" data-replication-file-action="remove" data-replication-file-kind="' + kind + '" data-replication-file-id="' + escapeAttribute(file.id) + '"' + (entry.busy ? ' disabled' : '') + '>删除</button></div></div>';
+      return '<div class="replication-file-row"><input type="checkbox" data-replication-file-select="' + escapeAttribute(file.id) + '" data-replication-file-kind="' + kind + '" aria-label="选择文件：' + escapeAttribute(file.file_name) + '"' + (selected.has(String(file.id)) ? ' checked' : '') + (selectingLocked ? ' disabled' : '') + '><div class="replication-file-detail"><strong title="' + escapeAttribute(file.file_name) + '">' + escapeHtml(file.file_name) + '</strong><small>' + escapeHtml(formatBytes(file.file_size || 0)) + (dateText ? ' · ' + escapeHtml(dateText) : '') + '</small></div><div class="replication-file-actions"><button type="button" data-replication-file-action="download" data-replication-file-kind="' + kind + '" data-replication-file-id="' + escapeAttribute(file.id) + '"' + (locked ? ' disabled' : '') + '>下载</button><button type="button" data-replication-file-action="remove" data-replication-file-kind="' + kind + '" data-replication-file-id="' + escapeAttribute(file.id) + '"' + (locked || entry.review ? ' disabled' : '') + '>删除</button></div></div>';
     }).join('') || '<p class="replication-help">暂无文件</p>';
     if (entry.busy) node.innerHTML += '<p class="replication-help">正在处理文件…</p>';
+    var all = $('[data-replication-file-all="' + kind + '"]', node); if (all) all.indeterminate = entry.selected.length > 0 && entry.selected.length < entry.files.length;
+  }
+  function selectReplicationFiles(kind, id, checked, all) {
+    var item = activeReplication(), owner = account && account.id;
+    if (!item || !owner || state.replicationTrashOpen || state.replicationBusy || state.replicationLoading) return;
+    var contextId = replicationFileContext(item.id, kind), entry = replicationAttachmentCache()[contextId];
+    if (!entry || entry.loading || entry.error || entry.busy || entry.review || (window.__academicAttachmentBulk && window.__academicAttachmentBulk.busy(owner, 'paper', contextId))) return;
+    var selected = new Set(entry.selected || []);
+    entry.files.forEach(function (file) { var fileId = String(file.id); if (all || fileId === String(id)) { if (checked) selected.add(fileId); else selected.delete(fileId); } });
+    entry.selected = Array.from(selected); renderReplicationFileList(kind);
+  }
+  async function replicationFileBulkAction(kind, action, token) {
+    var item = activeReplication(), owner = account && account.id;
+    if (!item || !owner || state.replicationTrashOpen || state.replicationBusy || state.replicationLoading || !Object.prototype.hasOwnProperty.call(replicationFileTypes, kind)) return false;
+    var contextId = replicationFileContext(item.id, kind), entry = replicationAttachmentCache()[contextId], bulk = window.__academicAttachmentBulk;
+    if (!entry || entry.loading || entry.error || entry.busy || (bulk && bulk.busy(owner, 'paper', contextId))) return false;
+    if (action === 'cancel') { entry.review = null; renderReplicationFileList(kind); return true; }
+    if (action === 'review') {
+      var selected = new Set(entry.selected || []), files = entry.files.filter(function (file) { return selected.has(String(file.id)); }).map(function (file) { return { id: String(file.id), file_name: file.file_name }; });
+      if (!files.length) return false;
+      entry.review = { token: Date.now() + '-' + Math.random().toString(36).slice(2), files: files, owner: owner, contextId: contextId }; renderReplicationFileList(kind); return true;
+    }
+    var review = entry.review;
+    if (action !== 'confirm' || !review || review.token !== token || review.owner !== owner || review.contextId !== contextId) return false;
+    if (!bulk) { toast('批量文件组件尚未就绪，请刷新页面'); return false; }
+    entry.review = null; entry.busy = true; entry.bulkError = false; entry.bulkStatus = '正在准备删除…'; renderReplicationFileList(kind);
+    try {
+      var result = await bulk.remove({ owner: owner, kind: 'paper', contextId: contextId, files: review.files, progress: function (progress) {
+        entry.bulkStatus = '正在删除 ' + progress.index + '/' + progress.total + ' · ' + progress.name;
+        if (account && account.id === owner && activeReplication() && replicationFileContext(state.replicationId, kind) === contextId) renderReplicationFileList(kind);
+      } });
+      entry.files = entry.files.filter(function (file) { return !result.removed.includes(String(file.id)); }); entry.selected = result.remaining;
+      entry.bulkStatus = bulk.summary(result); entry.bulkError = result.failed.length > 0 || result.stopped;
+      return !result.remaining.length;
+    } catch (error) { entry.bulkStatus = error.message || '批量删除失败'; entry.bulkError = true; return false; }
+    finally {
+      if (account && account.id === owner && window.dispatchEvent && typeof CustomEvent !== 'undefined') window.dispatchEvent(new CustomEvent('academic-attachments-changed', { detail: { kind: 'paper', contextId: contextId } }));
+      entry.busy = false;
+      if (account && account.id === owner && replicationAttachmentCache()[contextId] === entry && activeReplication() && replicationFileContext(state.replicationId, kind) === contextId) await loadReplicationFileList(kind, true);
+    }
   }
   function loadReplicationFileList(kind, force) {
     var item = activeReplication(), owner = account && account.id;
     if (!item || !owner || state.replicationTrashOpen || state.panel !== 'replications') return Promise.resolve();
     var contextId = replicationFileContext(item.id, kind), taskId = String(item.id), cache = replicationAttachmentCache(), entry = cache[contextId];
     if (entry && (entry.busy || !force && (entry.loading || Date.now() - entry.checkedAt < 60000))) return entry.promise || Promise.resolve();
-    entry = { loading: true, files: [] }; cache[contextId] = entry;
+    entry = { loading: true, files: [], selected: entry && entry.selected || [], bulkStatus: entry && entry.bulkStatus || '', bulkError: entry && entry.bulkError }; cache[contextId] = entry;
     renderReplicationFileList(kind);
     entry.promise = Promise.resolve().then(function () {
       if (!account || account.id !== owner || replicationAttachmentCache()[contextId] !== entry) return;
@@ -9738,11 +9785,11 @@
     if (!item || !owner || state.replicationTrashOpen || ['download', 'remove'].indexOf(action) < 0) return false;
     var contextId = replicationFileContext(item.id, kind), entry = replicationAttachmentCache()[contextId];
     var file = entry && entry.files.find(function (row) { return String(row.id) === String(fileId); });
-    if (!file || entry.busy) return false;
+    if (!file || entry.busy || (window.__academicAttachmentBulk && window.__academicAttachmentBulk.busy(owner, 'paper', contextId))) return false;
     if (action === 'remove' && !confirm('永久删除文件“' + file.file_name + '”？')) return false;
     entry.busy = true; renderReplicationFileList(kind);
     try {
-      if (action === 'remove') await window.__academicAttachments.remove(file.id);
+      if (action === 'remove') await window.__academicAttachments.remove(file.id, { owner: owner, kind: 'paper', contextId: contextId });
       else {
         var result = await window.__academicAttachments.download(file.id);
         if (!account || account.id !== owner) return false;
@@ -9833,6 +9880,10 @@
     }
   }
   function bindReplicationEvents() {
+    $('#panel-replications').addEventListener('change', function (event) {
+      var all = event.target.closest('[data-replication-file-all]'); if (all) { selectReplicationFiles(all.dataset.replicationFileAll, null, all.checked, true); return; }
+      var file = event.target.closest('[data-replication-file-select]'); if (file) selectReplicationFiles(file.dataset.replicationFileKind, file.dataset.replicationFileSelect, file.checked, false);
+    });
     $('#replicationCheckAdd').addEventListener('click', function () {
       var item = activeReplication();
       if (!item || state.replicationBusy || state.replicationLoading || state.replicationTrashOpen) return;
@@ -9914,6 +9965,8 @@
       if (open) afterCurrentEditorSaved('replications', function () { state.replicationId = open.dataset.replicationOpen; renderReplications(); });
     });
     $('#panel-replications').addEventListener('click', function (event) {
+      var bulk = event.target.closest('[data-replication-bulk]');
+      if (bulk) { replicationFileBulkAction(bulk.dataset.replicationFileKind, bulk.dataset.replicationBulk, bulk.dataset.replicationBulkToken); return; }
       var action = event.target.closest('[data-replication-file-action]');
       if (action) { replicationFileAction(action.dataset.replicationFileKind, action.dataset.replicationFileId, action.dataset.replicationFileAction); return; }
       var refresh = event.target.closest('[data-replication-file-refresh]');
@@ -9924,6 +9977,7 @@
     window.addEventListener('academic-attachments-changed', function (event) {
       var detail = event.detail, item = activeReplication();
       if (!account || !detail || detail.kind !== 'paper') return;
+      var busyEntry = replicationAttachmentCache()[detail.contextId]; if (busyEntry && busyEntry.busy) return;
       delete replicationAttachmentCache()[detail.contextId];
       if (!item || state.replicationTrashOpen) return;
       Object.keys(replicationFileTypes).forEach(function (kind) {

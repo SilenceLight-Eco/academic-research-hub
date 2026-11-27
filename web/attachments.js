@@ -10,6 +10,19 @@
   var busy = false;
   var files = [];
   var loadRequest = 0;
+  var selectedIds = [], review = null;
+  var bulkToolbar = document.getElementById('fileBulkToolbar'), bulkReview = document.getElementById('fileBulkReview');
+  function escaped(value) { return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+  function bulkContext() { return current && current.owner && current.kind === 'paper' && /^replication_[A-Za-z0-9_-]+_(paper|supplement|data|code|result)$/.test(current.id) && window.__academicAttachmentBulk; }
+  function contextBusy() { return busy || Boolean(bulkContext() && window.__academicAttachmentBulk.busy(current.owner, current.kind, current.id)); }
+  function renderBulk() {
+    bulkToolbar.hidden = !bulkContext() || !files.length; bulkReview.hidden = !review;
+    selectedIds = selectedIds.filter(function (id) { return files.some(function (file) { return String(file.id) === id; }); });
+    bulkToolbar.innerHTML = '<label><input type="checkbox" data-file-bulk-all' + (files.length && selectedIds.length === files.length ? ' checked' : '') + (contextBusy() || review ? ' disabled' : '') + '>全选当前列表</label><span>已选 ' + selectedIds.length + ' / ' + files.length + '</span><button type="button" data-file-bulk="review"' + (!selectedIds.length || contextBusy() || review ? ' disabled' : '') + '>删除所选</button>';
+    bulkReview.innerHTML = review ? '<p>将永久删除以下 ' + review.files.length + ' 个文件，此操作无法恢复。</p><ul>' + review.files.map(function (file) { return '<li>' + escaped(file.file_name) + '</li>'; }).join('') + '</ul><div><button type="button" data-file-bulk="confirm" data-file-bulk-token="' + review.token + '">确认删除 ' + review.files.length + ' 个文件</button><button type="button" data-file-bulk="cancel">取消</button></div>' : '';
+    if (bulkContext()) uploadButton.disabled = contextBusy() || Boolean(review);
+    var all = bulkToolbar.querySelector && bulkToolbar.querySelector('[data-file-bulk-all]'); if (all) all.indeterminate = selectedIds.length > 0 && selectedIds.length < files.length;
+  }
 
   function notifyPipelineFilesChanged(context) {
     if (context) window.dispatchEvent(new CustomEvent('academic-attachments-changed', { detail: { kind: context.kind, contextId: context.id } }));
@@ -29,6 +42,7 @@
   }
 
   function renderFiles() {
+    renderBulk();
     list.replaceChildren();
     if (!files.length) {
       var empty = document.createElement('p');
@@ -61,7 +75,13 @@
       remove.dataset.fileAction = 'remove';
       remove.dataset.fileId = file.id;
       actions.append(download, remove);
+      if (bulkContext()) {
+        var checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.checked = selectedIds.includes(String(file.id)); checkbox.disabled = contextBusy() || Boolean(review);
+        checkbox.dataset.fileBulkSelect = String(file.id); checkbox.setAttribute('aria-label', '选择文件：' + file.file_name);
+        row.appendChild(checkbox);
+      }
       row.append(detail, actions);
+      download.disabled = contextBusy(); remove.disabled = contextBusy() || Boolean(review);
       list.appendChild(row);
     });
   }
@@ -72,9 +92,11 @@
     var request = ++loadRequest;
     setStatus('正在读取附件…');
     try {
+      if (window.__academicAttachments.identity) context.owner = await window.__academicAttachments.identity();
       var loaded = await window.__academicAttachments.list(context.kind, context.id);
       if (current !== context || request !== loadRequest) return;
       files = loaded;
+      review = null;
       renderFiles();
       setStatus(files.length ? '共 ' + files.length + ' 个附件' : '');
     } catch (error) {
@@ -87,7 +109,7 @@
     if (!id) { window.alert('请先选择已保存的内容'); return false; }
     if (!window.__academicAttachments) { window.alert('附件仅在登录后的云端网页版中可用'); return false; }
     current = { kind: kind, id: String(id) };
-    files = [];
+    files = []; selectedIds = []; review = null;
     renderFiles();
     document.getElementById('fileModalTitle').textContent = (title || '当前内容') + ' · 附件';
     var contextDescription = document.getElementById('fileContextDescription');
@@ -104,6 +126,7 @@
     if (busy) return;
     modal.hidden = true;
     current = null;
+    selectedIds = []; review = null; renderBulk();
     input.value = '';
     setStatus('');
   }
@@ -125,11 +148,46 @@
   });
 
   document.getElementById('fileModalClose').addEventListener('click', closeFiles);
+  window.addEventListener('academic-account-changed', function () { current = null; loadRequest++; files = []; selectedIds = []; review = null; modal.hidden = true; renderFiles(); setStatus(''); });
+  window.addEventListener('academic-attachments-changed', function (event) { if (current && !busy && event.detail && event.detail.kind === current.kind && event.detail.contextId === current.id) loadFiles(); });
+  function changeSelection(event) {
+    if (!bulkContext() || contextBusy() || review) return;
+    var all = event.target.closest('[data-file-bulk-all]'), one = event.target.closest('[data-file-bulk-select]');
+    if (all) selectedIds = all.checked ? files.map(function (file) { return String(file.id); }) : [];
+    else if (one && files.some(function (file) { return String(file.id) === one.dataset.fileBulkSelect; })) { selectedIds = selectedIds.filter(function (id) { return id !== one.dataset.fileBulkSelect; }); if (one.checked) selectedIds.push(one.dataset.fileBulkSelect); }
+    else return;
+    renderFiles();
+  }
+  bulkToolbar.addEventListener('change', changeSelection); list.addEventListener('change', changeSelection);
+  async function bulkAction(event) {
+    var button = event.target.closest('[data-file-bulk]'); if (!button || !bulkContext() || contextBusy()) return;
+    var action = button.dataset.fileBulk;
+    if (action === 'cancel') { review = null; renderFiles(); return; }
+    if (action === 'review') {
+      var chosen = files.filter(function (file) { return selectedIds.includes(String(file.id)); }).map(function (file) { return { id: String(file.id), file_name: file.file_name }; });
+      if (!chosen.length) return;
+      review = { files: chosen, context: current, owner: current.owner, token: Date.now() + '-' + Math.random().toString(36).slice(2) }; renderFiles(); return;
+    }
+    var confirmed = review;
+    if (action !== 'confirm' || !confirmed || confirmed.context !== current || button.dataset.fileBulkToken !== confirmed.token) return;
+    var context = current; review = null; busy = true; uploadButton.disabled = true; renderFiles();
+    try {
+      var result = await window.__academicAttachmentBulk.remove({ owner: confirmed.owner, kind: context.kind, contextId: context.id, files: confirmed.files, progress: function (progress) { if (current === context) setStatus('正在删除 ' + progress.index + '/' + progress.total + '：' + progress.name); } });
+      if (current !== context) return;
+      if (await window.__academicAttachments.identity() !== confirmed.owner) { modal.hidden = true; current = null; files = []; selectedIds = []; renderFiles(); return; }
+      selectedIds = result.remaining;
+      files = files.filter(function (file) { return !result.removed.includes(String(file.id)); });
+      await loadFiles();
+      if (current === context) setStatus(window.__academicAttachmentBulk.summary(result), result.failed.length || result.stopped);
+    } catch (error) { if (current === context) setStatus(error.message || '批量删除失败，请重试', true); }
+    finally { if (current === context) notifyPipelineFilesChanged(context); busy = false; uploadButton.disabled = false; renderFiles(); }
+  }
+  bulkToolbar.addEventListener('click', bulkAction); bulkReview.addEventListener('click', bulkAction);
   document.getElementById('fileModalBackdrop').addEventListener('click', closeFiles);
   document.addEventListener('keydown', function (event) { if (event.key === 'Escape' && !modal.hidden) closeFiles(); });
-  uploadButton.addEventListener('click', function () { if (!busy) input.click(); });
+  uploadButton.addEventListener('click', function () { if (!contextBusy()) input.click(); });
   input.addEventListener('change', async function () {
-    if (busy) return;
+    if (contextBusy()) return;
     var selected = Array.from(input.files || []);
     input.value = '';
     if (!selected.length || !current) return;
@@ -138,9 +196,11 @@
     uploadButton.disabled = true;
     try {
       for (var i = 0; i < selected.length; i++) {
+        if (current !== context) throw new Error('材料或账号已切换，已停止后续上传');
         var file = selected[i];
         setStatus('正在上传 ' + (i + 1) + '/' + selected.length + '：' + file.name + '（0%）');
         await window.__academicAttachments.upload(context.kind, context.id, file, function (percent) {
+          if (current !== context) return;
           setStatus('正在上传 ' + (i + 1) + '/' + selected.length + '：' + file.name + '（' + percent + '%）');
         });
       }
@@ -152,26 +212,29 @@
     } finally {
       busy = false;
       uploadButton.disabled = false;
-      notifyPipelineFilesChanged(context);
+      renderFiles(); if (current === context) notifyPipelineFilesChanged(context);
     }
   });
 
   list.addEventListener('click', async function (event) {
     var button = event.target.closest('[data-file-action]');
-    if (!button || busy) return;
+    if (!button || contextBusy()) return;
+    if (review && button.dataset.fileAction === 'remove') return;
     var file = files.find(function (item) { return item.id === button.dataset.fileId; });
     if (!file) return;
     if (button.dataset.fileAction === 'remove' && !window.confirm('确定永久删除附件“' + file.file_name + '”吗？')) return;
+    var context = current;
     busy = true;
     button.disabled = true;
     setStatus(button.dataset.fileAction === 'remove' ? '正在删除附件…' : '正在下载附件…');
     try {
       if (button.dataset.fileAction === 'remove') {
-        await window.__academicAttachments.remove(file.id);
+        await window.__academicAttachments.remove(file.id, context && context.owner ? { owner: context.owner, kind: context.kind, contextId: context.id } : undefined);
         await loadFiles();
         setStatus('附件已删除');
       } else {
         var result = await window.__academicAttachments.download(file.id);
+        if (current !== context) return;
         var url = result.url || URL.createObjectURL(result.blob);
         var link = document.createElement('a');
         link.href = url;
@@ -187,7 +250,7 @@
     } finally {
       busy = false;
       button.disabled = false;
-      if (button.dataset.fileAction === 'remove') notifyPipelineFilesChanged(current);
+      renderFiles(); if (button.dataset.fileAction === 'remove' && current === context) notifyPipelineFilesChanged(current);
     }
   });
 })();
