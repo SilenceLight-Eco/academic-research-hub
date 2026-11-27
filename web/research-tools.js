@@ -38,6 +38,11 @@
       return clean;
     });
   }
+  function validateReplicationAuthors(names) {
+    if (!Array.isArray(names) || names.length > 100 || names.some(function (name) { return typeof name !== 'string' || name.length > 1000 || /[\x00-\x1f]/.test(name); })) throw new Error('作者须为独立姓名，每篇最多100位');
+    if (names.filter(function (name) { return name.trim(); }).join('；').length > 1000) throw new Error('作者姓名合计不能超过1000字');
+    return names.slice();
+  }
   function validateLocalFiles(rows) {
     if (!Array.isArray(rows) || rows.length > 200) throw new Error('本地文件路径最多支持200条');
     var ids = new Set(), kinds = ['paper', 'supplement', 'data', 'code', 'result'];
@@ -55,7 +60,8 @@
   }
   function replicationReport(item) {
     var lines = ['# ' + (item.title || '论文复现报告'), '', '## 论文信息', ''];
-    [['作者', item.authors], ['DOI', item.doi], ['文献引用', item.citation], ['复现状态', item.status], ['运行环境', item.environment]].forEach(function (pair) { if (pair[1]) lines.push(pair[0] + '：' + pair[1], ''); });
+    var authors = Array.isArray(item.authorList) ? item.authorList.filter(function (name) { return name.trim(); }).join('；') : item.authors;
+    [['作者', authors], ['DOI', item.doi], ['文献引用', item.citation], ['复现状态', item.status], ['运行环境', item.environment]].forEach(function (pair) { if (pair[1]) lines.push(pair[0] + '：' + pair[1], ''); });
     [['运行步骤', item.runOrder], ['复现结果', item.results]].forEach(function (pair) { lines.push('## ' + pair[0], '', pair[1] || '尚未填写', ''); });
     lines.push('## 逐项核对', '');
     (item.checks || []).forEach(function (row, index) {
@@ -129,6 +135,6 @@
     }).join('\n');
     return { body: body, document: '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>学术简历</title><style>body{max-width:820px;margin:40px auto;padding:0 24px;color:#222;font:15px/1.8 system-ui,sans-serif}h1{font-size:26px}h2{font-size:20px;border-bottom:1px solid #bbb;padding-bottom:5px}h3{font-size:16px}p{white-space:pre-wrap;overflow-wrap:anywhere}@page{size:A4;margin:20mm}@media print{body{margin:0;padding:0}h2,h3{break-after:avoid}}</style><body>' + body + '</body></html>' };
   }
-  window.__academicResearchTools = { safeName: safeName, markdownPaths: markdownPaths, validateChecks: validateChecks, validateLocalFiles: validateLocalFiles,
+  window.__academicResearchTools = { safeName: safeName, markdownPaths: markdownPaths, validateChecks: validateChecks, validateLocalFiles: validateLocalFiles, validateReplicationAuthors: validateReplicationAuthors,
     checkFields: checkFields, checkStatuses: checkStatuses, replicationReport: replicationReport, cvItems: cvItems, cvGroups: cvGroups, cvMarkdown: cvMarkdown, printableHtml: printableHtml };
 })();

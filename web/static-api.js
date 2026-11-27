@@ -798,6 +798,10 @@
         } else {
           if (!replicationItem) return response({ error: '复现任务已不存在，请重新载入' }, 404);
           if (body.action === 'save') {
+            if (body.authorList !== undefined) {
+              try { replicationItem.authorList = window.__academicResearchTools.validateReplicationAuthors(body.authorList); }
+              catch (error) { return response({ error: error.message || '作者格式无效' }, 422); }
+            } else if (body.authors !== undefined) delete replicationItem.authorList;
             if (body.localFiles !== undefined) {
               try { replicationItem.localFiles = window.__academicResearchTools.validateLocalFiles(body.localFiles); }
               catch (error) { return response({ error: error.message || '本地文件路径格式无效' }, 422); }
@@ -814,6 +818,7 @@
               replicationItem[replicationField] = body[replicationField];
             }
             if (['未开始', '复现中', '已完成', '暂时搁置'].indexOf(replicationItem.status) < 0) return response({ error: '复现状态无效' }, 422);
+            if (body.authorList !== undefined) replicationItem.authors = replicationItem.authorList.filter(function (name) { return name.trim(); }).join('；');
             replicationItem.title = replicationItem.title.trim() || '未命名复现论文';
             replicationItem.updated = nowText();
           } else {

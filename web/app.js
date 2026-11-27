@@ -9552,6 +9552,7 @@
       if (slot && slot.dirty) Object.keys(replicationFields).forEach(function (field) { if (slot.payload[field] !== undefined) item[field] = slot.payload[field]; });
       if (slot && slot.dirty && slot.payload.checks) item.checks = slot.payload.checks;
       if (slot && slot.dirty && slot.payload.localFiles) item.localFiles = slot.payload.localFiles;
+      if (slot && slot.dirty && slot.payload.authorList) item.authorList = slot.payload.authorList.slice();
     });
   }
   function renderReplicationList() {
@@ -9586,6 +9587,37 @@
     input.style.height = 'auto';
     input.style.height = Math.max(40, input.scrollHeight + 2) + 'px';
   }
+  function replicationAuthorNames(item) {
+    if (!item) return [];
+    if (!Array.isArray(item.authorList)) item.authorList = item.authors ? String(item.authors).split(/[;；、，\r\n]+/).map(function (name) { return name.trim(); }).filter(Boolean) : [''];
+    if (!item.authorList.length) item.authorList = [''];
+    return item.authorList;
+  }
+  function renderReplicationAuthors(item, locked) {
+    var names = replicationAuthorNames(item), root = $('#replicationAuthorList');
+    root.innerHTML = names.map(function (name, index) {
+      return '<div class="replication-author-row"><label>作者' + (index + 1) + '<input type="text" data-replication-author-index="' + index + '" data-replication-author-task="' + escapeAttribute(item.id) + '" aria-label="作者' + (index + 1) + '" maxlength="1000" value="' + escapeAttribute(name) + '"' + (locked ? ' disabled' : '') + '></label><button type="button" data-replication-author-remove="' + index + '" data-replication-author-task="' + escapeAttribute(item.id) + '" aria-label="删除作者' + (index + 1) + '"' + (locked ? ' disabled' : '') + '>×</button></div>';
+    }).join('');
+    $('#replicationAuthorAdd').disabled = locked || !item || names.length >= 100;
+    $('#replicationAuthors').value = names.filter(function (name) { return name.trim(); }).join('；');
+  }
+  function replicationAuthorInput(event) {
+    var input = event.target.closest('[data-replication-author-index]'), item = activeReplication();
+    if (!input || !item || !account || state.replicationBusy || state.replicationLoading || state.replicationTrashOpen || input.dataset.replicationAuthorTask !== String(item.id)) return;
+    var index = Number(input.dataset.replicationAuthorIndex), names = replicationAuthorNames(item);
+    if (!Number.isInteger(index) || index < 0 || index >= names.length) return;
+    names[index] = input.value;
+    queueReplicationAutoSave();
+  }
+  function changeReplicationAuthor(index, taskId) {
+    var item = activeReplication();
+    if (!item || !account || state.replicationBusy || state.replicationLoading || state.replicationTrashOpen || taskId && taskId !== String(item.id)) return;
+    var names = replicationAuthorNames(item);
+    if (index === undefined) { if (names.length >= 100) { toast('每篇最多添加100位作者'); return; } names.push(''); }
+    else { index = Number(index); if (!Number.isInteger(index) || index < 0 || index >= names.length) return; names.splice(index, 1); if (!names.length) names.push(''); }
+    queueReplicationAutoSave(); renderReplicationAuthors(item, false);
+    if (index === undefined) { var inputs = $$('[data-replication-author-index]', $('#replicationAuthorList')); if (inputs.length) inputs[inputs.length - 1].focus(); }
+  }
   function renderReplications() {
     var item = state.replicationTrashOpen ? null : activeReplication();
     var locked = state.replicationBusy || state.replicationLoading || !account;
@@ -9600,6 +9632,7 @@
       input.value = item ? item[field] || '' : '';
       input.disabled = locked || !item;
     });
+    renderReplicationAuthors(item, locked || !item);
     resizeReplicationCitation();
     ['replicationNew', 'replicationTrash', 'replicationSearch'].forEach(function (id) { $('#' + id).disabled = locked; });
     ['replicationFolderNew', 'replicationFolderName', 'replicationFolderSubmit'].forEach(function (id) { $('#' + id).disabled = locked || state.replicationTrashOpen; });
@@ -9644,6 +9677,8 @@
     if (!item || state.replicationBusy || state.replicationLoading || state.replicationTrashOpen || !account) return;
     var payload = { action: 'save', id: item.id };
     var previousFolderId = item.folderId || '';
+    payload.authorList = replicationAuthorNames(item).slice();
+    $('#replicationAuthors').value = payload.authorList.filter(function (name) { return name.trim(); }).join('；');
     Object.keys(replicationFields).forEach(function (field) { payload[field] = $('#' + replicationFields[field]).value; item[field] = payload[field]; });
     payload.checks = readReplicationChecks(); item.checks = payload.checks;
     payload.localFiles = JSON.parse(JSON.stringify(item.localFiles || []));
@@ -9932,7 +9967,8 @@
     }
   }
   function bindReplicationEvents() {
-    $('#panel-replications').addEventListener('input', replicationLocalFileInput);
+    $('#replicationAuthorAdd').addEventListener('click', function () { changeReplicationAuthor(); });
+    $('#panel-replications').addEventListener('input', function (event) { replicationAuthorInput(event); replicationLocalFileInput(event); });
     $('#panel-replications').addEventListener('change', function (event) {
       var all = event.target.closest('[data-replication-file-all]'); if (all) { selectReplicationFiles(all.dataset.replicationFileAll, null, all.checked, true); return; }
       var file = event.target.closest('[data-replication-file-select]'); if (file) selectReplicationFiles(file.dataset.replicationFileKind, file.dataset.replicationFileSelect, file.checked, false);
@@ -10018,6 +10054,8 @@
       if (open) afterCurrentEditorSaved('replications', function () { state.replicationId = open.dataset.replicationOpen; renderReplications(); });
     });
     $('#panel-replications').addEventListener('click', function (event) {
+      var author = event.target.closest('[data-replication-author-remove]');
+      if (author) { changeReplicationAuthor(author.dataset.replicationAuthorRemove, author.dataset.replicationAuthorTask); return; }
       var local = event.target.closest('[data-replication-local-action]');
       if (local) { replicationLocalFileAction(local); return; }
       var bulk = event.target.closest('[data-replication-bulk]');
