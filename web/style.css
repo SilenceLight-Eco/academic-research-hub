@@ -7634,3 +7634,16 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 
 /* Confirmed selection deletion in replication material lists. */
 .attachment-bulk-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:8px 0;font-size:12px;color:var(--text-secondary)}.attachment-bulk-toolbar[hidden],.attachment-bulk-review[hidden]{display:none}.attachment-bulk-toolbar label{display:flex;align-items:center;gap:6px}.attachment-bulk-toolbar input[type="checkbox"],.replication-file-row>input[type="checkbox"],.file-row>input[type="checkbox"]{width:16px;height:16px;flex:none;accent-color:var(--accent)}.attachment-bulk-toolbar button,.attachment-bulk-review button{padding:5px 9px;border:1px solid var(--hairline);border-radius:5px;background:var(--glass-strong);color:var(--danger);cursor:pointer;font:inherit}.attachment-bulk-toolbar button:disabled{opacity:.45;cursor:default}.attachment-bulk-review{padding:12px;margin:10px 0;border:1px solid var(--danger-dim);border-radius:7px;background:var(--glass);font-size:12px;color:var(--text-secondary)}.attachment-bulk-review p{margin:0 0 8px}.attachment-bulk-review ul{max-height:190px;overflow:auto;margin:8px 0;padding-left:24px;overflow-wrap:anywhere}.attachment-bulk-review>div{display:flex;flex-wrap:wrap;gap:8px}.replication-file-row>.replication-file-detail{flex:1;min-width:0}.replication-file-row:has(input:checked){background:var(--accent-dim)}
+
+/* Local material paths are metadata only, separate from cloud attachments. */
+.replication-local-files{margin-top:12px;padding-top:12px;border-top:1px dashed var(--hairline)}
+.replication-local-heading{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;font-size:12px;color:var(--text-secondary)}
+.replication-local-files .replication-help{margin:6px 0 10px;font-size:12px}
+.replication-local-row{display:grid;grid-template-columns:minmax(120px,1fr) minmax(180px,2fr);gap:9px;margin-top:10px;padding:10px;border:1px solid var(--hairline);border-radius:6px;background:var(--glass)}
+.replication-local-row label{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--text-secondary);min-width:0}
+.replication-local-row input{box-sizing:border-box;width:100%;min-width:0;padding:7px 9px;border:1px solid var(--hairline);border-radius:5px;background:var(--glass-strong);color:var(--text);font:inherit}
+.replication-local-actions{display:flex;align-items:end;justify-content:flex-end;gap:8px}
+.replication-local-files button{padding:5px 8px;border:1px solid var(--hairline);border-radius:5px;background:var(--glass);color:var(--accent);cursor:pointer;font:inherit;font-size:12px}
+.replication-local-files button:disabled{opacity:.45;cursor:default}
+.replication-local-failed{margin:0 8px 6px 0;max-width:100%;overflow-wrap:anywhere}
+@media(max-width:700px){.replication-local-row{grid-template-columns:minmax(0,1fr)}}

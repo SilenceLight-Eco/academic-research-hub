@@ -207,6 +207,7 @@
       await loadFiles();
       setStatus('上传完成，附件已同步到云端');
     } catch (error) {
+      if (current === context && context.owner && file) window.dispatchEvent(new CustomEvent('academic-attachment-upload-failed', { detail: { owner: context.owner, kind: context.kind, contextId: context.id, name: file.name } }));
       await loadFiles();
       setStatus(error.message || '上传失败，请稍后重试', true);
     } finally {

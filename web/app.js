@@ -9551,6 +9551,7 @@
       var slot = autoSaveSlots['replication:' + item.id];
       if (slot && slot.dirty) Object.keys(replicationFields).forEach(function (field) { if (slot.payload[field] !== undefined) item[field] = slot.payload[field]; });
       if (slot && slot.dirty && slot.payload.checks) item.checks = slot.payload.checks;
+      if (slot && slot.dirty && slot.payload.localFiles) item.localFiles = slot.payload.localFiles;
     });
   }
   function renderReplicationList() {
@@ -9558,7 +9559,7 @@
     var entries = state.replicationTrashOpen ? state.replications.trash : state.replications.items;
     var filtered = entries.filter(function (entry) {
       var item = entry.item || entry;
-      return (Object.keys(replicationFields).map(function (field) { return item[field] || ''; }).join(' ') + ' ' + JSON.stringify(item.checks || [])).toLowerCase().indexOf(query) >= 0;
+      return (Object.keys(replicationFields).map(function (field) { return item[field] || ''; }).join(' ') + ' ' + JSON.stringify(item.checks || []) + ' ' + (item.localFiles || []).map(function (file) { return [file.name, file.path, file.notes].join(' '); }).join(' ')).toLowerCase().indexOf(query) >= 0;
     });
     function taskHtml(entry) {
       var item = entry.item || entry;
@@ -9609,7 +9610,7 @@
     $('#replicationTrash').textContent = state.replicationTrashOpen ? '返回复现列表' : '回收站';
     var slot = item && autoSaveSlots['replication:' + item.id];
     $('#replicationSaveStatus').textContent = slot && slot.dirty ? '修改待保存 · 每 3 分钟及切换任务、模块时自动保存' : item ? '修改会自动保存' + (item.updated ? ' · 最近保存 ' + item.updated : '') : '';
-    Object.keys(replicationFileTypes).forEach(function (kind) { renderReplicationFileList(kind); renderReplicationUploadStatus(kind); });
+    Object.keys(replicationFileTypes).forEach(function (kind) { renderReplicationFileList(kind); renderReplicationUploadStatus(kind); renderReplicationLocalFiles(kind); });
     if (item && account && !state.replicationLoading) Object.keys(replicationFileTypes).forEach(function (kind) { loadReplicationFileList(kind); });
   }
   function loadReplications() {
@@ -9645,6 +9646,7 @@
     var previousFolderId = item.folderId || '';
     Object.keys(replicationFields).forEach(function (field) { payload[field] = $('#' + replicationFields[field]).value; item[field] = payload[field]; });
     payload.checks = readReplicationChecks(); item.checks = payload.checks;
+    payload.localFiles = JSON.parse(JSON.stringify(item.localFiles || []));
     renderReplicationCheckProgress();
     if (previousFolderId !== item.folderId) {
       state.replicationFolderCollapsed = state.replicationFolderCollapsed || {};
@@ -9829,6 +9831,56 @@
     node.textContent = job ? job.message : '';
     node.hidden = !job;
     node.className = job && job.error ? 'replication-upload-status is-error' : 'replication-upload-status';
+    if (!job || !job.running) renderReplicationLocalFiles(kind);
+  }
+  function renderReplicationLocalFiles(kind) {
+    var root = $('#replicationLocalFiles_' + kind), item = activeReplication();
+    if (!root) return;
+    if (!account || !item || state.replicationTrashOpen) { root.innerHTML = ''; return; }
+    var locked = state.replicationBusy || state.replicationLoading;
+    var disabled = locked ? ' disabled' : '';
+    var rows = (item.localFiles || []).filter(function (file) { return file.kind === kind; });
+    var job = replicationUploads[replicationFileContext(item.id, kind)];
+    var failed = job && !job.running && job.owner === account.id ? job.failedFiles || [] : [];
+    root.innerHTML = '<div class="replication-local-heading"><strong>本地文件路径' + (rows.length ? ' (' + rows.length + ')' : '') + '</strong><button type="button" data-replication-local-action="add" data-replication-local-kind="' + kind + '"' + disabled + '>＋ 本地文件路径</button></div><p class="replication-help">仅保存路径，不上传文件；可复制到文件管理器打开，其他设备需另行存放文件。</p>' +
+      failed.filter(function (name, index) { return failed.indexOf(name) === index && !rows.some(function (row) { return row.name === name; }); }).map(function (name) {
+        return '<button type="button" class="replication-local-failed" data-replication-local-action="add" data-replication-local-kind="' + kind + '" data-replication-local-name="' + escapeAttribute(name) + '"' + disabled + '>记录失败文件路径：' + escapeHtml(name) + '</button>';
+      }).join('') + rows.map(function (file) {
+        return '<div class="replication-local-row" data-replication-local-id="' + escapeAttribute(file.id) + '" data-replication-local-task="' + escapeAttribute(item.id) + '"><label>文件名称<input type="text" data-replication-local-field="name" aria-label="本地文件名称" maxlength="255" value="' + escapeAttribute(file.name) + '"' + disabled + '></label><label class="replication-local-path">本地路径<input type="text" data-replication-local-field="path" aria-label="本地文件路径" maxlength="4096" placeholder="如 D:\\研究材料\\数据.csv" value="' + escapeAttribute(file.path) + '"' + disabled + '></label><label>说明<input type="text" data-replication-local-field="notes" aria-label="本地文件说明" maxlength="4000" value="' + escapeAttribute(file.notes) + '"' + disabled + '></label><div class="replication-local-actions"><button type="button" data-replication-local-action="copy" data-replication-local-kind="' + kind + '"' + disabled + '>复制路径</button><button type="button" data-replication-local-action="remove" data-replication-local-kind="' + kind + '"' + disabled + '>删除记录</button></div></div>';
+      }).join('');
+  }
+  function replicationLocalFileInput(event) {
+    var input = event.target.closest('[data-replication-local-field]'), item = activeReplication();
+    if (!input || !item || !account || state.replicationBusy || state.replicationLoading || state.replicationTrashOpen) return;
+    var row = input.closest('[data-replication-local-id]'), field = input.dataset.replicationLocalField;
+    if (!row || row.dataset.replicationLocalTask !== String(item.id) || ['name', 'path', 'notes'].indexOf(field) < 0) return;
+    var file = (item.localFiles || []).find(function (file) { return file.id === row.dataset.replicationLocalId; });
+    if (!file) return;
+    file[field] = input.value;
+    queueReplicationAutoSave();
+  }
+  async function replicationLocalFileAction(button) {
+    var item = activeReplication(), owner = account && account.id, kind = button.dataset.replicationLocalKind;
+    if (!item || !owner || state.replicationBusy || state.replicationLoading || state.replicationTrashOpen || !Object.prototype.hasOwnProperty.call(replicationFileTypes, kind)) return;
+    item.localFiles = item.localFiles || [];
+    var action = button.dataset.replicationLocalAction, row = button.closest('[data-replication-local-id]');
+    if (row && row.dataset.replicationLocalTask !== String(item.id)) return;
+    var file = row && item.localFiles.find(function (file) { return file.id === row.dataset.replicationLocalId && file.kind === kind; });
+    if (action === 'copy') {
+      if (!file || !file.path.trim()) { toast('请先填写本地文件路径'); return; }
+      try { await navigator.clipboard.writeText(file.path); if (account && account.id === owner) toast('路径已复制，可粘贴到文件管理器打开'); }
+      catch (_) { var pathInput = row.querySelector('[data-replication-local-field="path"]'); if (pathInput) { pathInput.focus(); pathInput.select(); } toast('请按 Ctrl+C 复制所选路径'); }
+      return;
+    }
+    if (action === 'add') {
+      if (item.localFiles.length >= 200) { toast('每个复现任务最多记录200条本地文件路径'); return; }
+      item.localFiles.push({ id: 'local-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10), kind: kind, name: button.dataset.replicationLocalName || '', path: '', notes: '' });
+    } else if (action === 'remove' && file) {
+      if (!confirm('删除这条本地路径记录？电脑上的文件不会删除。')) return;
+      item.localFiles = item.localFiles.filter(function (entry) { return entry !== file; });
+    } else return;
+    queueReplicationAutoSave(); renderReplicationLocalFiles(kind);
+    if (action === 'add') { var pathInputs = $$('[data-replication-local-field="path"]', $('#replicationLocalFiles_' + kind)); if (pathInputs.length) pathInputs[pathInputs.length - 1].focus(); }
   }
   async function uploadReplicationFiles(kind, selectedFiles) {
     var item = activeReplication(), owner = account && account.id;
@@ -9846,7 +9898,7 @@
       });
     } catch (error) { toast(error.message); return false; }
     replicationAttachmentCache();
-    var job = { owner: owner, taskId: String(item.id), running: true, message: '正在保存任务，准备上传…', error: false };
+    var job = { owner: owner, taskId: String(item.id), running: true, message: '正在保存任务，准备上传…', error: false, failedFiles: [] };
     replicationUploadJob = job; replicationUploads[contextId] = job; renderReplicationUploadStatus(kind);
     var succeeded = 0, failures = [];
     try {
@@ -9864,7 +9916,7 @@
             renderReplicationUploadStatus(kind);
           });
           succeeded++;
-        } catch (error) { failures.push(file.name + ' · ' + (error.message || '上传失败')); }
+        } catch (error) { failures.push(file.name + ' · ' + (error.message || '上传失败')); job.failedFiles.push(file.name); }
         if (!account || account.id !== owner) { job.message = '账号已切换，本批次上传已停止。'; job.error = true; return false; }
         if (account && account.id === owner) {
           delete replicationAttachmentCache()[contextId];
@@ -9880,6 +9932,7 @@
     }
   }
   function bindReplicationEvents() {
+    $('#panel-replications').addEventListener('input', replicationLocalFileInput);
     $('#panel-replications').addEventListener('change', function (event) {
       var all = event.target.closest('[data-replication-file-all]'); if (all) { selectReplicationFiles(all.dataset.replicationFileAll, null, all.checked, true); return; }
       var file = event.target.closest('[data-replication-file-select]'); if (file) selectReplicationFiles(file.dataset.replicationFileKind, file.dataset.replicationFileSelect, file.checked, false);
@@ -9965,6 +10018,8 @@
       if (open) afterCurrentEditorSaved('replications', function () { state.replicationId = open.dataset.replicationOpen; renderReplications(); });
     });
     $('#panel-replications').addEventListener('click', function (event) {
+      var local = event.target.closest('[data-replication-local-action]');
+      if (local) { replicationLocalFileAction(local); return; }
       var bulk = event.target.closest('[data-replication-bulk]');
       if (bulk) { replicationFileBulkAction(bulk.dataset.replicationFileKind, bulk.dataset.replicationBulk, bulk.dataset.replicationBulkToken); return; }
       var action = event.target.closest('[data-replication-file-action]');
@@ -9982,6 +10037,18 @@
       if (!item || state.replicationTrashOpen) return;
       Object.keys(replicationFileTypes).forEach(function (kind) {
         if (replicationFileContext(item.id, kind) === detail.contextId) loadReplicationFileList(kind, true);
+      });
+    });
+    window.addEventListener('academic-attachment-upload-failed', function (event) {
+      var detail = event.detail, item = activeReplication();
+      if (!account || !item || !detail || detail.owner !== account.id || detail.kind !== 'paper' || typeof detail.name !== 'string') return;
+      Object.keys(replicationFileTypes).forEach(function (kind) {
+        if (replicationFileContext(item.id, kind) !== detail.contextId) return;
+        var job = replicationUploads[detail.contextId];
+        if (!job) job = replicationUploads[detail.contextId] = { owner: account.id, taskId: String(item.id), running: false, failedFiles: [], message: '上传未完成，可记录本地文件路径。', error: true };
+        if (job.owner !== account.id) return;
+        job.failedFiles = job.failedFiles || []; job.failedFiles.push(detail.name);
+        renderReplicationUploadStatus(kind);
       });
     });
     Object.keys(replicationFields).forEach(function (field) {

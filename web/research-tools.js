@@ -38,6 +38,21 @@
       return clean;
     });
   }
+  function validateLocalFiles(rows) {
+    if (!Array.isArray(rows) || rows.length > 200) throw new Error('本地文件路径最多支持200条');
+    var ids = new Set(), kinds = ['paper', 'supplement', 'data', 'code', 'result'];
+    return rows.map(function (row) {
+      if (!row || typeof row.id !== 'string' || !/^[A-Za-z0-9_-]{1,80}$/.test(row.id) || ids.has(row.id) || kinds.indexOf(row.kind) < 0) throw new Error('本地文件记录编号或分类无效');
+      ids.add(row.id);
+      var clean = { id: row.id, kind: row.kind };
+      ['name', 'path', 'notes'].forEach(function (field) {
+        var max = field === 'name' ? 255 : field === 'path' ? 4096 : 4000;
+        if (typeof row[field] !== 'string' || row[field].length > max || field !== 'notes' && /[\x00-\x1f]/.test(row[field])) throw new Error('本地文件名称、路径或说明格式无效');
+        clean[field] = row[field];
+      });
+      return clean;
+    });
+  }
   function replicationReport(item) {
     var lines = ['# ' + (item.title || '论文复现报告'), '', '## 论文信息', ''];
     [['作者', item.authors], ['DOI', item.doi], ['文献引用', item.citation], ['复现状态', item.status], ['运行环境', item.environment]].forEach(function (pair) { if (pair[1]) lines.push(pair[0] + '：' + pair[1], ''); });
@@ -48,6 +63,14 @@
       [['原文结果', row.original], ['复现结果', row.reproduced], ['差异', row.difference], ['原因与说明', row.explanation], ['状态', row.status]].forEach(function (pair) { lines.push(pair[0] + '：' + (pair[1] || '尚未填写'), ''); });
     });
     if (!(item.checks || []).length) lines.push('尚未添加核对项', '');
+    if ((item.localFiles || []).length) {
+      var kinds = { paper: '论文 PDF', supplement: '附件', data: '数据', code: '代码', result: '复现结果文档' };
+      lines.push('## 本地文件路径', '', '以下仅为路径记录，文件未上传到云端。', '');
+      item.localFiles.forEach(function (file) {
+        lines.push('### ' + (file.name || '未命名本地文件'), '', '分类：' + (kinds[file.kind] || file.kind), '', '路径：' + (file.path || '尚未填写'), '');
+        if (file.notes) lines.push('说明：' + file.notes, '');
+      });
+    }
     if (item.notes) lines.push('## 复现笔记', '', item.notes, '');
     return lines.join('\n');
   }
@@ -106,6 +129,6 @@
     }).join('\n');
     return { body: body, document: '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>学术简历</title><style>body{max-width:820px;margin:40px auto;padding:0 24px;color:#222;font:15px/1.8 system-ui,sans-serif}h1{font-size:26px}h2{font-size:20px;border-bottom:1px solid #bbb;padding-bottom:5px}h3{font-size:16px}p{white-space:pre-wrap;overflow-wrap:anywhere}@page{size:A4;margin:20mm}@media print{body{margin:0;padding:0}h2,h3{break-after:avoid}}</style><body>' + body + '</body></html>' };
   }
-  window.__academicResearchTools = { safeName: safeName, markdownPaths: markdownPaths, validateChecks: validateChecks,
+  window.__academicResearchTools = { safeName: safeName, markdownPaths: markdownPaths, validateChecks: validateChecks, validateLocalFiles: validateLocalFiles,
     checkFields: checkFields, checkStatuses: checkStatuses, replicationReport: replicationReport, cvItems: cvItems, cvGroups: cvGroups, cvMarkdown: cvMarkdown, printableHtml: printableHtml };
 })();

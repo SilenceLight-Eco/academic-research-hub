@@ -798,6 +798,10 @@
         } else {
           if (!replicationItem) return response({ error: '复现任务已不存在，请重新载入' }, 404);
           if (body.action === 'save') {
+            if (body.localFiles !== undefined) {
+              try { replicationItem.localFiles = window.__academicResearchTools.validateLocalFiles(body.localFiles); }
+              catch (error) { return response({ error: error.message || '本地文件路径格式无效' }, 422); }
+            }
             if (body.checks !== undefined) {
               try { replicationItem.checks = window.__academicResearchTools.validateChecks(body.checks); }
               catch (error) { return response({ error: error.message || '核对表格式无效' }, 422); }
