@@ -69,6 +69,10 @@
       [['原文结果', row.original], ['复现结果', row.reproduced], ['差异', row.difference], ['原因与说明', row.explanation], ['状态', row.status]].forEach(function (pair) { lines.push(pair[0] + '：' + (pair[1] || '尚未填写'), ''); });
     });
     if (!(item.checks || []).length) lines.push('尚未添加核对项', '');
+    if ((item.githubFiles || []).length) {
+      lines.push('## GitHub Releases 附件', '', '附件位于 GitHub，由原仓库的可见性控制访问。', '');
+      item.githubFiles.forEach(function (file) { lines.push('### ' + file.name, '', '来源：' + file.repo + ' · ' + file.tag, '', '下载：' + file.url, ''); });
+    }
     if ((item.localFiles || []).length) {
       var kinds = { paper: '论文 PDF', supplement: '附件', data: '数据', code: '代码', result: '复现结果文档' };
       lines.push('## 本地文件路径', '', '以下仅为路径记录，文件未上传到云端。', '');

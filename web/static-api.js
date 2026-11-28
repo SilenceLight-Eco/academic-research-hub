@@ -353,7 +353,7 @@
         if (file.size > capability.maxBytes) throw new Error('文件超出 R2 支持的大小范围（最大5 TB）');
         return attachmentR2.upload(context.kind, context.id, file, session, onProgress);
       }
-      if (file.size > 50 * 1024 * 1024) throw new Error('R2 尚未启用，当前存储单文件上限为50 MB；请先完成 R2 配置');
+      if (file.size > 50 * 1024 * 1024) throw new Error('R2 尚未启用，当前存储单文件上限为50 MB；论文复现的大文件可使用 GitHub Releases 关联或保存本地路径');
       var extension = (file.name.match(/\.([A-Za-z0-9]{1,12})$/) || [,'bin'])[1].toLowerCase();
       var path = session.user.id + '/' + context.kind + '/' + crypto.randomUUID() + '.' + extension;
       var storage = client.storage.from(attachmentBucket);
@@ -798,6 +798,10 @@
         } else {
           if (!replicationItem) return response({ error: '复现任务已不存在，请重新载入' }, 404);
           if (body.action === 'save') {
+            if (body.githubFiles !== undefined) {
+              try { replicationItem.githubFiles = window.__academicGitHubReleases.validateFiles(body.githubFiles); }
+              catch (error) { return response({ error: error.message || 'GitHub 附件格式无效' }, 422); }
+            }
             if (body.authorList !== undefined) {
               try { replicationItem.authorList = window.__academicResearchTools.validateReplicationAuthors(body.authorList); }
               catch (error) { return response({ error: error.message || '作者格式无效' }, 422); }

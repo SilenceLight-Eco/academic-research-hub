@@ -9541,6 +9541,7 @@
   var replicationUploadJob = null;
   var replicationLoadRequest = 0;
   var replicationFolderEditingId = '';
+  var replicationGitHubViews = {};
   function activeReplication() {
     return state.replications.items.find(function (item) { return String(item.id) === String(state.replicationId); });
   }
@@ -9553,6 +9554,7 @@
       if (slot && slot.dirty && slot.payload.checks) item.checks = slot.payload.checks;
       if (slot && slot.dirty && slot.payload.localFiles) item.localFiles = slot.payload.localFiles;
       if (slot && slot.dirty && slot.payload.authorList) item.authorList = slot.payload.authorList.slice();
+      if (slot && slot.dirty && slot.payload.githubFiles) item.githubFiles = JSON.parse(JSON.stringify(slot.payload.githubFiles));
     });
   }
   function renderReplicationList() {
@@ -9560,7 +9562,7 @@
     var entries = state.replicationTrashOpen ? state.replications.trash : state.replications.items;
     var filtered = entries.filter(function (entry) {
       var item = entry.item || entry;
-      return (Object.keys(replicationFields).map(function (field) { return item[field] || ''; }).join(' ') + ' ' + JSON.stringify(item.checks || []) + ' ' + (item.localFiles || []).map(function (file) { return [file.name, file.path, file.notes].join(' '); }).join(' ')).toLowerCase().indexOf(query) >= 0;
+      return (Object.keys(replicationFields).map(function (field) { return item[field] || ''; }).join(' ') + ' ' + JSON.stringify(item.checks || []) + ' ' + (item.localFiles || []).map(function (file) { return [file.name, file.path, file.notes].join(' '); }).join(' ') + ' ' + (item.githubFiles || []).map(function (file) { return [file.name, file.repo, file.tag].join(' '); }).join(' ')).toLowerCase().indexOf(query) >= 0;
     });
     function taskHtml(entry) {
       var item = entry.item || entry;
@@ -9643,7 +9645,7 @@
     $('#replicationTrash').textContent = state.replicationTrashOpen ? '返回复现列表' : '回收站';
     var slot = item && autoSaveSlots['replication:' + item.id];
     $('#replicationSaveStatus').textContent = slot && slot.dirty ? '修改待保存 · 每 3 分钟及切换任务、模块时自动保存' : item ? '修改会自动保存' + (item.updated ? ' · 最近保存 ' + item.updated : '') : '';
-    Object.keys(replicationFileTypes).forEach(function (kind) { renderReplicationFileList(kind); renderReplicationUploadStatus(kind); renderReplicationLocalFiles(kind); });
+    Object.keys(replicationFileTypes).forEach(function (kind) { renderReplicationFileList(kind); renderReplicationUploadStatus(kind); renderReplicationLocalFiles(kind); renderReplicationGitHubFiles(kind); });
     if (item && account && !state.replicationLoading) Object.keys(replicationFileTypes).forEach(function (kind) { loadReplicationFileList(kind); });
   }
   function loadReplications() {
@@ -9682,6 +9684,7 @@
     Object.keys(replicationFields).forEach(function (field) { payload[field] = $('#' + replicationFields[field]).value; item[field] = payload[field]; });
     payload.checks = readReplicationChecks(); item.checks = payload.checks;
     payload.localFiles = JSON.parse(JSON.stringify(item.localFiles || []));
+    payload.githubFiles = JSON.parse(JSON.stringify(item.githubFiles || []));
     renderReplicationCheckProgress();
     if (previousFolderId !== item.folderId) {
       state.replicationFolderCollapsed = state.replicationFolderCollapsed || {};
@@ -9734,7 +9737,7 @@
   }
   function replicationAttachmentCache() {
     var owner = account && account.id || '';
-    if (replicationFileOwner !== owner) { replicationFileCache = {}; replicationUploads = {}; replicationFileOwner = owner; }
+    if (replicationFileOwner !== owner) { replicationFileCache = {}; replicationUploads = {}; replicationGitHubViews = {}; replicationFileOwner = owner; }
     return replicationFileCache;
   }
   function renderReplicationFileList(kind) {
@@ -9856,7 +9859,7 @@
     var id = String(item.id);
     if (!await saveReplication()) return false;
     if (!account || account.id !== owner || state.panel !== 'replications' || state.replicationTrashOpen || String(state.replicationId) !== id) return false;
-    return window.__academicOpenAttachments('paper', contextId, (activeReplication() || item).title + ' · ' + replicationFileTypes[kind], '材料随当前账号保存。配置 R2 后支持大文件分片上传，已有附件仍可下载。');
+    return window.__academicOpenAttachments('paper', contextId, (activeReplication() || item).title + ' · ' + replicationFileTypes[kind], '此窗口使用现有云端存储，单文件50 MB；大文件可回到复现材料区使用 GitHub Releases 关联或保存本地路径。');
   }
   function renderReplicationUploadStatus(kind) {
     var node = $('#replicationUploadStatus_' + kind), item = activeReplication();
@@ -9867,6 +9870,114 @@
     node.hidden = !job;
     node.className = job && job.error ? 'replication-upload-status is-error' : 'replication-upload-status';
     if (!job || !job.running) renderReplicationLocalFiles(kind);
+  }
+  function replicationGitHubView(kind) {
+    replicationAttachmentCache();
+    var item = activeReplication(), key = item && replicationFileContext(item.id, kind);
+    if (!key) return null;
+    if (!replicationGitHubViews[key]) {
+      var previous = (item.githubFiles || []).filter(function (file) { return file.kind === kind; }).slice(-1)[0];
+      replicationGitHubViews[key] = { open: false, repo: previous ? previous.repo : 'SilenceLight-Eco/academic-research-hub', tag: previous ? previous.tag : 'research-materials', manual: '', assets: [], selected: [], busy: false, request: 0, status: '' };
+    }
+    return replicationGitHubViews[key];
+  }
+  function renderReplicationGitHubFiles(kind) {
+    var root = $('#replicationGitHubFiles_' + kind), item = activeReplication(), helper = window.__academicGitHubReleases;
+    if (!root) return;
+    if (!item || !account || state.replicationTrashOpen) { root.innerHTML = ''; return; }
+    var view = replicationGitHubView(kind), files = (item.githubFiles || []).filter(function (file) { return file.kind === kind; });
+    var locked = state.replicationBusy || state.replicationLoading || !helper, disabled = locked ? ' disabled' : '';
+    var busy = locked || view.busy, controls = busy ? ' disabled' : '';
+    var attrs = ' data-replication-github-kind="' + kind + '"';
+    var html = '<div class="replication-github-heading"><strong>GitHub Releases 附件' + (files.length ? ' (' + files.length + ')' : '') + '</strong><button type="button" data-replication-github-action="toggle"' + attrs + disabled + '>' + (view.open ? '收起' : '＋ 关联 GitHub 附件') + '</button></div>';
+    html += files.map(function (file) {
+      var url = ''; try { url = helper.parseAssetUrl(file.url).url; } catch (_) { /* An invalid imported reference must never become a clickable URL. */ }
+      return '<div class="replication-github-file"><div>' + (url ? '<a href="' + escapeAttribute(url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(file.name) + '</a>' : '<strong>' + escapeHtml(file.name) + '</strong>') + '<small>GitHub · ' + escapeHtml(file.repo) + ' · ' + escapeHtml(file.tag) + (file.size !== null ? ' · ' + escapeHtml(formatBytes(file.size)) : '') + '</small></div><button type="button" data-replication-github-action="remove"' + attrs + ' data-replication-github-id="' + escapeAttribute(file.id) + '" data-replication-github-task="' + escapeAttribute(item.id) + '"' + disabled + '>移除关联</button></div>';
+    }).join('');
+    if (view.open) {
+      var uploadUrl = ''; try { uploadUrl = helper.releaseUrl(view.repo, view.tag); } catch (_) { /* Invalid sources stay editable. */ }
+      html += '<div class="replication-github-panel"><p class="replication-github-notice">此方式关联公开 Release 附件。文件上传到公开仓库后，任何人均可下载。单个文件须小于2 GiB，不占用 Supabase 文件空间。</p><div class="replication-github-source"><label>GitHub 仓库<input type="text" data-replication-github-field="repo"' + attrs + ' maxlength="180" value="' + escapeAttribute(view.repo) + '" placeholder="用户名/仓库名"' + controls + '></label><label>Release 标签<input type="text" data-replication-github-field="tag"' + attrs + ' maxlength="120" value="' + escapeAttribute(view.tag) + '"' + controls + '></label></div><p class="replication-help">先在 GitHub 的 Release 页面点击编辑，上传文件并保存，再回到此处读取、选择附件。</p><div class="replication-github-actions">' + (uploadUrl ? '<a data-replication-github-open href="' + escapeAttribute(uploadUrl) + '" target="_blank" rel="noopener noreferrer">1. 前往 GitHub 上传</a>' : '') + '<button type="button" data-replication-github-action="read"' + attrs + controls + '>2. 读取附件</button></div><p role="status" aria-live="polite" data-replication-github-status>' + escapeHtml(view.status) + '</p><div class="replication-github-candidates" data-replication-github-candidates>';
+      if (view.assets.length) {
+        var available = view.assets.filter(function (asset) { return !files.some(function (file) { return file.url === asset.url; }); });
+        html += '<label class="replication-github-check"><input type="checkbox" data-replication-github-all' + attrs + (available.length && available.every(function (asset) { return view.selected.includes(asset.url); }) ? ' checked' : '') + (!available.length || busy ? ' disabled' : '') + '>全选可关联附件</label>' + view.assets.map(function (asset) {
+          var linked = files.some(function (file) { return file.url === asset.url; });
+          return '<label class="replication-github-check"><input type="checkbox" data-replication-github-select="' + escapeAttribute(asset.url) + '"' + attrs + (view.selected.includes(asset.url) ? ' checked' : '') + (linked || busy ? ' disabled' : '') + '><span>' + escapeHtml(asset.name) + '<small>' + escapeHtml(formatBytes(asset.size)) + (linked ? ' · 已关联' : '') + '</small></span></label>';
+        }).join('') + '<button type="button" data-replication-github-action="attach"' + attrs + (!view.selected.length || busy ? ' disabled' : '') + '>3. 关联所选 (' + view.selected.length + ')</button>';
+      }
+      html += '</div><div class="replication-github-manual"><label>或粘贴附件下载链接<input type="url" data-replication-github-field="manual"' + attrs + ' value="' + escapeAttribute(view.manual) + '" maxlength="2500" placeholder="https://github.com/…/releases/download/…/文件名"' + controls + '></label><button type="button" data-replication-github-action="manual"' + attrs + controls + '>关联链接</button></div><p class="replication-help">路径与关联信息随任务保存。移除关联不会删除 GitHub 上的原文件。</p></div>';
+    }
+    root.innerHTML = html;
+  }
+  function replicationGitHubInput(event) {
+    var input = event.target.closest('[data-replication-github-field]');
+    if (!input || !account || !activeReplication() || state.replicationBusy || state.replicationLoading || state.replicationTrashOpen) return;
+    var kind = input.dataset.replicationGithubKind, field = input.dataset.replicationGithubField;
+    if (!Object.prototype.hasOwnProperty.call(replicationFileTypes, kind)) return;
+    var view = replicationGitHubView(kind);
+    if (!view || view.busy || ['repo', 'tag', 'manual'].indexOf(field) < 0) return;
+    view[field] = input.value;
+    if (field !== 'manual') {
+      view.assets = []; view.selected = []; view.request++; view.status = '来源已修改，请重新读取附件。';
+      var root = $('#replicationGitHubFiles_' + kind), candidates = $('[data-replication-github-candidates]', root), status = $('[data-replication-github-status]', root);
+      if (candidates) candidates.innerHTML = ''; if (status) status.textContent = view.status;
+      var link = $('a[data-replication-github-open]', root);
+      if (link) { try { link.href = window.__academicGitHubReleases.releaseUrl(view.repo, view.tag); link.hidden = false; } catch (_) { link.hidden = true; } }
+    }
+  }
+  function replicationGitHubSelection(event) {
+    var input = event.target.closest('[data-replication-github-select],[data-replication-github-all]');
+    if (!input || !account || !activeReplication() || state.replicationBusy || state.replicationLoading || state.replicationTrashOpen) return;
+    var kind = input.dataset.replicationGithubKind;
+    if (!Object.prototype.hasOwnProperty.call(replicationFileTypes, kind)) return;
+    var view = replicationGitHubView(kind), files = activeReplication().githubFiles || [];
+    if (!view || view.busy) return;
+    var available = view.assets.filter(function (asset) { return !files.some(function (file) { return file.kind === kind && file.url === asset.url; }); });
+    if (input.dataset.replicationGithubSelect !== undefined) {
+      var url = input.dataset.replicationGithubSelect;
+      view.selected = view.selected.filter(function (value) { return value !== url; });
+      if (input.checked && available.some(function (asset) { return asset.url === url; })) view.selected.push(url);
+    } else view.selected = input.checked ? available.map(function (asset) { return asset.url; }) : [];
+    renderReplicationGitHubFiles(kind);
+  }
+  async function replicationGitHubAction(button) {
+    var item = activeReplication(), owner = account && account.id, kind = button.dataset.replicationGithubKind, helper = window.__academicGitHubReleases;
+    if (!item || !owner || !helper || state.replicationBusy || state.replicationLoading || state.replicationTrashOpen || !Object.prototype.hasOwnProperty.call(replicationFileTypes, kind)) return;
+    var view = replicationGitHubView(kind), action = button.dataset.replicationGithubAction, taskId = String(item.id);
+    if (action === 'toggle') { view.open = !view.open; renderReplicationGitHubFiles(kind); return; }
+    if (view.busy) return;
+    if (action === 'read') {
+      var request = ++view.request, repo = view.repo, tag = view.tag;
+      view.busy = true; view.status = '正在读取 GitHub Release…'; view.assets = []; view.selected = []; renderReplicationGitHubFiles(kind);
+      try {
+        var result = await helper.readRelease(repo, tag);
+        if (!account || account.id !== owner || request !== view.request || replicationGitHubViews[replicationFileContext(taskId, kind)] !== view) return;
+        view.assets = result.assets; view.status = result.assets.length ? '读取到 ' + result.assets.length + ' 个附件，请选择需要关联的文件。' + (result.truncated ? '仅显示前500项，其他文件可粘贴链接关联。' : '') : '此 Release 暂无附件，请先上传并保存。';
+      } catch (error) { view.status = error.message || '读取失败，可直接粘贴附件下载链接'; }
+      finally { view.busy = false; if (account && account.id === owner && activeReplication() && String(state.replicationId) === taskId) renderReplicationGitHubFiles(kind); }
+      return;
+    }
+    try {
+      var files = item.githubFiles || [];
+      if (action === 'remove') {
+        if (button.dataset.replicationGithubTask !== taskId) return;
+        var remove = files.find(function (file) { return file.id === button.dataset.replicationGithubId && file.kind === kind; });
+        if (!remove || !confirm('移除此附件关联？GitHub 上的原文件不会删除。')) return;
+        item.githubFiles = files.filter(function (file) { return file !== remove; });
+      } else {
+        var selected;
+        if (action === 'manual') { selected = [Object.assign(helper.parseAssetUrl(view.manual), { assetId: null, size: null })]; }
+        else if (action === 'attach') selected = view.assets.filter(function (asset) { return view.selected.includes(asset.url); });
+        else return;
+        if (!selected.length) throw new Error('请先读取并选择需要关联的附件');
+        var additions = selected.filter(function (asset) { return !files.some(function (file) { return file.kind === kind && file.url === asset.url; }); }).map(function (asset) {
+          return Object.assign({}, asset, { id: 'gh-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10), kind: kind, addedAt: new Date().toISOString() });
+        });
+        if (!additions.length) throw new Error('所选附件已经关联，无需重复添加');
+        item.githubFiles = helper.validateFiles(files.concat(additions));
+        view.manual = ''; view.selected = []; view.status = '已关联 ' + additions.length + ' 个附件';
+      }
+      queueReplicationAutoSave(); renderReplicationGitHubFiles(kind);
+    } catch (error) { view.status = error.message || '关联失败'; renderReplicationGitHubFiles(kind); }
   }
   function renderReplicationLocalFiles(kind) {
     var root = $('#replicationLocalFiles_' + kind), item = activeReplication();
@@ -9968,8 +10079,9 @@
   }
   function bindReplicationEvents() {
     $('#replicationAuthorAdd').addEventListener('click', function () { changeReplicationAuthor(); });
-    $('#panel-replications').addEventListener('input', function (event) { replicationAuthorInput(event); replicationLocalFileInput(event); });
+    $('#panel-replications').addEventListener('input', function (event) { replicationAuthorInput(event); replicationLocalFileInput(event); replicationGitHubInput(event); });
     $('#panel-replications').addEventListener('change', function (event) {
+      replicationGitHubSelection(event);
       var all = event.target.closest('[data-replication-file-all]'); if (all) { selectReplicationFiles(all.dataset.replicationFileAll, null, all.checked, true); return; }
       var file = event.target.closest('[data-replication-file-select]'); if (file) selectReplicationFiles(file.dataset.replicationFileKind, file.dataset.replicationFileSelect, file.checked, false);
     });
@@ -10054,6 +10166,8 @@
       if (open) afterCurrentEditorSaved('replications', function () { state.replicationId = open.dataset.replicationOpen; renderReplications(); });
     });
     $('#panel-replications').addEventListener('click', function (event) {
+      var github = event.target.closest('[data-replication-github-action]');
+      if (github) { replicationGitHubAction(github); return; }
       var author = event.target.closest('[data-replication-author-remove]');
       if (author) { changeReplicationAuthor(author.dataset.replicationAuthorRemove, author.dataset.replicationAuthorTask); return; }
       var local = event.target.closest('[data-replication-local-action]');

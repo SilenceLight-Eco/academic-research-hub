@@ -7658,3 +7658,25 @@ body:has(.read-task:not([hidden])) .pomo-timer { bottom: 152px; }
 .replication-author-row input{box-sizing:border-box;width:100%;min-width:0;padding:8px 10px;border:1px solid var(--hairline);border-radius:5px;background:var(--glass-strong);color:var(--text);font:inherit}
 .replication-author-row button{padding:7px;border:1px solid var(--hairline);border-radius:5px;background:var(--glass);color:var(--text-secondary);cursor:pointer}
 .replication-authors button:disabled{opacity:.45;cursor:default}
+
+/* Public GitHub Release references never share cloud-storage deletion controls. */
+.replication-github-files{margin-top:12px;padding-top:12px;border-top:1px dashed var(--hairline)}
+.replication-github-heading,.replication-github-file,.replication-github-actions{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
+.replication-github-heading{font-size:12px;color:var(--text-secondary)}
+.replication-github-files button,.replication-github-actions a{display:inline-block;padding:6px 9px;border:1px solid var(--hairline);border-radius:5px;background:var(--glass);color:var(--accent);font:inherit;font-size:12px;cursor:pointer;text-decoration:none}
+.replication-github-files button:disabled{opacity:.45;cursor:default}
+.replication-github-panel{margin-top:10px;padding:12px;border:1px solid var(--hairline);border-radius:6px;background:var(--glass)}
+.replication-github-notice{margin:0 0 12px;font-size:12px;line-height:1.6;color:var(--text-secondary)}
+.replication-github-source{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:10px}
+.replication-github-panel label{display:flex;flex-direction:column;gap:5px;min-width:0;font-size:12px;color:var(--text-secondary)}
+.replication-github-panel input[type="text"],.replication-github-panel input[type="url"]{box-sizing:border-box;width:100%;min-width:0;padding:8px;border:1px solid var(--hairline);border-radius:5px;background:var(--glass-strong);color:var(--text);font:inherit}
+.replication-github-actions{justify-content:flex-start}
+.replication-github-panel [role="status"]{font-size:12px;overflow-wrap:anywhere;color:var(--text-secondary)}
+.replication-github-candidates{max-height:280px;overflow:auto;margin:8px 0}
+.replication-github-panel .replication-github-check{display:flex;flex-direction:row;align-items:flex-start;gap:8px;padding:7px 0;overflow-wrap:anywhere}
+.replication-github-check input{width:16px;height:16px;flex:none;accent-color:var(--accent)}
+.replication-github-check small,.replication-github-file small{display:block;color:var(--text-secondary);font-size:11px;margin-top:4px;overflow-wrap:anywhere}
+.replication-github-file{padding:10px 0;border-bottom:1px solid var(--hairline);font-size:12px}
+.replication-github-file>div{flex:1;min-width:0}.replication-github-file a{color:var(--accent);font-weight:600;overflow-wrap:anywhere}
+.replication-github-manual{display:flex;align-items:end;gap:8px;margin-top:12px}.replication-github-manual label{flex:1}.replication-github-manual button{flex:none}
+@media(max-width:700px){.replication-github-source{grid-template-columns:minmax(0,1fr)}.replication-github-manual{align-items:stretch;flex-direction:column}}
